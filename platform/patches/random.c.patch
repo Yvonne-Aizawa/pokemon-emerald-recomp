@@ -1,0 +1,24 @@
+--- a/src/random.c
++++ b/src/random.c
+@@ -39,6 +39,13 @@
+     }
+ }
+ 
++#ifdef HOST_BUILD
++// PC port: the ARM implementation below is equivalent to this.
++u32 Random32(void)
++{
++    return _SFC32_Next_Stream(&gRngValue, STREAM1);
++}
++#else
+ /*This ASM implementation uses some shortcuts and is generally faster on the GBA.
+ * It's not necessarily faster if inlined, or on other platforms.
+ * In addition, it's extremely non-portable. */
+@@ -69,6 +76,7 @@
+     .ltorg"
+     );
+ }
++#endif // HOST_BUILD
+ 
+ u32 Random2_32(void)
+ {

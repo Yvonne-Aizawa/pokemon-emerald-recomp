@@ -1,0 +1,399 @@
+# Port Plan: `refrence/` (pokeemerald-expansion) → PC game
+
+## Source under analysis
+
+- `refrence/` is a git submodule of [`rh-hideout/pokeemerald-expansion`](https://github.com/rh-hideout/pokeemerald-expansion) (a GBA ROM hack base, not a standalone game).
+- 390+ C source files, 314+ headers, ~76 graphics subdirs, custom audio engine, ARM assembly.
+- Targets devkitARM / `arm-none-eabi-gcc`, links a 32 MB ROM with a custom linker script (`ld_script_modern.ld`).
+- Requires a Pokémon Emerald baseline ROM (sha1 `f3ae088181bf583e55daf962a92bb46f4f1d07b7`) to extract data from.
+- Game logic is mostly portable C99. Platform-specific code is concentrated in:
+  - `include/gba/` — hardware register definitions, memory-mapped I/O.
+  - `src/main.c`, `src/crt0.s` — GBA startup + interrupt-driven main loop.
+  - `libagbsyscall/` — GBA BIOS syscall wrappers.
+  - `sound/MPlay*` + `src/m4a.c` — custom audio engine.
+  - `src/librfu_*` + `src/link*` — link-cable multiplayer.
+  - `src/agb_flash_*` — 1M flash save emulation.
+  - `src/graphics.c`, `src/bg.c`, `src/window.c`, `src/sprite.c` — tile/sprite engine.
+  - `Makefile`, `ld_script_modern.ld`, `data/mb_*.gba` (multiboot) — build & GBA cart layout.
+  - `tools/gbagfx`, `tools/mid2agb`, `tools/wav2agb`, `tools/aif2pcm` — GBA-specific asset tooling.
+
+## Strategy
+
+Build a **PC Hardware Abstraction Layer (HAL)** that replaces every GBA-specific surface, and a **PC frontend** (window, main loop, renderer, audio, input, save, files) on top of SDL2/SDL3 and a C compiler the user already has. Then incrementally swap each platform-specific file.
+
+The C game logic — battle engine, AI, scripts, party, items, overworld state machine, menus, RNG, save data structures — stays untouched except for the small handful of `IWRAM_DATA` / `EWRAM_DATA` / `ARM_FUNC` annotations and `gba/` includes.
+
+### Target stack
+- **Language/runtime**: C11, compiled with system `gcc`/`clang`/`cl`.
+- **Build system**: CMake (cross-platform; replaces the GBA Makefile).
+- **Windowing / input / events / audio**: SDL2 (or SDL3) + SDL2_mixer + SDL2_ttf (only if we choose to render text with it; see Phase 11).
+- **Renderer**: SDL2 `SDL_Renderer` with `SDL_TEXTUREACCESS_STREAMING`, or OpenGL 3.2 core if we need shader-driven scaling.
+- **Filesystem layout** (instead of a 32 MB ROM):
+  ```
+  pkmemerald/
+    assets/        # converted graphics/audio (built from refrence/data/ + refrence/graphics/)
+    saves/         # per-slot .sav files (instead of flash 1M)
+    pak/           # drop-in data blob mirroring refrence/data/
+  ```
+- **Tooling**: Python scripts to convert GBA `.4bpp`, `.gbapal`, `.lz`, `.rl`, `.smol`, voice-group `.s` into PNG/WAV/JSON. Reuse `refrence/tools/gbagfx` and `refrence/tools/preproc` as host binaries where they still help.
+
+### Non-goals (deliberately deferred)
+- **No legal/clean-room rewrite of Nintendo assets.** This port still depends on the baseline ROM and `refrence/data/` blobs. Replacing art/audio with original assets is its own workstream (out of scope here).
+- **No mGBA/retroarch shortcut.** The user asked for a *port*, not a wrapper.
+- **No rewrite in C++/Rust.** The codebase is C99 and we keep it that way; SDL2 has a clean C API.
+- **No rewritten battle engine, AI, or scripts.** Those are platform-agnostic and stay as-is.
+
+### Edit-size discipline
+Each phase is sized to fit a single focused session. Phases list the **files touched** up front; if a phase ends up touching more, it should be split. Phases later in the plan are bigger but are still broken into commits.
+
+---
+
+## Phase 0 — Repository layout (no porting yet)
+
+**Goal**: Stand up a clean place for the port to live, without disturbing the upstream submodule.
+
+**Edits**
+- `PLAN.md` — this file.
+- `README.md` — short note: `refrence/` is the upstream we are porting, `src/` and `platform/` are the new PC port, build with CMake.
+- `.gitignore` — extend with `build/`, `assets/`, `saves/`, IDE files, CMake user presets.
+
+**Done when** `git status` is clean and the new layout is documented.
+
+---
+
+## Phase 1 — Build system: replace GBA Makefile with CMake
+
+**Goal**: The existing C sources can be compiled for the host (no linking yet, no GBA toolchain). This exposes the dependency surface we have to stub.
+
+**Edits**
+- New `CMakeLists.txt` at repo root.
+  - `cmake_minimum_required(VERSION 3.20)`, `project(pkmemerald C)`.
+  - `set(CMAKE_C_STANDARD 11)`, `-Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-function`.
+  - Glob `refrence/src/*.c` (minus GBA-only ones — listed below) and `platform/**/*.c`.
+  - Target `pkmemerald-core` (STATIC lib, no main, no `main()`).
+  - Find SDL2 via `find_package(SDL2)`.
+- New `platform/` directory with placeholder `platform.c`.
+- Exclude from the glob for now: `crt0.s`, `libisagbprn.c`, `agb_flash_1m.c`, `agb_flash.c`, `agb_flash_le.c`, `agb_flash_mx.c`, `AgbRfu_LinkManager.c`, `libgcnmultiboot.s`, `librfu_intr.c`, `librfu_rfu.c`, `librfu_sio32id.c`, `librfu_stwi.c`, anything under `sound/`, `m4a.c`, `m4a_tables.c`, `test_runner_battle.c`, multiboot files in `data/`.
+- Stub `include/gba/gba.h` is **not** in this phase — that's Phase 2.
+
+**Done when** `cmake -S . -B build && cmake --build build` compiles `pkmemerald-core` (with at most a few hundred expected `gba/` undefined-symbol errors that Phase 2 will resolve). Don't link an executable yet.
+
+---
+
+## Phase 2 — HAL stub headers (`include/gba/`)
+
+**Goal**: Every header under `refrence/include/gba/` (and the few other GBA-specific headers under `include/`) compiles when included from host code. Stubs return zero/null/no-op, so we can see what the C code *actually* depends on.
+
+**Edits**
+- New `platform/include/gba/` with the same directory layout.
+  - `gba.h` — pull in every sub-stub. Define `vu8/vu16/vu32/vs8/vs16/vs32` as plain `volatile` aliases.
+  - `io_reg.h`, `defines.h`, `types.h`, `multiboot.h`, `isagbprint.h` — minimal type/macro shims.
+  - Define `IWRAM_DATA`, `EWRAM_DATA`, `IWRAM_INIT`, `EWRAM_INIT`, `COMMON_DATA`, `ARM_FUNC`, `NOINLINE`, `ALIGNED`, `PACKED`, `UNUSED`, `USED` as empty `__attribute__`s (or compiler-portable equivalents) on host.
+  - `REG_*` macros → `(volatile uint16_t*)0 /* TODO: phase 9 */`. (We keep them as volatile pointers so reads/writes don't get optimised out.)
+  - `*(vu16 *)BG_PLTT`, `DISPcnt`, `BG0cnt`, `BLD*`, etc. — keep as volatile pointer to a placeholder address; the renderer phase (9) will replace with real framebuffer state.
+- Add `platform/include/gba.h` umbrella that includes all of the above.
+- Update `CMakeLists.txt` to add `platform/include` and `refrence/include` to `target_include_directories`.
+
+**Done when** the headers compile cleanly from a test TU that includes every GBA header. **No** source-file behaviour changes yet.
+
+---
+
+## Phase 3 — Compile `pkmemerald-core` (the bulk of the game)
+
+**Goal**: Get every C file in `refrence/src/` to compile, with all GBA hardware symbols resolved to the Phase 2 stubs. This is the "scary" phase because it makes the dependency surface concrete, but each file is only edited if it has a real, *non-GBA* portability bug.
+
+**Edits**
+- Re-enable one group at a time in `CMakeLists.txt`:
+  1. `data/` and `event_data.c`-style pure-data files first.
+  2. Core engine: `random.c`, `util.c`, `string_util.c`, `malloc.c` (the local one), `link.c` (data-side only — the SIO parts come in Phase 16).
+  3. Script engine: `script_table.c`, `event_data.c`, `event_object_movement.c` (no rendering yet).
+  4. Battle core: `battle_main.c`, `battle_util.c`, `battle_script_commands.c`, etc. — these are platform-agnostic.
+- Fix **only** build-blocker issues that aren't GBA hardware:
+  - Use of `__attribute__((target("arm")))` (the `ARM_FUNC` macro) → no-op on x86.
+  - Inline assembly in `.c` files (`asm(".include ...")`) → guard with `#if defined(__arm__)`.
+  - Implicit `int` return types where the C99 compiler is strict.
+  - The local `mini_printf.c`/`assertf.c` — include and link.
+- Stub `main.c` to expose `int host_main(int argc, char **argv)` (rename the original `AgbMain` body, which we'll delete in Phase 5 anyway — we keep the function for now so call sites still resolve).
+
+**Done when** `cmake --build build` builds `pkmemerald-core` as a static lib. There will be thousands of warnings; that's expected and we suppress in Phase 17.
+
+**Status (done).** All 371 non-excluded `refrence/src/*.c` files compile into `pkmemerald-core`; `refrence/` stays unmodified. How it ended up differing from the outline above:
+- **32-bit host (`-m32`, CMake option `PKM_HOST_32BIT`, default ON).** The game keeps pointers in u32 task-data pairs (`SetWordTaskArg`, 71 sites) and static-asserts struct sizes against GBA buffers (`list_menu.c`, `recorded_battle.c`). Requires `gcc-multilib`; Phase 5 will need a 32-bit SDL2 (`libsdl2-dev:i386`).
+- **Upstream's pipeline is kept:** `tools/prepare_refrence.py` drives upstream make for host tools, generated headers and converted graphics; `tools/host_preprocess.sh` does `cpp | preproc` per file (preproc is needed for `_()`/`COMPOUND_STRING` charmap strings and `INCBIN`/`INCGFX` data). Re-run with `cmake --build build --target refrence-prepare`.
+- **Host include tree** (`build/host_include/`, symlinks) so `global.h`'s `#include "gba/gba.h"` resolves to `platform/include/gba/`.
+- **Source changes go in `platform/patches/<file>.c.patch`**, applied to a copy at build time (currently only `random.c`: C `Random32` instead of ARM asm). `multiboot.c` is excluded and replaced by `platform/src/host_multiboot.c`.
+- **Stub fixes:** `VRAM`/`PLTT`/`OAM`/`EWRAM`/`IWRAM` are integer addresses (as on GBA); `INTR_CHECK`/`INTR_VECTOR`/`SOUND_INFO_PTR` are lvalues; `CpuFastSet` drops its 4-byte alignment asserts (on GBA those only hold because apcs-gnu aligns every struct to 4).
+- `main.c` compiles as-is; the `host_main` rename was skipped since Phase 4 excludes `main.c` anyway.
+- `data/*.s` (event/battle scripts, maps) is not built yet, so linking will report those symbols as undefined.
+
+---
+
+## Phase 4 — Entry point, CRT, and the main loop
+
+**Goal**: A real `main()` that boots, runs one frame, exits. No rendering, no input, no audio — just proves the platform seam works.
+
+**Edits**
+- New `platform/src/host_main.c`:
+  - `int main(int argc, char **argv)`: parse `-d` (data dir), `-s` (save dir), call `Platform_Init`, then `Host_RunMainLoop` (empty for now), then `Platform_Shutdown`.
+- New `platform/include/platform.h` with `Platform_Init`, `Platform_Shutdown`, `Platform_FrameBegin`, `Platform_FrameEnd`, `Platform_PollEvents`, `Platform_GetTicks`, `Platform_SleepMs`.
+- New `platform/src/platform_stub.c` — empty implementations returning success.
+- New `platform/src/main_loop.c` — runs at 60 Hz, calls `Host_OnVBlank()` for each tick. The game engine's "VBlank callback" gets registered here.
+- Delete `refrence/src/crt0.s` from the build. (Keep the file on disk so the diff stays reviewable; it's excluded in `CMakeLists.txt`.)
+- Exclude `refrence/src/main.c` from the build (the original GBA `AgbMain` is no longer our entry point).
+- Disable interrupt registration (`InitIntrHandlers`, `gIntrTableTemplate`) by defining `HOST_BUILD` and `#ifndef HOST_BUILD` around it in callers — but only if/when those callers are pulled in. For now, just don't include `main.c`.
+
+**Done when** `./build/pkmemerald` runs, prints "boot ok", runs 60 frames of nothing, and exits cleanly with code 0.
+
+---
+
+## Phase 5 — Window, events, and VBlank timing
+
+**Goal**: A real window with a clear colour, a real event loop, real frame timing.
+
+**Edits**
+- New `platform/src/sdl2_window.c` implementing `platform.h`:
+  - `Platform_Init` → `SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)`, `SDL_CreateWindow("pkmemerald", 240*3, 160*3, …)`.
+  - `Platform_PollEvents` → `SDL_PollEvent`; on `SDL_QUIT` set a quit flag.
+  - `Platform_FrameBegin` → render clear, `SDL_RenderClear`.
+  - `Platform_FrameEnd` → `SDL_RenderPresent`.
+  - `Platform_GetTicks` → `SDL_GetTicks`.
+  - `Platform_SleepMs` → `SDL_Delay`.
+- Add `find_package(SDL2 REQUIRED)` to `CMakeLists.txt`.
+- Add a new target `pkmemerald` (executable) that links `pkmemerald-core` + the platform layer.
+
+**Done when** launching `./build/pkmemerald` opens a 720×480 window, clears it to a known colour (we use white for now; Pokémon Emerald boots to white), and closes on window close.
+
+---
+
+## Phase 6 — Input
+
+**Goal**: GBA key state read by the engine matches PC keyboard/gamepad.
+
+**Edits**
+- New `platform/src/input.c`:
+  - Define `A_BUTTON`/`B_BUTTON`/`SELECT_BUTTON`/`START_BUTTON`/`DPAD_*`/etc. in `platform/include/keys.h` (same bit values as the GBA `keys.h`, so the engine doesn't notice).
+  - Maintain a `static uint16_t gHostKeyState` updated from SDL events.
+  - Implement `UpdateLinkAndCallCallbacks`-style read by exposing `Platform_GetKeyState()`.
+  - The game's `ReadKeys()` (in `main.c`) is the natural site to call this. Move that body into `platform/src/input.c` and expose `Platform_ReadKeys(void)`; have the port's `main_loop.c` call it once per frame and stash the result.
+- Map keyboard: Z=A, X=B, Enter=Start, Backspace=Select, arrows=D-pad, Shift=L, Ctrl=R.
+- Map gamepad: button 0=A, 1=B, 6=Back=Select, 7=Start=Start, dpad/hats.
+
+**Done when** running the game, Z/X/Enter/Backspace/arrows produce the right `gKeyStateNew`/`gKeyStateOld` bits — verify by toggling `gKeyStateNew` in a temporary log on keypress (remove the log after).
+
+---
+
+## Phase 7 — Memory model & section attributes
+
+**Goal**: `IWRAM_DATA`/`EWRAM_DATA`/`COMMON_DATA` etc. are no-ops on PC, but `AGB_ASSERT`/`SOUND_INFO_PTR`/`INTR_VECTOR` (in `gba/defines.h`) need real replacements because the engine uses them in non-GBA code paths.
+
+**Edits**
+- In `platform/include/gba/defines.h`:
+  - `SOUND_INFO_PTR` → a real heap pointer set in `Platform_Init`.
+  - `INTR_VECTOR`/`INTR_CHECK` → removed or `#define`d to 0 in `HOST_BUILD`.
+- `IWRAM_DATA`, `EWRAM_DATA`, `COMMON_DATA`, `IWRAM_INIT`, `EWRAM_INIT`, `ARM_FUNC` — confirm they're empty on host.
+- For files that use `__attribute__((section("common_data")))` on huge globals, add a CMake-compile check that those compiles succeed. (Most do; we only care about catching regressions here.)
+- Heap sizing: `malloc.c` exposes a fixed `HEAP_SIZE` based on EWRAM. Replace with a host-side bump allocator in `platform/src/heap.c`, sized to e.g. 64 MiB.
+
+**Done when** running the game, internal `malloc`/`free` (the local one, not libc) works — verified by allocating a Pokémon party, freeing it, and re-allocating without corruption. A small unit-style smoke test in `host_main.c` does this on boot.
+
+---
+
+## Phase 8 — Save system
+
+**Goal**: `agb_flash_*` calls (read/write sector) become file I/O in `saves/`.
+
+**Edits**
+- New `platform/src/save_io.c`:
+  - Maps "sector 0..N" onto `saves/slot{N}.sav` (raw binary, sector size = 4 KiB to mirror the real 1 Mbit flash).
+  - Implements the four `agb_flash_*` sector ops as read/write/erase/commit against files.
+  - On `Platform_Init`, create `saves/` if missing.
+- Exclude `refrence/src/agb_flash*.c` from the build. Their public API (`ReadFlash`, `ProgramFlash`, `EraseFlashSector`, etc.) gets redirected through the platform layer.
+- Wire `LoadGameSave`/`SaveGameSave` to use the new file-backed sector ops.
+
+**Done when** saving in-game writes a real file under `saves/`, exiting and re-launching restores the same state. (Cross-check with a hash of the original GBA flash sector on a known save.)
+
+---
+
+## Phase 9 — Graphics data pipeline
+
+**Goal**: `.4bpp`/`.gbapal`/`.lz`/`.rl`/`.smol` assets are converted to something the renderer can consume. The conversion is **offline** (build time) so the runtime never has to decode GBA formats.
+
+**Edits**
+- New `tools/gba_to_png.py` (Python + Pillow):
+  - Reads `refrence/graphics/**/*.4bpp` + sibling `.gbapal`, writes `assets/gfx/<name>.png` and `assets/gfx/<name>.json` (palette index list).
+  - For LZ-compressed assets (most tilesets/sprites), call `refrence/tools/preproc/preproc` to decompress first, or implement LZ10/LZ11 (Pokémon Emerald uses both).
+- New `tools/build_assets.py`: walks `refrence/data/` and `refrence/graphics/`, emits one big `assets/packed.bin` + `assets/manifest.json` mapping logical IDs (e.g. `MON_PIKACHU`) to offsets.
+- `CMakeLists.txt`: add a custom target `assets` that depends on the manifest, and re-runs the Python tools on `refrence/` change.
+- The *runtime* side (this phase and Phase 10) just `mmap`s `packed.bin` and reads by offset/length.
+
+**Done when** `make assets` produces a valid PNG of, say, Pikachu's front sprite at the correct palette.
+
+---
+
+## Phase 10 — Background rendering (BG layers 0–3)
+
+**Goal**: The game's BG layer system (`src/bg.c`, `src/screen.c`) drives what the user sees.
+
+**Edits**
+- New `platform/src/render_bg.c`:
+  - Maintains a 256×4 palette of `SDL_Color`.
+  - Per BG layer: a software buffer of 512×512 (or 1024×1024 for affine) at 8bpp indexed; built each frame from the game's `gBgTilemapBuffer`-style state (we mirror GBA BG state into host-side structs in `src/bg.c` — or just keep GBA BG state in its own struct, indexed by `BG_*` regs).
+  - `Platform_FrameEnd` blits each layer (priority-ordered, with `BLDALPHA`/`BLDCNT` blended via `SDL_SetTextureBlendMode`) to the screen.
+- Stub `REG_BG0CNT`/`REG_BG1CNT`/etc. so writes to them are captured into a host-side `struct HostBgLayer`.
+- Implement `RequestDma3Copy` (used heavily for tile/tilemap uploads): in the host build, just `memcpy` to the layer's CPU-side buffer.
+
+**Done when** booting into the title screen shows the copyright screen text/gradient, and the lit Pokéball intro plays (just visuals; no music yet).
+
+---
+
+## Phase 11 — Sprite rendering (OBJ)
+
+**Goal**: Up to 128 sprites are drawn per frame, with the game's affine/priority rules.
+
+**Edits**
+- New `platform/src/render_obj.c`:
+  - One `SDL_Texture` per loaded sprite sheet (built at boot from `assets/manifest.json`).
+  - Per OBJ: read from `gSprites[]` (mirror kept in sync), look up sheet, `SDL_RenderCopyEx` with affine rotation.
+- Implement `Dma3CopyLarge`/`Dma3Fill32`/`Dma3Fill16` as plain `memcpy`/`memset`.
+- Implement `OamLoad`/OAM DMA as: just refresh the host `gSprites[]` mirror.
+
+**Done when** walking around the overworld shows the player sprite and the overworld NPCs.
+
+---
+
+## Phase 12 — Text rendering
+
+**Goal**: The font system (`src/text.c`, `src/window.c`) renders correctly on PC. This is a small phase because Pokémon Emerald's text is mostly drawn as tile bitmaps — Phase 10's renderer handles it once the font tiles are part of `assets/`.
+
+**Edits**
+- Bake the JP/EN font tiles (`refrence/graphics/fonts/`) into `assets/font_en.png` and `assets/font_jp.png` during Phase 9.
+- `src/window.c`'s `PutWindowTilemap`/`CopyWindowToVram` already produce tile data — our BG renderer just consumes it.
+- Add a `DecompressDataWithHeader` (or whatever the LZ wrapper is) on the host side — this is a host reimplementation of GBA LZ10/LZ11, not a port of the ARM code.
+
+**Done when** the overworld HUD ("PLAYER • 0123 / 0234") renders with the right font, kerning, and palette.
+
+---
+
+## Phase 13 — Audio (M4A → SDL_mixer)
+
+**Goal**: Music and SFX play. This is one of the two "big" phases.
+
+**Edits**
+- `sound/` is excluded from the build. We don't port the M4A engine; we **pre-bake** music to Ogg Vorbis (.ogg) at build time and play it back.
+- New `tools/song_to_ogg.py`:
+  - Input: a song in `refrence/sound/songs/midi/*.mid` (these are the original midis before they were packed into the ROM). The submodule has them in `refrence/sound/songs/midi/`.
+  - For each, run `timidity` or `fluidsynth` (whichever is on the host) with a soundfont, output `.ogg`.
+  - For voice groups, we use the SF2/OPN-style approach: convert `voice_groups.inc` to a `vgs.json` once, then `fluidsynth -F out.wav` and encode to `.ogg`.
+- New `platform/src/audio.c`:
+  - `Platform_Init` opens `SDL_AudioSpec` at 44.1 kHz stereo.
+  - `PlaySE(id)`: look up `assets/se/<id>.ogg` in the manifest, play once on a free channel.
+  - `PlayBGM(id)`: cross-fade the current BGM track to a new one.
+  - Map the game's `m4a_*.h` API to the host layer: `m4a_play_song` → `PlayBGM`, `m4a_song_num_play` → `PlaySE`, etc.
+- The game's `src/m4a.c` and `sound/MPlay*.s` are excluded from the build entirely. Call sites in `src/*.c` call into the host layer through thin shim headers in `platform/include/`.
+
+**Done when** booting into the title plays music, and the overworld BGM plays without crackle at 60 fps.
+
+---
+
+## Phase 14 — Overworld
+
+**Goal**: You can walk around a map. (Engine is mostly already in `src/overworld.c`; this phase just exercises it.)
+
+**Edits**
+- No new platform code expected — this is verification. Run the game, walk around Littleroot Town, enter a building, talk to an NPC, exit.
+- If the camera is misbehaving, the issue is in Phase 10's BG math.
+- If the player sprite snaps, it's Phase 11.
+
+**Done when** a 5-minute walkthrough plays end-to-end with no visual glitches.
+
+---
+
+## Phase 15 — Battle system
+
+**Goal**: Battles work end-to-end. The battle engine is platform-agnostic; the work is in the *presentation* layer.
+
+**Edits**
+- Battle background rendering: extend Phase 10 with battle BG support (the existing game already drives it; we just need to support the `bg2_affine` mode).
+- Battle animations: `src/battle_anim.c` drives sprite cells, palettes, and BG effects. Most of this already works through the Phase 11 sprite code; we add specific support for battle-specific features (alpha blending, mosaic) in `platform/src/render_blend.c`.
+- Move animations are sprite swaps; mostly already work.
+
+**Done when** a wild battle starts, the intro anim plays, you select moves, and the battle resolves with HP bars, exp gain, and the victory music.
+
+---
+
+## Phase 16 — Multiplayer (RFU → UDP) — *optional*
+
+**Goal**: Trade/battle over LAN, the way `librfu_*` provides on GBA.
+
+**Edits**
+- Exclude `refrence/src/librfu_*.c` and `AgbRfu_LinkManager.c` from the build.
+- New `platform/src/net_rfu.c`:
+  - Implements the same `Rfu*` API surface as `AgbRfu_LinkManager` (`Rfu_Init`, `Rfu_SetPlayerName`, `Rfu_StartSearchParent`, etc.).
+  - Backed by UDP multicast on `239.255.0.1:4999` (chosen by mGBA-quark for the same role).
+  - Discovery packets: reimplement the GBA RFU discovery handshake (about 4 message types) on top of UDP datagrams.
+- Wire `src/link.c`/`src/link_rfu.c` to call into `net_rfu.c` instead.
+
+**Done when** two PC instances on the same LAN can see each other in the Union Room. (Defer to a follow-up if not on the critical path — single-player is the main goal.)
+
+---
+
+## Phase 17 — Polish & distribution
+
+**Goal**: Ship a real PC game.
+
+**Edits**
+- Replace the default 720×480 window with a 1080p-friendly integer-scaled renderer (target 3× or 4× the GBA's 240×160).
+- Add a launch-time options screen (data dir, save dir, fullscreen, window size, language).
+- Steam-style achievements mapping onto in-game flags (optional).
+- macOS / Linux / Windows packaging: CMake `INSTALL` target, CPack, codesign on macOS, WiX on Windows.
+- CI: build matrix for Linux/Windows/macOS using GitHub Actions, caching `refrence/`.
+- Re-enable `-Wall -Wextra -Werror` once warnings are addressed.
+- Documentation: `README.md` build instructions, a `CONTRIBUTING_PC.md` explaining what's safe to merge from upstream.
+
+**Done when** a tester can download a `.zip`/`.dmg`/`.AppImage`, run it, save, quit, relaunch, and continue with all progress intact.
+
+---
+
+## Effort estimate (single experienced C dev)
+
+| Phase | Effort | Risk |
+|------:|------:|------|
+| 0–2   | 1–2 days | low |
+| 3     | 1 week  | medium — surfaces all portability bugs |
+| 4–5   | 1–2 days | low |
+| 6–7   | 2–3 days | low |
+| 8     | 1–2 days | low |
+| 9     | 1–2 weeks | medium — LZ decomp, palette math, large asset surface |
+| 10    | 2–3 weeks | **high** — affine BG, blending, mode 7 are subtle |
+| 11    | 1–2 weeks | medium |
+| 12    | 1–2 days | low |
+| 13    | 2–3 weeks | **high** — voice groups, song format conversion, timing |
+| 14    | 1 week (verification) | low |
+| 15    | 2–3 weeks | medium |
+| 16    | 1–2 weeks | medium (optional) |
+| 17    | 1–2 weeks | low |
+
+**Realistic total**: 3–5 months to a single-player build of the full Hoenn region. With multiplayer, plan on 4–6 months. The first playable milestone (walk around one map) is reachable in **~4–6 weeks** with focused work.
+
+---
+
+## Risks & open questions
+
+1. **Asset legality.** `refrence/data/` and the baseline ROM contain Nintendo's IP. Distributing a port that ships these assets is the same legal posture as the existing `pokeemerald-expansion` repo, but a *commercial* PC release isn't viable without original assets. Decide up front whether this is a public binary or a source-only fork.
+2. **Voice groups and battle SFX.** The M4A engine has hand-tuned per-channel volume and ADSR. Naive `fluidsynth`-baked OGGs lose nuance. The pragmatic path is to use a high-quality General MIDI soundfont for now; if it sounds bad, the fallback is a C re-implementation of M4A (months of work) or `libvgm`/`libgme` for VGM-style playback.
+3. **Battle animations & special effects.** Some use window blending, mosaic, and capture-effect tricks that don't map 1:1 to SDL2. The "blend" register in particular is non-trivial. Plan for one extra week of renderer polish during Phase 15.
+4. **Link protocol.** RFU is undocumented; we only have a decomp of it. The UDP-replacement will need a custom discovery layer. (See Phase 16.)
+5. **Upstream drift.** `refrence/` is a submodule on `upcoming`. Plan a quarterly merge: rebase the platform layer, re-run asset pipeline. The cleanest mitigation is to keep our diff in `platform/` and `tools/` only, and never edit `refrence/src/`.
+
+---
+
+## How to start (Phase 0 → Phase 1)
+
+```sh
+cd /home/yvonne/Documents/port/pkmemerald
+# Phase 0: edit README.md and .gitignore
+# Phase 1: write CMakeLists.txt, scaffold platform/
+cmake -S . -B build
+cmake --build build -j
+# expect thousands of "undefined reference" — that's fine, Phase 2 starts.
+```
