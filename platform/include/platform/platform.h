@@ -42,8 +42,25 @@ void Platform_FrameEnd(void);
 /* PLATFORM_SCREEN_WIDTH * PLATFORM_SCREEN_HEIGHT pixels, 0x00RRGGBB. */
 uint32_t *Platform_GetFramebuffer(void);
 
+/* GBA buttons, with the same bit values as the GBA's KEYINPUT register
+ * (but 1 = pressed; the hardware register is active-low). */
+#define PLATFORM_BUTTON_A      0x0001
+#define PLATFORM_BUTTON_B      0x0002
+#define PLATFORM_BUTTON_SELECT 0x0004
+#define PLATFORM_BUTTON_START  0x0008
+#define PLATFORM_BUTTON_RIGHT  0x0010
+#define PLATFORM_BUTTON_LEFT   0x0020
+#define PLATFORM_BUTTON_UP     0x0040
+#define PLATFORM_BUTTON_DOWN   0x0080
+#define PLATFORM_BUTTON_R      0x0100
+#define PLATFORM_BUTTON_L      0x0200
+
 /* Drain OS events (window/input) without blocking. */
 void Platform_PollEvents(void);
+
+/* GBA buttons currently held on the keyboard or any gamepad, as of the last
+ * Platform_PollEvents. */
+uint16_t Platform_GetButtons(void);
 
 /* True once the user has asked to quit (window closed, Ctrl-C, ...). */
 bool Platform_QuitRequested(void);

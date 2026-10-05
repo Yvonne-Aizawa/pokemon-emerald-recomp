@@ -206,6 +206,11 @@ Added after a link check showed 97% of unresolved symbols were assembly *data*. 
 
 **Done when** running the game, Z/X/Enter/Backspace/arrows produce the right `gKeyStateNew`/`gKeyStateOld` bits — verify by toggling `gKeyStateNew` in a temporary log on keypress (remove the log after).
 
+**Status (done).** Simpler than outlined, because `main.c` is now built unchanged: the game's own `ReadKeys` (key repeat, L=A option) stays, and the host only fills `REG_KEYINPUT` (active-low) before each frame.
+- `platform/src/input_sdl2.c`: keyboard by physical key position (Z=A, X=B, Enter=Start, Backspace=Select, arrows, Shift=L, Ctrl=R) and any number of hot-pluggable gamepads (SDL's standard layout: A/B, Back=Select, Start, D-pad or left stick, shoulders or triggers = L/R). Key state is tracked from events and cleared when the window loses focus. Exposed as `Platform_GetButtons()` with the GBA's bit layout (`PLATFORM_BUTTON_*`).
+- `platform/src/host_input.c`: `Host_SetKeypad` writes `REG_KEYINPUT`, cancelling opposite D-pad directions (impossible on real hardware).
+- `platform/tests/test_input.c` injects SDL key events and checks the mapping, the register, and the game itself: pressing A during the intro skips to the title screen.
+
 ---
 
 ## Phase 7 — Memory model & section attributes
@@ -254,6 +259,7 @@ Added after a link check showed 97% of unresolved symbols were assembly *data*. 
 
 **Done when** `make assets` produces a valid PNG of, say, Pikachu's front sprite at the correct palette.
 
+
 ---
 
 ## Phase 10 — Background rendering (BG layers 0–3)
@@ -269,6 +275,7 @@ Added after a link check showed 97% of unresolved symbols were assembly *data*. 
 - Implement `RequestDma3Copy` (used heavily for tile/tilemap uploads): in the host build, just `memcpy` to the layer's CPU-side buffer.
 
 **Done when** booting into the title screen shows the copyright screen text/gradient, and the lit Pokéball intro plays (just visuals; no music yet).
+
 
 ---
 

@@ -2,12 +2,14 @@
  * platform/src/platform_sdl2.c
  *
  * SDL2 implementation of platform.h: a window showing the 240x160
- * framebuffer at an integer scale, the OS event loop, and timing.
+ * framebuffer at an integer scale, the OS event loop, input (via
+ * input_sdl2.c), and timing.
  *
  * Runs without a display under SDL_VIDEODRIVER=dummy (the tests do this).
  */
 
 #include "platform/platform.h"
+#include "input_sdl2.h"
 
 #include <SDL.h>
 #include <stdio.h>
@@ -40,7 +42,7 @@ int Platform_Init(const struct PlatformConfig *config)
     sQuitRequested = false;
 
     /* SDL's default Ctrl-C handling turns SIGINT/SIGTERM into SDL_QUIT. */
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0)
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) != 0)
     {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return -1;
@@ -82,6 +84,8 @@ int Platform_Init(const struct PlatformConfig *config)
         return -1;
     }
 
+    Input_Init();
+
     /* The GBA powers on to a white screen. */
     memset(sFramebuffer, 0xFF, sizeof(sFramebuffer));
 
@@ -94,6 +98,7 @@ int Platform_Init(const struct PlatformConfig *config)
 
 void Platform_Shutdown(void)
 {
+    Input_Shutdown();
     if (sScreen != NULL)
         SDL_DestroyTexture(sScreen);
     if (sRenderer != NULL)
@@ -142,7 +147,13 @@ void Platform_PollEvents(void)
     {
         if (event.type == SDL_QUIT)
             sQuitRequested = true;
+        Input_HandleEvent(&event);
     }
+}
+
+uint16_t Platform_GetButtons(void)
+{
+    return Input_GetButtons();
 }
 
 bool Platform_QuitRequested(void)

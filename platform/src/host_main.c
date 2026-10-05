@@ -6,10 +6,12 @@
  *
  * Boots the platform layer (window), then the game (AgbMain), and runs the
  * game's frames until the window is closed or the frame limit is reached.
- * Each frame: the game's logic and interrupts, then the display.
+ * Each frame: the keypad is read, then the game's logic and interrupts run,
+ * then the display is drawn.
  */
 
 #include "platform/host_game.h"
+#include "platform/host_input.h"
 #include "platform/host_render.h"
 #include "platform/main_loop.h"
 #include "platform/platform.h"
@@ -60,6 +62,7 @@ static bool SaveFrame(const char *path, const uint32_t *framebuffer)
 
 static void RunGameFrame(void)
 {
+    Host_SetKeypad(Platform_GetButtons());
     HostMain_RunFrame();
     Host_RenderFrame(Platform_GetFramebuffer());
 }
