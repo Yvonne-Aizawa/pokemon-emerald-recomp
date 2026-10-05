@@ -10,6 +10,7 @@
 #ifndef PLATFORM_MAIN_LOOP_H
 #define PLATFORM_MAIN_LOOP_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -31,6 +32,10 @@ void Host_RunFrame(void);
 /* Run frames until Platform_QuitRequested(), or until maxFrames have run
  * (0 = no limit). Returns the number of frames run. */
 uint32_t Host_RunMainLoop(uint32_t maxFrames);
+
+/* Pace frames at the GBA's refresh rate (the default), or run them as fast
+ * as possible (for scripted test runs). */
+void Host_SetPacing(bool paced);
 
 /* Frames completed since startup. */
 uint32_t Host_GetFrameCount(void);

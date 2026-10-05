@@ -15,6 +15,12 @@
 
 static HostFrameCallback sFrameCallback;
 static uint32_t sFrameCount;
+static bool sPaced = true;
+
+void Host_SetPacing(bool paced)
+{
+    sPaced = paced;
+}
 
 void Host_SetFrameCallback(HostFrameCallback callback)
 {
@@ -52,6 +58,8 @@ uint32_t Host_RunMainLoop(uint32_t maxFrames)
         sFrameCount++;
         framesRun++;
 
+        if (!sPaced)
+            continue;
         now = Platform_GetTimeNs();
         if (now < deadline)
             Platform_SleepNs(deadline - now);

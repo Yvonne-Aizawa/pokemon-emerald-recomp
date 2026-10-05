@@ -13,6 +13,7 @@
 #include "platform/host_game.h"
 #include "platform/host_input.h"
 #include "platform/host_render.h"
+#include "platform/host_save.h"
 #include "platform/irq_timer.h"
 #include "platform/main_loop.h"
 #include "platform/platform.h"
@@ -49,7 +50,7 @@ static const struct { const char *name; uint16_t button; } sButtonNames[] = {
 static void Usage(FILE *out, const char *argv0)
 {
     fprintf(out,
-            "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [-x SCALE] [-f FRAMES] [-o FILE] [-i SCRIPT]\n"
+            "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [-x SCALE] [-f FRAMES] [-o FILE] [-i SCRIPT] [--fast]\n"
             "  -d DATA_DIR  converted game data (default: assets)\n"
             "  -s SAVE_DIR  save files (default: saves)\n"
             "  -x SCALE     initial window size as a multiple of 240x160 (default: %d)\n"
@@ -58,7 +59,8 @@ static void Usage(FILE *out, const char *argv0)
             "  -i SCRIPT    press buttons at given frames, for testing: comma-separated\n"
             "               FRAME[+HOLD]:BUTTON[|BUTTON...], e.g. 600:a,3700+10:select\n"
             "               (buttons: a b select start up down left right l r; HOLD\n"
-            "               defaults to %d frames)\n",
+            "               defaults to %d frames)\n"
+            "  --fast       don't wait between frames (scripted test runs)\n",
             argv0, DEFAULT_SCALE, DEFAULT_HOLD_FRAMES);
 }
 
@@ -160,6 +162,9 @@ static void RunGameFrame(void)
     IrqTimer_Disarm();
 
     Host_RenderFrame(Platform_GetFramebuffer());
+
+    /* Persist the save chip if the game wrote to it this frame. */
+    Host_SaveFlush();
 }
 
 /* Game code waiting for V-blank inside a frame (the crash screen, debug
@@ -204,6 +209,11 @@ int main(int argc, char **argv)
         {
             Usage(stdout, argv[0]);
             return 0;
+        }
+        if (strcmp(arg, "--fast") == 0)
+        {
+            Host_SetPacing(false);
+            continue;
         }
         if (arg[0] == '-' && strchr("dsxfoi", arg[1]) != NULL && arg[1] != '\0' && arg[2] == '\0' && i + 1 < argc)
         {
@@ -257,6 +267,7 @@ int main(int argc, char **argv)
         return 1;
     }
     printf("boot ok\n");
+    Host_SaveOpen(config.saveDir);
     fflush(stdout);
 
     AgbMain();
@@ -268,6 +279,7 @@ int main(int argc, char **argv)
     startNs = Platform_GetTimeNs();
     framesRun = Host_RunMainLoop((uint32_t)maxFrames);
     printf("ran %u frames in %.3f s\n", framesRun, (double)(Platform_GetTimeNs() - startNs) / 1e9);
+    Host_SaveFlush();
 
     if (framePath != NULL && !SaveFrame(framePath, Platform_GetFramebuffer()))
         fprintf(stderr, "%s: could not write '%s'\n", argv[0], framePath);

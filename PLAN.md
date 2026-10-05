@@ -243,6 +243,13 @@ Added after a link check showed 97% of unresolved symbols were assembly *data*. 
 
 **Done when** saving in-game writes a real file under `saves/`, exiting and re-launching restores the same state. (Cross-check with a hash of the original GBA flash sector on a known save.)
 
+**Status (done).** One file instead of per-sector files: `saves/pkmemerald.sav` (`-s DIR` to change) is a raw 128 KiB image of the flash chip — the format GBA emulators use, so emulator saves of the same build drop in. `platform/src/host_flash.c` keeps the chip in memory, marks it dirty on every erase/program, and `Host_SaveFlush` (after each frame, and at exit) writes it to a temp file, fsyncs and renames — a crash mid-save looks like a power cut, which the game's two-slot scheme already survives. A file of the wrong size is never overwritten (saving is disabled with a message). Verified end to end with a scripted run: Start → Save → Yes writes the file; relaunching shows CONTINUE with the saved player, time and badges; booting alone doesn't rewrite it. `platform/tests/test_save.c` covers the file handling.
+
+Also in this phase:
+- `pkmemerald --fast`: no waiting between frames, for scripted test runs (~4x faster at -O0).
+- `platform/patches/text.c.patch`: the glyph blitter shifted 32-bit values by 32, which is 0 on ARM but a no-op on x86 (the count wraps), stamping a stray copy of a glyph's edge after some words ("OPTION|"). `-DPKM_SANITIZE_SHIFT=ON` (separate build dir) instruments the game with `-fsanitize=shift-exponent` to find more of these; the intro/title and the quick-start → Littleroot → save routes now run clean.
+- Known limitation: mid-frame interrupts (Phase 11's timer) depend on real time, and each V-blank advances the RNG, so scripted runs aren't frame-exact (e.g. quick-start's random gender varies). The GBA is deterministic because it counts cycles.
+
 ---
 
 ## Phase 9 — Graphics data pipeline

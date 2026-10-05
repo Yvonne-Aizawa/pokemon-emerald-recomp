@@ -263,6 +263,16 @@ set_source_files_properties(${REFRENCE_PP} PROPERTIES LANGUAGE C GENERATED TRUE)
 # Step 4: compile the game code
 #-------------------------------------------------------------------------------
 add_library(refrence-objs OBJECT ${REFRENCE_PP})
+# Debug aid: report shifts by >= the type's width at run time. ARM gives 0
+# for those, x86 wraps the count, so each hit is a likely porting bug (see
+# platform/patches/text.c.patch). Use a separate build directory:
+#   cmake -S . -B build-ubsan -DPKM_SANITIZE_SHIFT=ON
+option(PKM_SANITIZE_SHIFT "Instrument game code with -fsanitize=shift-exponent" OFF)
+if(PKM_SANITIZE_SHIFT)
+    target_compile_options(refrence-objs PRIVATE -fsanitize=shift-exponent)
+    add_link_options(-fsanitize=shift-exponent)
+endif()
+
 target_compile_options(refrence-objs PRIVATE
     # CMake compiles the .i files with `-x c`; don't preprocess them again.
     -fpreprocessed
@@ -394,9 +404,9 @@ target_link_libraries(pkmemerald PRIVATE
 )
 
 # Boots the platform and the game, runs 60 game frames, exits 0.
-add_test(NAME pkmemerald-boot COMMAND pkmemerald -f 60)
+add_test(NAME pkmemerald-boot COMMAND pkmemerald -f 60 -s "${CMAKE_BINARY_DIR}/test-saves")
 set_tests_properties(pkmemerald-boot PROPERTIES
-    PASS_REGULAR_EXPRESSION "boot ok\ngame init ok\nran 60 frames"
+    PASS_REGULAR_EXPRESSION "boot ok\nsave: [^\n]*\ngame init ok\nran 60 frames"
     ENVIRONMENT "${HEADLESS_TEST_ENV}"
 )
 

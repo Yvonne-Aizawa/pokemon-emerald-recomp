@@ -33,7 +33,9 @@ The first build also builds upstream's tools and converts its graphics into `ref
 cmake --build build --target refrence-prepare
 ```
 
-There is no playable game yet. `./build/pkmemerald` opens a window and runs the game, but only the background colour is drawn so far, with no sound or input (`-h` for options). Run the tests with:
+Saves go to `saves/pkmemerald.sav` (a standard 128 KiB GBA flash save; `-s DIR` to use another directory).
+
+`./build/pkmemerald` runs the game in a window (`-h` for options). It is playable but silent, and early: expect bugs. Controls: arrows, Z = A, X = B, Enter = Start, Backspace = Select, Shift = L, Ctrl = R, or a gamepad. Run the tests with:
 
 ```sh
 ctest --test-dir build
