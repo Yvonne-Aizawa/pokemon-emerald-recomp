@@ -349,6 +349,10 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 
 **Done when** booting into the title plays music, and the overworld BGM plays without crackle at 60 fps.
 
+**Status (done; awaiting a listening check).** Not the outline above: the game's own sound engine runs, so music, sound effects and cries play exactly as the game drives them (fades, ducking under cries, the Pokédex cry waveform, which reads the mix buffer). `reference/src/m4a.c` and `m4a_tables.c` are built as-is plus `platform/patches/m4a.c.patch` (NULL players are ignored, no BIOS call, no wait for `VCOUNT`). `platform/src/m4a_engine.c` is a C translation of `m4a_1.s` (sequencer, track commands, note allocation, and the software mixer with the expansion's compressed/reversed cry samples), keeping the original arithmetic. `platform/src/host_audio.c` is the sound hardware: the four PSG channels emulated from the registers `CgbSound` writes (triggers, envelopes, sweep, length, wave RAM, noise LFSR, frame sequencer), mixed with Direct Sound the way `SOUNDCNT_*`/`SOUNDBIAS` mix them, at 48 kHz into a ring buffer that `audio_sdl2.c` plays; the output rate is nudged by up to ±0.5% to keep ~50 ms buffered. Tests: `test_m4a_engine` (music, a sound effect, compressed and reversed cries, fade-out) and `test_m4a_null_player`.
+- The interrupt timer's SIGALRM can be delivered to any thread, e.g. SDL's audio thread; it is now forwarded to the game thread, so game interrupts never run beside the game.
+- `--fast` runs are silent (they run far faster than real time); `-a FILE` records the sound of any run to a WAV file, which is how the output was checked without listening.
+
 ---
 
 ## Phase 14 — Overworld

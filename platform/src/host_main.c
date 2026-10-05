@@ -11,6 +11,7 @@
  */
 
 #include "platform/crash_handler.h"
+#include "platform/host_audio.h"
 #include "platform/host_game.h"
 #include "platform/host_input.h"
 #include "platform/host_render.h"
@@ -40,6 +41,10 @@ struct ScriptStep
 static struct ScriptStep sScript[MAX_SCRIPT_STEPS];
 static int sScriptLength;
 
+/* -a: the game's sound, written to a WAV file as it is rendered. */
+static FILE *sAudioDump;
+static uint32_t sAudioDumpFrames;
+
 static const struct { const char *name; uint16_t button; } sButtonNames[] = {
     { "a", PLATFORM_BUTTON_A },         { "b", PLATFORM_BUTTON_B },
     { "select", PLATFORM_BUTTON_SELECT }, { "start", PLATFORM_BUTTON_START },
@@ -51,17 +56,19 @@ static const struct { const char *name; uint16_t button; } sButtonNames[] = {
 static void Usage(FILE *out, const char *argv0)
 {
     fprintf(out,
-            "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [-x SCALE] [-f FRAMES] [-o FILE] [-i SCRIPT] [--fast]\n"
+            "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [-x SCALE] [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT] [--fast] [--mute]\n"
             "  -d DATA_DIR  converted game data (default: assets)\n"
             "  -s SAVE_DIR  save files (default: saves)\n"
             "  -x SCALE     initial window size as a multiple of 240x160 (default: %d)\n"
             "  -f FRAMES    stop after FRAMES frames (default: run until the window is closed)\n"
             "  -o FILE      on exit, save the last frame to FILE (binary PPM)\n"
+            "  -a FILE      write the sound to FILE (WAV, 48 kHz stereo); works with --fast\n"
             "  -i SCRIPT    press buttons at given frames, for testing: comma-separated\n"
             "               FRAME[+HOLD]:BUTTON[|BUTTON...], e.g. 600:a,3700+10:select\n"
             "               (buttons: a b select start up down left right l r; HOLD\n"
             "               defaults to %d frames)\n"
-            "  --fast       don't wait between frames (scripted test runs)\n",
+            "  --fast       don't wait between frames (scripted test runs); implies --mute\n"
+            "  --mute       no sound\n",
             argv0, DEFAULT_SCALE, DEFAULT_HOLD_FRAMES);
 }
 
@@ -151,6 +158,44 @@ static uint16_t ScriptedButtons(uint32_t frame)
     return buttons;
 }
 
+/* -a: a 48 kHz stereo 16-bit WAV file; the header is completed on close. */
+static void WriteWavHeader(FILE *f, uint32_t frames)
+{
+    uint32_t dataBytes = frames * 4, rate = HOST_AUDIO_RATE, byteRate = HOST_AUDIO_RATE * 4;
+    uint32_t riffBytes = 36 + dataBytes, fmtBytes = 16;
+    uint16_t format = 1, channels = 2, blockAlign = 4, bits = 16;
+
+    fwrite("RIFF", 1, 4, f);
+    fwrite(&riffBytes, 4, 1, f);
+    fwrite("WAVEfmt ", 1, 8, f);
+    fwrite(&fmtBytes, 4, 1, f);
+    fwrite(&format, 2, 1, f);
+    fwrite(&channels, 2, 1, f);
+    fwrite(&rate, 4, 1, f);
+    fwrite(&byteRate, 4, 1, f);
+    fwrite(&blockAlign, 2, 1, f);
+    fwrite(&bits, 2, 1, f);
+    fwrite("data", 1, 4, f);
+    fwrite(&dataBytes, 4, 1, f);
+}
+
+/* Write out rendered sound, keeping `keep` frames buffered so the renderer's
+ * rate control (which aims at a buffer level) stays neutral. */
+static void DrainAudioDump(int keep)
+{
+    static int16_t buffer[4096 * 2];
+    int n;
+
+    while (sAudioDump != NULL && (n = HostAudio_Buffered() - keep) > 0)
+    {
+        if (n > 4096)
+            n = 4096;
+        HostAudio_Read(buffer, n);
+        fwrite(buffer, 4, (size_t)n, sAudioDump);
+        sAudioDumpFrames += n;
+    }
+}
+
 /* How long a frame may run before interrupts arrive mid-frame: the GBA frame
  * time when paced; with --fast, only frames stuck in a busy-wait (see
  * platform/irq_timer.h). */
@@ -172,6 +217,8 @@ static void RunGameFrame(void)
 
     /* Persist the save chip if the game wrote to it this frame. */
     Host_SaveFlush();
+
+    DrainAudioDump(HOST_AUDIO_RATE / 20);
 }
 
 /* Game code waiting for V-blank inside a frame (the crash screen, debug
@@ -203,7 +250,9 @@ int main(int argc, char **argv)
         .scale = DEFAULT_SCALE,
     };
     unsigned long maxFrames = 0;
+    bool sound = true;
     const char *framePath = NULL;
+    const char *audioPath = NULL;
     uint64_t startNs;
     uint32_t framesRun;
     int i;
@@ -221,9 +270,15 @@ int main(int argc, char **argv)
         {
             Host_SetPacing(false);
             sIrqIntervalNs = STALL_INTERVAL_NS;
+            sound = false;
             continue;
         }
-        if (arg[0] == '-' && strchr("dsxfoi", arg[1]) != NULL && arg[1] != '\0' && arg[2] == '\0' && i + 1 < argc)
+        if (strcmp(arg, "--mute") == 0)
+        {
+            sound = false;
+            continue;
+        }
+        if (arg[0] == '-' && strchr("dsxfoia", arg[1]) != NULL && arg[1] != '\0' && arg[2] == '\0' && i + 1 < argc)
         {
             const char *value = argv[++i];
             unsigned long scale;
@@ -238,6 +293,9 @@ int main(int argc, char **argv)
                 break;
             case 'o':
                 framePath = value;
+                break;
+            case 'a':
+                audioPath = value;
                 break;
             case 'i':
                 if (!ParseScript(value))
@@ -284,6 +342,21 @@ int main(int argc, char **argv)
 
     AgbMain();
     printf("game init ok\n");
+    if (audioPath != NULL)
+    {
+        sAudioDump = fopen(audioPath, "wb");
+        if (sAudioDump == NULL)
+        {
+            fprintf(stderr, "%s: could not write '%s'\n", argv[0], audioPath);
+            return 1;
+        }
+        WriteWavHeader(sAudioDump, 0);
+        HostAudio_SetEnabled(true);
+    }
+    else if (sound)
+    {
+        HostAudio_OpenDevice();
+    }
     fflush(stdout);
     Host_SetFrameCallback(RunGameFrame);
     gHostVBlankIntrWaitHandler = WaitForVBlankInsideFrame;
@@ -296,6 +369,14 @@ int main(int argc, char **argv)
     if (framePath != NULL && !SaveFrame(framePath, Platform_GetFramebuffer()))
         fprintf(stderr, "%s: could not write '%s'\n", argv[0], framePath);
 
+    if (sAudioDump != NULL)
+    {
+        DrainAudioDump(0);
+        fseek(sAudioDump, 0, SEEK_SET);
+        WriteWavHeader(sAudioDump, sAudioDumpFrames);
+        fclose(sAudioDump);
+    }
+    HostAudio_CloseDevice();
     Platform_Shutdown();
     return 0;
 }

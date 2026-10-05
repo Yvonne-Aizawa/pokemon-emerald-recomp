@@ -403,15 +403,26 @@ extern const struct PokemonCrySong gPokemonCrySongTemplate;
 
 extern const struct ToneData voicegroup_dummy;
 
+#ifdef HOST_BUILD
+// PC port: on the GBA these two are linker-script symbols whose *addresses*
+// are the values (ld_script_modern.ld: gNumMusicPlayers = 4, gMaxLines = 0).
+#define NUM_MUSIC_PLAYERS 4
+#define MAX_LINES 0
+#else
 extern char gNumMusicPlayers[];
 extern char gMaxLines[];
 
 #define NUM_MUSIC_PLAYERS ((u16)gNumMusicPlayers)
 #define MAX_LINES ((u32)gMaxLines)
+#endif
 
 u32 umul3232H32(u32 multiplier, u32 multiplicand);
 void SoundMain(void);
+#ifdef HOST_BUILD
+void SoundMainBTM(void *x); // PC port: clears 64 bytes at r0 (the GBA prototype hides the argument)
+#else
 void SoundMainBTM(void);
+#endif
 void TrackStop(struct MusicPlayerInfo *mplayInfo, struct MusicPlayerTrack *track);
 void MPlayMain(struct MusicPlayerInfo *);
 void RealClearChain(void *x);

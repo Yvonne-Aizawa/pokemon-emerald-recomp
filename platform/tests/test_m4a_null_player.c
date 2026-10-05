@@ -1,9 +1,10 @@
 /*
- * platform/tests/test_m4a_stub.c
+ * platform/tests/test_m4a_null_player.c
  *
- * The silent sound engine (host_m4a.c) must accept a NULL player like the
- * real one: gMPlay_PokemonCry is NULL until the first cry plays, and e.g. the
- * Pokedex info screen stops "the current cry" before any has played.
+ * The sound engine must accept a NULL player (platform/patches/m4a.c.patch):
+ * gMPlay_PokemonCry is NULL until the first cry plays, and e.g. the Pokedex
+ * info screen stops "the current cry" before any has played. On the GBA the
+ * engine reads BIOS junk through NULL and does nothing.
  */
 
 #include <stdio.h>
@@ -24,8 +25,16 @@ int main(void)
     m4aMPlayFadeOut(NULL, 4);
     m4aMPlayFadeOutTemporarily(NULL, 4);
     m4aMPlayFadeIn(NULL, 4);
+    m4aMPlayTempoControl(NULL, 0x100);
+    m4aMPlayVolumeControl(NULL, TRACKS_ALL, 0x100);
+    m4aMPlayImmInit(NULL);
+    if (IsCryPlaying())
+    {
+        printf("FAIL: no cry is playing\n");
+        return 1;
+    }
     printf("ok  : cry and player controls accept a NULL player\n");
 
-    printf("m4a_stub: all tests passed\n");
+    printf("m4a_null_player: all tests passed\n");
     return 0;
 }

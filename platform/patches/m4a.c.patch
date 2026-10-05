@@ -1,0 +1,159 @@
+--- a/src/m4a.c
++++ b/src/m4a.c
+@@ -6,6 +6,17 @@
+ 
+ #define BSS_CODE __attribute__((section(".bss.code")))
+ 
++#ifdef HOST_BUILD
++// PC port: game code passes gMPlay_PokemonCry, which is NULL until the
++// first cry plays. Through NULL the GBA reads BIOS junk, whose "ident" never
++// matches, so these calls do nothing; on the host they would crash.
++#define HOST_IGNORE_NULL_PLAYER(mplayInfo, ret) \
++    if ((mplayInfo) == NULL)                    \
++        return ret;
++#else
++#define HOST_IGNORE_NULL_PLAYER(mplayInfo, ret)
++#endif
++
+ COMMON_DATA struct SoundInfo gSoundInfo = {0};
+ COMMON_DATA struct PokemonCrySong gPokemonCrySongs[MAX_POKEMON_CRIES] = {0};
+ COMMON_DATA struct MusicPlayerInfo gPokemonCryMusicPlayers[MAX_POKEMON_CRIES] = {0};
+@@ -46,6 +57,7 @@
+ 
+ void MPlayContinue(struct MusicPlayerInfo *mplayInfo)
+ {
++    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
+     if (mplayInfo->ident == ID_NUMBER)
+     {
+         mplayInfo->ident++;
+@@ -56,6 +68,7 @@
+ 
+ void MPlayFadeOut(struct MusicPlayerInfo *mplayInfo, u16 speed)
+ {
++    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
+     if (mplayInfo->ident == ID_NUMBER)
+     {
+         mplayInfo->ident++;
+@@ -192,6 +205,7 @@
+ 
+ void m4aMPlayFadeOutTemporarily(struct MusicPlayerInfo *mplayInfo, u16 speed)
+ {
++    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
+     if (mplayInfo->ident == ID_NUMBER)
+     {
+         mplayInfo->ident++;
+@@ -204,6 +218,7 @@
+ 
+ void m4aMPlayFadeIn(struct MusicPlayerInfo *mplayInfo, u16 speed)
+ {
++    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
+     if (mplayInfo->ident == ID_NUMBER)
+     {
+         mplayInfo->ident++;
+@@ -217,8 +232,17 @@
+ 
+ void m4aMPlayImmInit(struct MusicPlayerInfo *mplayInfo)
+ {
++#ifdef HOST_BUILD
++    s32 trackCount;
++    struct MusicPlayerTrack *track;
++
++    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
++    trackCount = mplayInfo->trackCount;
++    track = mplayInfo->tracks;
++#else
+     s32 trackCount = mplayInfo->trackCount;
+     struct MusicPlayerTrack *track = mplayInfo->tracks;
++#endif
+ 
+     while (trackCount > 0)
+     {
+@@ -311,10 +335,12 @@
+     soundInfo->ident = ident;
+ }
+ 
++#ifndef HOST_BUILD // PC port: ARM code (BIOS call); unused anyway.
+ static void UNUSED MusicPlayerJumpTableCopy(void)
+ {
+     asm("swi 0x2A");
+ }
++#endif
+ 
+ void ClearChain(void *x)
+ {
+@@ -406,11 +432,16 @@
+ 
+     m4aSoundVSyncOn();
+ 
++#ifndef HOST_BUILD
++    // PC port: syncs timer 0 (the sample clock) to the display. The host has
++    // neither; REG_VCOUNT only changes while a frame is drawn, so this would
++    // wait forever.
+     while (*(vu8 *)REG_ADDR_VCOUNT == 159)
+         ;
+ 
+     while (*(vu8 *)REG_ADDR_VCOUNT != 159)
+         ;
++#endif
+ 
+     REG_TM0CNT_H = TIMER_ENABLE | TIMER_1CLK;
+ }
+@@ -617,6 +648,8 @@
+     s32 i;
+     struct MusicPlayerTrack *track;
+ 
++    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
++
+     if (mplayInfo->ident != ID_NUMBER)
+         return;
+ 
+@@ -1180,6 +1213,7 @@
+ 
+ void m4aMPlayTempoControl(struct MusicPlayerInfo *mplayInfo, u16 tempo)
+ {
++    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
+     if (mplayInfo->ident == ID_NUMBER)
+     {
+         mplayInfo->ident++;
+@@ -1195,6 +1229,8 @@
+     u32 bit;
+     struct MusicPlayerTrack *track;
+ 
++    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
++
+     if (mplayInfo->ident != ID_NUMBER)
+         return;
+ 
+@@ -1229,6 +1265,8 @@
+     u32 bit;
+     struct MusicPlayerTrack *track;
+ 
++    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
++
+     if (mplayInfo->ident != ID_NUMBER)
+         return;
+ 
+@@ -1264,6 +1302,8 @@
+     u32 bit;
+     struct MusicPlayerTrack *track;
+ 
++    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
++
+     if (mplayInfo->ident != ID_NUMBER)
+         return;
+ 
+@@ -1609,7 +1649,14 @@
+ 
+ bool32 IsPokemonCryPlaying(struct MusicPlayerInfo *mplayInfo)
+ {
++#ifdef HOST_BUILD
++    struct MusicPlayerTrack *track;
++
++    HOST_IGNORE_NULL_PLAYER(mplayInfo, FALSE)
++    track = mplayInfo->tracks;
++#else
+     struct MusicPlayerTrack *track = mplayInfo->tracks;
++#endif
+ 
+     if (track->chan && track->chan->track == track)
+         return TRUE;

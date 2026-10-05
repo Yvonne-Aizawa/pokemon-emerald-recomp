@@ -142,14 +142,12 @@ set(REFERENCE_SRC_EXCLUDE
     librfu_rfu              # GBA RFU link              -> host_rfu.c (Phase 16)
     librfu_sio32id          # GBA SIO                   -> host_rfu.c (Phase 16)
     librfu_stwi             # GBA STWI                  -> host_rfu.c (Phase 16)
-    m4a                     # GBA audio engine          -> host_m4a.c (Phase 13)
-    m4a_tables              # GBA audio tables          -> host_m4a.c (Phase 13)
     multiboot               # GBA link-cable upload     -> host_multiboot.c
     siirtc                  # cartridge RTC via GPIO    -> host_rtc.c
     test_runner_battle      # GBA test runner (TESTING builds only)
 )
-# Also never built: src/*.s (ARM code: crt0, m4a_1, decompress_asm,
-# libgcnmultiboot, rom_header -> host_gba_misc.c).
+# Also never built: src/*.s (ARM code: crt0, decompress_asm, libgcnmultiboot,
+# rom_header -> host_gba_misc.c; m4a_1 -> m4a_engine.c).
 
 file(GLOB _ref_c RELATIVE "${REFERENCE_DIR}" CONFIGURE_DEPENDS "${REFERENCE_DIR}/src/*.c")
 set(REFERENCE_SRC)
@@ -360,7 +358,8 @@ target_compile_options(pkmemerald-core
         -iquote "${HOST_INC}"
 )
 
-target_link_libraries(pkmemerald-core PUBLIC SDL2::SDL2)
+find_package(Threads REQUIRED)
+target_link_libraries(pkmemerald-core PUBLIC SDL2::SDL2 Threads::Threads)
 
 target_compile_definitions(pkmemerald-core
     PUBLIC
@@ -382,7 +381,7 @@ file(GLOB PLATFORM_TEST_SOURCES CONFIGURE_DEPENDS
     "${PLATFORM_DIR}/tests/*.c"
 )
 enable_testing()
-set(HEADLESS_TEST_ENV "SDL_VIDEODRIVER=dummy")
+set(HEADLESS_TEST_ENV "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
 foreach(TEST_SRC ${PLATFORM_TEST_SOURCES})
     get_filename_component(TEST_NAME "${TEST_SRC}" NAME_WE)
     add_executable(${TEST_NAME} "${TEST_SRC}")
@@ -406,7 +405,7 @@ target_link_libraries(pkmemerald PRIVATE
 # Boots the platform and the game, runs 60 game frames, exits 0.
 add_test(NAME pkmemerald-boot COMMAND pkmemerald -f 60 -s "${CMAKE_BINARY_DIR}/test-saves")
 set_tests_properties(pkmemerald-boot PROPERTIES
-    PASS_REGULAR_EXPRESSION "boot ok\nsave: [^\n]*\ngame init ok\nran 60 frames"
+    PASS_REGULAR_EXPRESSION "boot ok\nsave: [^\n]*\ngame init ok\naudio: [^\n]*\nran 60 frames"
     ENVIRONMENT "${HEADLESS_TEST_ENV}"
 )
 
