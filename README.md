@@ -32,4 +32,8 @@ The first build also builds upstream's tools and converts its graphics into `ref
 cmake --build build --target refrence-prepare
 ```
 
-There is no playable executable yet. The build currently produces the `pkmemerald-core` library and the tests in `platform/tests/`.
+There is no playable game yet. `./build/pkmemerald` boots the platform layer, runs an empty 60-frame loop and exits (`-h` for options). Run the tests with:
+
+```sh
+ctest --test-dir build
+```

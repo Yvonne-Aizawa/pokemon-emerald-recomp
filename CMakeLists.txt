@@ -1,13 +1,12 @@
 ###############################################################################
 # pkmemerald — PC port of pokeemerald-expansion
 #
-# Phase 3: the game's C sources (refrence/src/*.c) compile into
-# pkmemerald-core.
+# Phase 4: host entry point and main loop (headless).
 #
 # This CMakeLists builds:
 #   - pkmemerald-core  (STATIC)   the ported game code + platform layer
-#   - pkmemerald       (executable, NOT built yet — see PHASE_1_BUILD_EXE)
-#   - platform/tests/* (executables, HAL smoke tests)
+#   - pkmemerald       (executable) platform/src/host_main.c
+#   - platform/tests/* (executables, HAL smoke tests; run with `ctest`)
 #
 # How a refrence/src/*.c file is built (mirrors refrence/Makefile):
 #   1. tools/prepare_refrence.py   upstream's host tools + generated headers +
@@ -113,6 +112,9 @@ endif()
 file(GLOB PLATFORM_SOURCES CONFIGURE_DEPENDS
     "${PLATFORM_DIR}/src/*.c"
 )
+# The entry point belongs to the executable, not the library.
+set(HOST_MAIN_SOURCE "${PLATFORM_DIR}/src/host_main.c")
+list(REMOVE_ITEM PLATFORM_SOURCES "${HOST_MAIN_SOURCE}")
 
 #-------------------------------------------------------------------------------
 # refrence/src/ sources
@@ -129,6 +131,7 @@ set(REFRENCE_SRC_EXCLUDE
     agb_flash_mx            # GBA flash (Macronix)      -> Phase 8
     AgbRfu_LinkManager      # GBA wireless link manager -> Phase 16
     libisagbprn             # IS-AGB debug print        -> host_hal.c
+    main                    # AgbMain + GBA interrupts  -> host_main.c, main_loop.c
     librfu_intr             # GBA link interrupt        -> Phase 16
     librfu_rfu              # GBA RFU link              -> Phase 16
     librfu_sio32id          # GBA SIO                   -> Phase 16
@@ -297,11 +300,13 @@ unset(CMAKE_REQUIRED_FLAGS)
 file(GLOB PLATFORM_TEST_SOURCES CONFIGURE_DEPENDS
     "${PLATFORM_DIR}/tests/*.c"
 )
+enable_testing()
 if(PKM_CAN_LINK)
     foreach(TEST_SRC ${PLATFORM_TEST_SOURCES})
         get_filename_component(TEST_NAME "${TEST_SRC}" NAME_WE)
         add_executable(${TEST_NAME} "${TEST_SRC}")
         target_link_libraries(${TEST_NAME} PRIVATE pkmemerald-core m)
+        add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
     endforeach()
 else()
     message(WARNING
@@ -310,26 +315,26 @@ else()
 endif()
 
 #-------------------------------------------------------------------------------
-# Target: pkmemerald (executable) — not built until Phase 4.
+# Target: pkmemerald (executable)
+#
+# SDL2 is not linked until Phase 5 (and must then be a 32-bit build when
+# PKM_HOST_32BIT is on).
 #-------------------------------------------------------------------------------
-option(PHASE_1_BUILD_EXE "Build the executable (Phase 4+)" OFF)
+add_executable(pkmemerald "${HOST_MAIN_SOURCE}")
+target_link_libraries(pkmemerald PRIVATE pkmemerald-core)
 
-if(PHASE_1_BUILD_EXE)
-    add_executable(pkmemerald
-        platform/src/host_main.c
-    )
-    target_link_libraries(pkmemerald PRIVATE pkmemerald-core)
-    if(SDL2_FOUND)
-        target_link_libraries(pkmemerald PRIVATE SDL2::SDL2)
-    endif()
-endif()
+# Phase 4 "done when": boots, runs 60 frames, exits 0.
+add_test(NAME pkmemerald-boot COMMAND pkmemerald -f 60)
+set_tests_properties(pkmemerald-boot PROPERTIES
+    PASS_REGULAR_EXPRESSION "boot ok\nran 60 frames"
+)
 
 #-------------------------------------------------------------------------------
 # Reporting
 #-------------------------------------------------------------------------------
 list(LENGTH REFRENCE_SRC _n_ref)
 message(STATUS "")
-message(STATUS "pkmemerald Phase 3 build configuration:")
+message(STATUS "pkmemerald Phase 4 build configuration:")
 message(STATUS "  C compiler        : ${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}")
 message(STATUS "  Build type        : ${CMAKE_BUILD_TYPE}")
 message(STATUS "  32-bit host       : ${PKM_HOST_32BIT}")
@@ -339,5 +344,4 @@ else()
     message(STATUS "  Can link tests    : no (install gcc-multilib)")
 endif()
 message(STATUS "  refrence src/     : ${_n_ref} files")
-message(STATUS "  Build executable? : ${PHASE_1_BUILD_EXE}")
 message(STATUS "")

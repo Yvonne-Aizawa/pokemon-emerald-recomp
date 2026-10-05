@@ -146,6 +146,13 @@ Each phase is sized to fit a single focused session. Phases list the **files tou
 
 **Done when** `./build/pkmemerald` runs, prints "boot ok", runs 60 frames of nothing, and exits cleanly with code 0.
 
+**Status (done).** `./build/pkmemerald` prints "boot ok", runs 60 frames in ~1.0 s and exits 0. Run all checks with `ctest --test-dir build`. Differences from the outline above:
+- The existing `platform/include/platform/platform.h` and `platform/src/platform.c` (headless POSIX) were extended rather than adding `platform_stub.c`. `Platform_Init` takes a `struct PlatformConfig` (data/save dirs). New: `Platform_QuitRequested`/`Platform_RequestQuit` (SIGINT/SIGTERM set it) and `Platform_GetTimeNs`/`Platform_SleepNs`.
+- The main loop (`platform/main_loop.h`) paces at the GBA's real refresh rate, 59.7275 Hz (`HOST_FRAME_NS`), not 60 Hz. It drops the backlog if it falls more than 4 frames behind.
+- `pkmemerald -f N` sets the frame limit (default 60 until Phase 5 adds a window; `-f 0` runs until quit).
+- `refrence/src/main.c` is excluded; `gMain`, `ReadKeys`, the interrupt table etc. live there and will be undefined once game code is linked in.
+- Tests: `platform/tests/test_main_loop.c`, plus a ctest `pkmemerald-boot` check of the "done when" output.
+
 ---
 
 ## Phase 5 — Window, events, and VBlank timing
