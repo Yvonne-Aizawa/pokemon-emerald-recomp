@@ -1,0 +1,34 @@
+--- a/src/pokedex.c
++++ b/src/pokedex.c
+@@ -2605,7 +2605,14 @@
+     {
+         u16 spriteId = sPokedexView->monSpriteIds[i];
+ 
++#ifdef HOST_BUILD
++        // PC port: check for "no sprite" (0xFFFF) before indexing gSprites.
++        // Upstream indexes first, reading ~4 MB past the array: harmless on
++        // the GBA (mirrored RAM, and the result is discarded), a crash here.
++        if (spriteId != 0xFFFF && gSprites[spriteId].x2 == 0 && gSprites[spriteId].y2 == 0)
++#else
+         if (gSprites[spriteId].x2 == 0 && gSprites[spriteId].y2 == 0 && spriteId != 0xFFFF)
++#endif
+             sPokedexView->selectedMonSpriteId = spriteId;
+     }
+ }
+@@ -4490,6 +4497,16 @@
+     u32 index, bit, mask;
+     s8 retVal = 0;
+ 
++#ifdef HOST_BUILD
++    // PC port: 0 means "no national dex number". CreatePokedexList asks for
++    // one past the last Hoenn entry (HOENN_DEX_COUNT counts HOENN_DEX_NONE),
++    // whose national number is 0; the decrement below then makes `index`
++    // ~512 MB. The GBA's 28-bit bus wraps that into mirrored RAM and reads a
++    // junk bit; on the host it crashes. Treat it as never seen or caught.
++    if (nationalDexNo == 0 || nationalDexNo > NATIONAL_DEX_COUNT)
++        return 0;
++#endif
++
+     nationalDexNo--;
+     index = nationalDexNo / 8;
+     bit = nationalDexNo % 8;

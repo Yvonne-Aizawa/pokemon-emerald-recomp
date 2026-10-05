@@ -10,6 +10,7 @@
  * then the display is drawn.
  */
 
+#include "platform/crash_handler.h"
 #include "platform/host_game.h"
 #include "platform/host_input.h"
 #include "platform/host_render.h"
@@ -267,6 +268,10 @@ int main(int argc, char **argv)
         Usage(stderr, argv[0]);
         return 2;
     }
+
+    Crash_Install(CRASH_REPORT_FILE);
+    Crash_SetFrameCounter(Host_GetFrameCount);
+    Host_RegisterCrashWatches();
 
     if (Platform_Init(&config) != 0)
     {

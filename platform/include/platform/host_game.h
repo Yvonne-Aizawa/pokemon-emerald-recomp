@@ -28,6 +28,10 @@ void HostMain_RaiseVBlankInterrupts(void);
  * finish the frame: interrupts, display, input, timing. NULL: returns at once. */
 extern void (*gHostVBlankIntrWaitHandler)(void);
 
+/* Add the game's main/V-blank/H-blank callbacks to crash reports, so they
+ * show which screen the game was on (platform/crash_handler.h). */
+void Host_RegisterCrashWatches(void);
+
 #ifdef __cplusplus
 }
 #endif

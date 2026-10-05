@@ -23,6 +23,9 @@
 #include "libgcnmultiboot.h"
 #include "main.h"
 
+#include "platform/crash_handler.h"
+#include "platform/host_game.h"
+
 /* --------------------------------------------------------------------- */
 /* EWRAM reset                                                          */
 /*                                                                       */
@@ -201,4 +204,16 @@ void BitUnPack(const void *src, void *dest, const struct HostBitUnPackArgs *args
             }
         }
     }
+}
+
+/* --------------------------------------------------------------------- */
+/* Crash reports: which screen/state the game was in                     */
+/* --------------------------------------------------------------------- */
+
+void Host_RegisterCrashWatches(void)
+{
+    Crash_WatchFunctionPointer("gMain.callback1", (void *const *)&gMain.callback1);
+    Crash_WatchFunctionPointer("gMain.callback2", (void *const *)&gMain.callback2);
+    Crash_WatchFunctionPointer("gMain.vblankCallback", (void *const *)&gMain.vblankCallback);
+    Crash_WatchFunctionPointer("gMain.hblankCallback", (void *const *)&gMain.hblankCallback);
 }

@@ -16,6 +16,11 @@
  *   - Sound effects, fanfare and cries finish immediately, so nothing ever
  *     waits on them.
  * Phase 13 replaces this with real playback.
+ *
+ * Every function taking a player accepts NULL as a no-op: game code passes
+ * gMPlay_PokemonCry, which is NULL until the first cry plays. The real
+ * engine first checks the player's `ident` field, which through NULL reads
+ * BIOS junk on the GBA, never matches, and so does nothing.
  */
 
 #include "global.h"
@@ -87,11 +92,15 @@ void m4aSongNumStop(u16 n)
 
 void m4aMPlayStop(struct MusicPlayerInfo *mplayInfo)
 {
+    if (mplayInfo == NULL)
+        return;
     mplayInfo->status |= MUSICPLAYER_STATUS_PAUSE;
 }
 
 void m4aMPlayContinue(struct MusicPlayerInfo *mplayInfo)
 {
+    if (mplayInfo == NULL)
+        return;
     mplayInfo->status &= ~MUSICPLAYER_STATUS_PAUSE;
 }
 
@@ -109,6 +118,8 @@ void m4aMPlayAllStop(void)
  * only pauses it, so a fade-in can resume it. */
 void m4aMPlayFadeOut(struct MusicPlayerInfo *mplayInfo, u16 speed)
 {
+    if (mplayInfo == NULL)
+        return;
     mplayInfo->fadeOC = speed;
     mplayInfo->fadeOI = speed;
     mplayInfo->fadeOV = (64 << FADE_VOL_SHIFT);
@@ -116,6 +127,8 @@ void m4aMPlayFadeOut(struct MusicPlayerInfo *mplayInfo, u16 speed)
 
 void m4aMPlayFadeOutTemporarily(struct MusicPlayerInfo *mplayInfo, u16 speed)
 {
+    if (mplayInfo == NULL)
+        return;
     mplayInfo->fadeOC = speed;
     mplayInfo->fadeOI = speed;
     mplayInfo->fadeOV = (64 << FADE_VOL_SHIFT) | TEMPORARY_FADE;
@@ -123,6 +136,8 @@ void m4aMPlayFadeOutTemporarily(struct MusicPlayerInfo *mplayInfo, u16 speed)
 
 void m4aMPlayFadeIn(struct MusicPlayerInfo *mplayInfo, u16 speed)
 {
+    if (mplayInfo == NULL)
+        return;
     mplayInfo->fadeOC = speed;
     mplayInfo->fadeOI = speed;
     mplayInfo->fadeOV = (0 << FADE_VOL_SHIFT) | FADE_IN;

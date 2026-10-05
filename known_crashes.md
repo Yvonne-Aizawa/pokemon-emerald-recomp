@@ -14,3 +14,15 @@ reads/writes through bad pointers that the GBA tolerates:
   opening "Party Pokémon").
 - Leaving the box (B → No, or Close Box) frees `sStorage` while that frame's
   sprite callbacks still read through it (`SpriteCB_CursorShadow`).
+
+### Opening the Pokédex
+Fixed by `platform/patches/pokedex.c.patch`, two upstream out-of-bounds reads:
+- `CreatePokedexList` looks up one entry past the Hoenn dex (`HOENN_DEX_COUNT`
+  counts `HOENN_DEX_NONE`), whose national number is 0; `GetSetPokedexFlag(0)`
+  then read ~512 MB past the save block. Dex number 0 now reads as unseen.
+- `UpdateSelectedMonSpriteId` indexed `gSprites[0xFFFF]` before checking for
+  "no sprite" (crashed on opening an entry); the check now comes first.
+- Staying on an entry: the info screen stops "the current cry" through
+  `gMPlay_PokemonCry`, which is NULL until a cry has played. The real sound
+  engine ignores that; the silent stand-in (`platform/src/host_m4a.c`) wrote
+  through it. Its player functions now treat NULL as a no-op too.

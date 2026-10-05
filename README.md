@@ -33,6 +33,8 @@ The first build also builds upstream's tools and converts its graphics into `ref
 cmake --build build --target reference-prepare
 ```
 
+If the game crashes, it prints a report (signal, crashing function, call stack, and the game's current callbacks, i.e. which screen it was on) and also writes it to `pkmemerald-crash.txt` in the current directory. Please include that file when reporting a crash.
+
 Saves go to `saves/pkmemerald.sav` (a standard 128 KiB GBA flash save; `-s DIR` to use another directory).
 
 `./build/pkmemerald` runs the game in a window (`-h` for options). It is playable but silent, and early: expect bugs. Controls: arrows, Z = A, X = B, Enter = Start, Backspace = Select, Shift = L, Ctrl = R, or a gamepad. Run the tests with:
