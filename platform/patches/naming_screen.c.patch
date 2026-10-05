@@ -1,0 +1,16 @@
+--- a/src/naming_screen.c	2026-10-05 17:32:18.808427775 +0000
++++ b/src/naming_screen.c	2026-10-05 17:32:18.856566426 +0000
+@@ -2071,6 +2071,13 @@
+ static void CB2_NamingScreen(void)
+ {
+     RunTasks();
++#ifdef HOST_BUILD
++    // PC port: Task_NamingScreen's exit state frees sNamingScreen. On the GBA the
++    // sprite callbacks that still run this frame read through the NULL pointer
++    // harmlessly; on the host that is a crash.
++    if (sNamingScreen == NULL)
++        return;
++#endif
+     AnimateSprites();
+     BuildOamBuffer();
+     UpdatePaletteFade();
