@@ -1,0 +1,21 @@
+--- a/src/sprite.c
++++ b/src/sprite.c
+@@ -1422,6 +1422,18 @@
+ 
+ void SetSpriteSheetFrameTileNum(struct Sprite *sprite)
+ {
++#ifdef HOST_BUILD
++    // PC port: some anim tables start with a NULL entry for an index that is
++    // never played (e.g. gSpriteTemplate_CategoryIcons: 0 is
++    // DAMAGE_CATEGORY_NONE), but a new sprite starts on anim 0, so
++    // CreateSpriteAt reads its first frame through NULL. On the GBA that reads
++    // BIOS junk, which StartSpriteAnim replaces at once; here it crashes.
++    if (sprite->usingSheet && sprite->anims[sprite->animNum] == NULL)
++    {
++        sprite->oam.tileNum = sprite->sheetTileStart;
++        return;
++    }
++#endif
+     if (sprite->usingSheet)
+     {
+         s16 tileOffset = sprite->anims[sprite->animNum][sprite->animCmdIndex].frame.imageValue;

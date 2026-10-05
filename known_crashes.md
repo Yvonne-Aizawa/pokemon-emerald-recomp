@@ -38,3 +38,12 @@ Pokémon the naming screen frees its data and returns straight to the battle,
 whose sprite update keeps running the naming screen's cursor and underscore
 callbacks, which read through the freed pointer. They now do nothing once it
 is gone.
+
+### Learning a new move when the Pokémon already knows 4
+Fixed by `platform/patches/sprite.c.patch`: the summary screen's move
+category icon (also used by the move relearner and the HGSS Pokédex) has a
+`NULL` first animation, for `DAMAGE_CATEGORY_NONE`, which is never played.
+A new sprite starts on animation 0, though, so creating it read its first
+frame through `NULL` (BIOS junk on the GBA, replaced at once by
+`StartSpriteAnim`). `SetSpriteSheetFrameTileNum` now skips a `NULL` animation.
+Also crashed when selecting a move on the summary's moves page.
