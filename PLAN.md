@@ -59,6 +59,8 @@ Each phase is sized to fit a single focused session. Phases list the **files tou
 
 **Done when** `git status` is clean and the new layout is documented.
 
+**Status (done).** `README.md` and `.gitignore` added. There is no top-level `src/`: all port code lives in `platform/` and `tools/`.
+
 ---
 
 ## Phase 1 — Build system: replace GBA Makefile with CMake
