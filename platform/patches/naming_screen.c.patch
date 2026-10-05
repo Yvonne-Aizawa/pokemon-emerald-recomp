@@ -1,5 +1,5 @@
 --- a/src/naming_screen.c	2026-10-05 17:32:18.808427775 +0000
-+++ b/src/naming_screen.c	2026-10-05 17:32:18.856566426 +0000
++++ b/src/naming_screen.c	2026-10-05 17:40:13.186968539 +0000
 @@ -2071,6 +2071,13 @@
  static void CB2_NamingScreen(void)
  {
@@ -14,3 +14,15 @@
      AnimateSprites();
      BuildOamBuffer();
      UpdatePaletteFade();
+@@ -2092,6 +2099,11 @@
+     LoadOam();
+     ProcessSpriteCopyRequests();
+     TransferPlttBuffer();
++#ifdef HOST_BUILD
++    // PC port: the VBlank callback outlives sNamingScreen for a frame (see above).
++    if (sNamingScreen == NULL)
++        return;
++#endif
+     SetGpuReg(REG_OFFSET_BG1VOFS, sNamingScreen->bg1vOffset);
+     SetGpuReg(REG_OFFSET_BG2VOFS, sNamingScreen->bg2vOffset);
+     SetGpuReg(REG_OFFSET_BG1CNT, GetGpuReg(REG_OFFSET_BG1CNT) & 0xFFFC);
