@@ -14,11 +14,20 @@
  *
  * Mixing follows the hardware: PSG volume (NR50) and routing (NR51), PSG and
  * Direct Sound ratios and routing (SOUNDCNT_H), master enable (SOUNDCNT_X),
- * then bias, 10-bit clamp and the DAC resolution (SOUNDBIAS). Direct Sound
- * samples are held for their full sample period, as the hardware FIFO does.
- * The output is filtered only to remove DC (the PSG is unipolar; the real
- * output stage is AC-coupled) and box-filtered PSG oversampling to tame
- * aliasing.
+ * then bias and 10-bit clamp (SOUNDBIAS).
+ *
+ * Two output styles:
+ *   - raw (default): exactly what the DAC puts out -- each Direct Sound
+ *     sample held for its full period, as the FIFO does, and the 10-bit value
+ *     cut to the DAC resolution (8 bits in this game), as heard through an
+ *     unfiltered line-out or an emulator.
+ *   - smooth (--smooth-sound): Direct Sound samples are interpolated, the DAC's
+ *     resolution step is skipped, and a gentle low-pass (10 kHz) stands in
+ *     for the analog stage after the GBA's DAC (amplifier, speaker or
+ *     headphones), which keeps the raw output's ultrasonic hash from reaching
+ *     the ears.
+ * Both remove DC (the PSG is unipolar; the real output is AC-coupled) and
+ * box-filter the oversampled PSG to tame aliasing.
  *
  * Everything runs in HostAudio_SoundFrame, which may be called from a signal
  * handler: no allocation, no locks, no libc calls besides memcpy/memset. The
@@ -46,10 +55,18 @@ static int16_t sRing[RING_FRAMES * 2];
 static uint32_t sRingWrite;  /* frames ever written (producer) */
 static uint32_t sRingRead;   /* frames ever read (consumer) */
 static volatile bool sEnabled;
+static uint32_t sUnderrunFrames;  /* frames the device wanted but didn't get */
+static uint32_t sDroppedFrames;   /* rendered frames that didn't fit */
 
 void HostAudio_SetEnabled(bool enabled)
 {
     sEnabled = enabled;
+}
+
+void HostAudio_GetStats(uint32_t *underrunFrames, uint32_t *droppedFrames)
+{
+    *underrunFrames = __atomic_load_n(&sUnderrunFrames, __ATOMIC_RELAXED);
+    *droppedFrames = __atomic_load_n(&sDroppedFrames, __ATOMIC_RELAXED);
 }
 
 int HostAudio_Buffered(void)
@@ -73,6 +90,8 @@ int HostAudio_Read(int16_t *out, int frames)
         out[i * 2 + 1] = sRing[at + 1];
     }
     memset(out + n * 2, 0, (size_t)(frames - n) * 2 * sizeof(int16_t));
+    if (n < frames && sEnabled)
+        __atomic_fetch_add(&sUnderrunFrames, frames - n, __ATOMIC_RELAXED);
     __atomic_store_n(&sRingRead, read + n, __ATOMIC_RELEASE);
     return n;
 }
@@ -357,45 +376,76 @@ static void SampleChannels(double dt, float out[4])
 #define OVERSAMPLE 4
 #define DC_BLOCK   0.998f
 
+/* 2nd-order Butterworth low-pass, 10 kHz at 48 kHz (RBJ cookbook, Q = 1/sqrt 2). */
+#define LP_B0 0.2201947f
+#define LP_B1 0.4403894f
+#define LP_B2 0.2201947f
+#define LP_A1 (-0.3075664f)
+#define LP_A2 0.1883452f
+
 static int8_t sDsRight[PCM_DMA_BUF_SIZE];  /* the frame that plays now */
 static int8_t sDsLeft[PCM_DMA_BUF_SIZE];
 static int sDsCount;
 static double sFrameFraction;
-static float sDcIn[2], sDcOut[2];
+static volatile bool sRawOutput = true;
 
-/* One output side: PSG + Direct Sound through the hardware's mixer and DAC. */
-static int MixSide(float psg, int dsA, int dsB, bool aOn, bool bOn)
+struct OutputFilter
+{
+    float dcIn, dcOut;          /* DC blocker */
+    float x1, x2, y1, y2;       /* low-pass history */
+};
+static struct OutputFilter sFilter[2];
+
+void HostAudio_SetRawOutput(bool raw)
+{
+    sRawOutput = raw;
+}
+
+/* One output side: PSG + Direct Sound through the hardware's mixer and DAC
+ * (DAC resolution only for raw output). */
+static float MixSide(float psg, float dsA, float dsB, bool aOn, bool bOn, bool raw)
 {
     uint16_t cntH = REG_SOUNDCNT_H;
     uint16_t bias = REG_SOUNDBIAS;
     int resolution = bias >> 14;
     int level = bias & 0x3FE;
     int psgRatio = cntH & 3;
-    int value;
+    float value;
 
     if (psgRatio == 3)
         psgRatio = 2;
-    value = (int)(psg * 8) >> (4 - psgRatio);
+    value = psg * 8 / (1 << (4 - psgRatio));
     if (aOn)
-        value += (dsA * 4) >> ((cntH & 0x04) ? 0 : 1);
+        value += dsA * ((cntH & 0x04) ? 4 : 2);
     if (bOn)
-        value += (dsB * 4) >> ((cntH & 0x08) ? 0 : 1);
+        value += dsB * ((cntH & 0x08) ? 4 : 2);
 
     value += level;
     if (value < 0)
         value = 0;
     else if (value > 0x3FF)
         value = 0x3FF;
-    value &= ~((2 << resolution) - 1);
+    if (raw)
+        value = (int)value & ~((2 << resolution) - 1);
     return value - level;
 }
 
-static int16_t DcBlock(int side, float x)
+static int16_t Output(struct OutputFilter *f, float x, bool raw)
 {
-    float y = x - sDcIn[side] + DC_BLOCK * sDcOut[side];
+    float y = x - f->dcIn + DC_BLOCK * f->dcOut;
 
-    sDcIn[side] = x;
-    sDcOut[side] = y;
+    f->dcIn = x;
+    f->dcOut = y;
+    if (!raw)
+    {
+        float lp = LP_B0 * y + LP_B1 * f->x1 + LP_B2 * f->x2 - LP_A1 * f->y1 - LP_A2 * f->y2;
+
+        f->x2 = f->x1;
+        f->x1 = y;
+        f->y2 = f->y1;
+        f->y1 = lp;
+        y = lp;
+    }
     if (y > 32767)
         return 32767;
     if (y < -32768)
@@ -403,10 +453,32 @@ static int16_t DcBlock(int side, float x)
     return (int16_t)y;
 }
 
+/* Direct Sound sample at position `t` (in samples) of the frame now playing;
+ * `nextRight/Left` continue it (the frame mixed just now). */
+static void DirectSoundAt(double t, bool raw, const int8_t *nextRight, const int8_t *nextLeft,
+                          float *right, float *left)
+{
+    int i = (int)t;
+    float frac = (float)(t - i);
+    int nextA, nextB;
+
+    if (raw || sDsCount == 0)
+    {
+        *right = sDsCount ? sDsRight[i] : 0;
+        *left = sDsCount ? sDsLeft[i] : 0;
+        return;
+    }
+    nextA = i + 1 < sDsCount ? sDsRight[i + 1] : nextRight[0];
+    nextB = i + 1 < sDsCount ? sDsLeft[i + 1] : nextLeft[0];
+    *right = sDsRight[i] + (nextA - sDsRight[i]) * frac;
+    *left = sDsLeft[i] + (nextB - sDsLeft[i]) * frac;
+}
+
 void HostAudio_SoundFrame(const int8_t *right, const int8_t *left, int count, int pcmFreq)
 {
     uint32_t write, buffered, at;
     double frameSeconds, ideal, adjust, dt;
+    bool raw = sRawOutput;
     int frames, k;
 
     if (!sEnabled || pcmFreq <= 0 || count <= 0 || count > PCM_DMA_BUF_SIZE)
@@ -434,10 +506,10 @@ void HostAudio_SoundFrame(const int8_t *right, const int8_t *left, int count, in
         uint8_t nr50 = NR(OFS_NR50), nr51 = NR(OFS_NR51);
         uint16_t cntH = REG_SOUNDCNT_H;
         float sum[4] = { 0, 0, 0, 0 }, out[4], psgRight = 0, psgLeft = 0;
-        int dsIndex = sDsCount ? k * sDsCount / frames : 0;
-        int dsA = sDsCount ? sDsRight[dsIndex] : 0;
-        int dsB = sDsCount ? sDsLeft[dsIndex] : 0;
-        int sideRight, sideLeft, i, s;
+        float dsA, dsB, sideRight, sideLeft;
+        int i, s;
+
+        DirectSoundAt((double)k * sDsCount / frames, raw, right, left, &dsA, &dsB);
 
         for (s = 0; s < OVERSAMPLE; s++)
         {
@@ -457,8 +529,8 @@ void HostAudio_SoundFrame(const int8_t *right, const int8_t *left, int count, in
 
         if (REG_SOUNDCNT_X & 0x80)
         {
-            sideRight = MixSide(psgRight, dsA, dsB, cntH & 0x0100, cntH & 0x1000);
-            sideLeft = MixSide(psgLeft, dsA, dsB, cntH & 0x0200, cntH & 0x2000);
+            sideRight = MixSide(psgRight, dsA, dsB, cntH & 0x0100, cntH & 0x1000, raw);
+            sideLeft = MixSide(psgLeft, dsA, dsB, cntH & 0x0200, cntH & 0x2000, raw);
         }
         else
         {
@@ -469,8 +541,8 @@ void HostAudio_SoundFrame(const int8_t *right, const int8_t *left, int count, in
         if (buffered + k < MAX_BUFFERED)
         {
             at = ((write + k) & (RING_FRAMES - 1)) * 2;
-            sRing[at] = DcBlock(0, sideLeft * 64.0f);
-            sRing[at + 1] = DcBlock(1, sideRight * 64.0f);
+            sRing[at] = Output(&sFilter[0], sideLeft * 64.0f, raw);
+            sRing[at + 1] = Output(&sFilter[1], sideRight * 64.0f, raw);
         }
 
         sSequencerTime += frameSeconds / frames;
@@ -480,6 +552,10 @@ void HostAudio_SoundFrame(const int8_t *right, const int8_t *left, int count, in
             SequencerClock();
         }
     }
+    if (buffered + frames > MAX_BUFFERED)
+        __atomic_fetch_add(&sDroppedFrames,
+                           buffered >= MAX_BUFFERED ? frames : buffered + frames - MAX_BUFFERED,
+                           __ATOMIC_RELAXED);
     if (buffered < MAX_BUFFERED)
     {
         uint32_t written = MAX_BUFFERED - buffered;

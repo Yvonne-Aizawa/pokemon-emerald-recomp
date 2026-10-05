@@ -58,6 +58,9 @@ int main(void)
 
     m4aSoundInit();
     HostAudio_SetEnabled(true);
+    /* The BIOS centres the DAC at boot; with bias 0 every negative Direct
+     * Sound sample was clipped away (quiet, distorted instruments). */
+    Check((REG_SOUNDBIAS & 0x3FE) == 0x200, "DAC bias is centred (0x200)");
     Check(RunFrames(30) < 64, "silence before anything plays");
 
     m4aSongNumStart(MUS_LITTLEROOT);

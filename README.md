@@ -37,7 +37,7 @@ If the game crashes, it prints a report (signal, crashing function, call stack, 
 
 Saves go to `saves/pkmemerald.sav` (a standard 128 KiB GBA flash save; `-s DIR` to use another directory).
 
-`./build/pkmemerald` runs the game in a window (`-h` for options). It is playable, with sound, but early: expect bugs. `--mute` turns the sound off; `-a FILE` records it to a WAV file instead. Like on the GBA, the game starts in mono: switch "Sound" to Stereo in the in-game Options. Controls: arrows, Z = A, X = B, Enter = Start, Backspace = Select, Shift = L, Ctrl = R, or a gamepad. Run the tests with:
+`./build/pkmemerald` runs the game in a window (`-h` for options). It is playable, with sound, but early: expect bugs. `--mute` turns the sound off; `-a FILE` records it to a WAV file instead; the sound is the GBA's exact output; `--smooth-sound` interpolates and low-passes it instead. Like on the GBA, the game starts in mono: switch "Sound" to Stereo in the in-game Options. Controls: arrows, Z = A, X = B, Enter = Start, Backspace = Select, Shift = L, Ctrl = R, or a gamepad. Run the tests with:
 
 ```sh
 ctest --test-dir build

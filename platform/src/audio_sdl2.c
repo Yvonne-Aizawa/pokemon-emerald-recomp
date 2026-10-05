@@ -53,9 +53,14 @@ bool HostAudio_OpenDevice(void)
 
 void HostAudio_CloseDevice(void)
 {
+    uint32_t underruns, dropped;
+
     if (sDevice == 0)
         return;
     HostAudio_SetEnabled(false);
+    HostAudio_GetStats(&underruns, &dropped);
+    printf("audio: %.2f s of underruns, %.2f s dropped\n",
+           (double)underruns / HOST_AUDIO_RATE, (double)dropped / HOST_AUDIO_RATE);
     SDL_CloseAudioDevice(sDevice);
     SDL_QuitSubSystem(SDL_INIT_AUDIO);
     sDevice = 0;

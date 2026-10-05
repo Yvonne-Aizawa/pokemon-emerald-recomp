@@ -46,11 +46,15 @@ volatile uint16_t g_host_mmio[0x400];/*   2 KiB, addresses 0x04000000..0x040007F
 
 /* Power-on values of the I/O registers that aren't 0. KEYINPUT is
  * active-low: all bits set means no button is pressed. (Zero would read as
- * every button held -- including the A+B+Start+Select soft-reset combo.) */
+ * every button held -- including the A+B+Start+Select soft-reset combo.)
+ * SOUNDBIAS: the BIOS centres the DAC (bias level 0x200) at boot; the game
+ * only changes its resolution bits. With a bias of 0 the negative half of
+ * every Direct Sound wave would be clipped away. */
 static void ResetIoRegs(void)
 {
     memset((void *)g_host_mmio, 0, sizeof(g_host_mmio));
     REG_KEYINPUT = KEYS_MASK;
+    REG_SOUNDBIAS = 0x200;
 }
 
 __attribute__((constructor)) static void InitIoRegs(void)
@@ -91,9 +95,12 @@ void RegisterRamReset(u32 resetFlags)
     if (resetFlags & RESET_IWRAM)
         memset(g_host_iwram, 0, sizeof(g_host_iwram));
     if (resetFlags & RESET_SIO_REGS)
-        memset((void *)g_host_mmio + 0x80, 0, 0x40);  /* SIOCNT region */
+        memset((char *)g_host_mmio + 0x120, 0, 0x40);  /* serial: 0x120-0x15F */
     if (resetFlags & RESET_SOUND_REGS)
-        memset((void *)g_host_mmio + 0x60, 0, 0x30); /* sound region */
+    {
+        memset((char *)g_host_mmio + 0x60, 0, 0x48);   /* sound: 0x60-0xA7 */
+        REG_SOUNDBIAS = 0x200;                          /* BIOS default, see above */
+    }
     if (resetFlags & RESET_REGS)
         ResetIoRegs();
 }

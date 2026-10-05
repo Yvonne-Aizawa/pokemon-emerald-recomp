@@ -56,7 +56,7 @@ static const struct { const char *name; uint16_t button; } sButtonNames[] = {
 static void Usage(FILE *out, const char *argv0)
 {
     fprintf(out,
-            "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [-x SCALE] [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT] [--fast] [--mute]\n"
+            "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [-x SCALE] [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT] [--fast] [--mute] [--smooth-sound]\n"
             "  -d DATA_DIR  converted game data (default: assets)\n"
             "  -s SAVE_DIR  save files (default: saves)\n"
             "  -x SCALE     initial window size as a multiple of 240x160 (default: %d)\n"
@@ -68,7 +68,8 @@ static void Usage(FILE *out, const char *argv0)
             "               (buttons: a b select start up down left right l r; HOLD\n"
             "               defaults to %d frames)\n"
             "  --fast       don't wait between frames (scripted test runs); implies --mute\n"
-            "  --mute       no sound\n",
+            "  --mute       no sound\n"
+            "  --smooth-sound  interpolated, low-passed sound instead of the exact GBA output\n",
             argv0, DEFAULT_SCALE, DEFAULT_HOLD_FRAMES);
 }
 
@@ -276,6 +277,11 @@ int main(int argc, char **argv)
         if (strcmp(arg, "--mute") == 0)
         {
             sound = false;
+            continue;
+        }
+        if (strcmp(arg, "--smooth-sound") == 0)
+        {
+            HostAudio_SetRawOutput(false);
             continue;
         }
         if (arg[0] == '-' && strchr("dsxfoia", arg[1]) != NULL && arg[1] != '\0' && arg[2] == '\0' && i + 1 < argc)

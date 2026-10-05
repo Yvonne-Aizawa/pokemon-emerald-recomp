@@ -36,6 +36,14 @@ void HostAudio_SoundFrame(const int8_t *right, const int8_t *left, int count, in
  * produce frames far faster than real time). */
 void HostAudio_SetEnabled(bool enabled);
 
+/* Exact DAC output (held samples, 8-bit steps; the default) or smoothed
+ * output (false); see host_audio.c. */
+void HostAudio_SetRawOutput(bool raw);
+
+/* Glitch counters, in output frames: the device ran dry (crackle), or
+ * rendered sound didn't fit the buffer (skips). */
+void HostAudio_GetStats(uint32_t *underrunFrames, uint32_t *droppedFrames);
+
 /* Rendered stereo frames waiting in the ring buffer. */
 int HostAudio_Buffered(void);
 
