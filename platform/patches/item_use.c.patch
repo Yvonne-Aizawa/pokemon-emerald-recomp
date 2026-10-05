@@ -1,0 +1,16 @@
+--- a/src/item_use.c
++++ b/src/item_use.c
+@@ -1198,6 +1198,13 @@
+     bool8 cannotUse = FALSE;
+     const u8* failStr = NULL;
+     u32 i, battlerTarget;
++#ifdef HOST_BUILD
++    // PC port: the bag passes mon = NULL (ItemUseInBattle_BagMenu). Upstream
++    // reads its HP anyway -- BIOS junk on the GBA, a crash here. Use the
++    // active battler's party slot, which the bag just stored in slotId.
++    if (mon == NULL)
++        mon = &gPlayerParty[gPartyMenu.slotId];
++#endif
+     u16 hp = GetMonData(mon, MON_DATA_HP);
+ 
+     if (gPartyMenu.slotId == 0)

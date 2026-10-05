@@ -26,3 +26,15 @@ Fixed by `platform/patches/pokedex.c.patch`, two upstream out-of-bounds reads:
   `gMPlay_PokemonCry`, which is NULL until a cry has played. The real sound
   engine ignores that; the silent stand-in (`platform/src/host_m4a.c`) wrote
   through it. Its player functions now treat NULL as a no-op too.
+
+### Throwing a Poké Ball
+Fixed by `platform/patches/item_use.c.patch`: using an item from the battle bag
+calls `CannotUseItemsInBattle(item, NULL)`, which reads the HP of that NULL
+Pokémon. It now uses the active battler's party slot instead.
+
+### Nicknaming a caught Pokémon
+Fixed in `platform/patches/naming_screen.c.patch`: after naming a caught
+Pokémon the naming screen frees its data and returns straight to the battle,
+whose sprite update keeps running the naming screen's cursor and underscore
+callbacks, which read through the freed pointer. They now do nothing once it
+is gone.
