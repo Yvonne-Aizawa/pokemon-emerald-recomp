@@ -3,7 +3,8 @@
  *
  * The host main loop. Replaces the GBA's interrupt-driven loop (AgbMain +
  * VBlankIntrWait): once per frame it polls OS events, calls the registered
- * VBlank callback, presents, and sleeps until the next frame.
+ * frame callback (the game's frame: logic, then its V-count/V-blank
+ * interrupts), presents, and sleeps until the next frame.
  */
 
 #ifndef PLATFORM_MAIN_LOOP_H
@@ -18,14 +19,14 @@ extern "C" {
 /* GBA frame timing: 280896 CPU cycles at 2^24 Hz, i.e. ~59.7275 Hz. */
 #define HOST_FRAME_NS 16742706u
 
-typedef void (*HostVBlankCallback)(void);
+typedef void (*HostFrameCallback)(void);
 
-/* The callback run once per frame (the game's per-frame work in later
- * phases). NULL disables it. */
-void Host_SetVBlankCallback(HostVBlankCallback callback);
+/* The callback run once per frame (HostMain_RunFrame for the game). NULL
+ * disables it. */
+void Host_SetFrameCallback(HostFrameCallback callback);
 
-/* Run one frame's VBlank work. Called by Host_RunMainLoop. */
-void Host_OnVBlank(void);
+/* Run one frame's work. Called by Host_RunMainLoop. */
+void Host_RunFrame(void);
 
 /* Run frames until Platform_QuitRequested(), or until maxFrames have run
  * (0 = no limit). Returns the number of frames run. */

@@ -13,18 +13,18 @@
  * backlog instead of running frames back-to-back to catch up. */
 #define MAX_FRAME_LAG 4
 
-static HostVBlankCallback sVBlankCallback;
+static HostFrameCallback sFrameCallback;
 static uint32_t sFrameCount;
 
-void Host_SetVBlankCallback(HostVBlankCallback callback)
+void Host_SetFrameCallback(HostFrameCallback callback)
 {
-    sVBlankCallback = callback;
+    sFrameCallback = callback;
 }
 
-void Host_OnVBlank(void)
+void Host_RunFrame(void)
 {
-    if (sVBlankCallback != NULL)
-        sVBlankCallback();
+    if (sFrameCallback != NULL)
+        sFrameCallback();
 }
 
 uint32_t Host_GetFrameCount(void)
@@ -46,7 +46,7 @@ uint32_t Host_RunMainLoop(uint32_t maxFrames)
             break;
 
         Platform_FrameBegin();
-        Host_OnVBlank();
+        Host_RunFrame();
         Platform_FrameEnd();
 
         sFrameCount++;

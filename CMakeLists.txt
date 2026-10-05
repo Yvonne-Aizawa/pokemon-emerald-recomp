@@ -1,7 +1,8 @@
 ###############################################################################
 # pkmemerald — PC port of pokeemerald-expansion
 #
-# Phase 4: host entry point and main loop (headless).
+# Phase 4: host entry point and main loop (headless), linked against the
+# whole game: refrence/src/*.c, data/*.s and the songs.
 #
 # This CMakeLists builds:
 #   - pkmemerald-core  (STATIC)   the ported game code + platform layer
@@ -14,6 +15,9 @@
 #   2. platform/patches/<f>.patch  optional host patch, applied to a copy
 #   3. tools/host_preprocess.sh    host cpp | preproc  ->  <f>.i
 #   4. host compiler               <f>.i -> object in pkmemerald-core
+#
+# Assembly *data* (data/*.s, sound/songs/midi/*.s -- no ARM code) is built by
+# tools/host_assemble.sh with the host assembler.
 ###############################################################################
 
 cmake_minimum_required(VERSION 3.20)
@@ -41,6 +45,11 @@ if(PKM_HOST_32BIT)
     add_compile_options(-m32)
     add_link_options(-m32)
 endif()
+
+# The assembled game data (data/*.s) holds absolute pointers in read-only
+# sections, as on the GBA; a position-independent executable would need text
+# relocations for them.
+add_link_options(-no-pie)
 
 # The codebase was written for `-Wall -Wextra` under arm-none-eabi-gcc. We
 # follow suit on the host, but suppress the warning floods that come from
@@ -125,24 +134,24 @@ list(REMOVE_ITEM PLATFORM_SOURCES "${HOST_MAIN_SOURCE}")
 # a later phase will.
 #-------------------------------------------------------------------------------
 set(REFRENCE_SRC_EXCLUDE
-    agb_flash               # GBA flash save            -> Phase 8
-    agb_flash_1m            # GBA 1M flash              -> Phase 8
-    agb_flash_le            # GBA flash (legacy)        -> Phase 8
-    agb_flash_mx            # GBA flash (Macronix)      -> Phase 8
-    AgbRfu_LinkManager      # GBA wireless link manager -> Phase 16
+    agb_flash               # GBA flash save            -> host_flash.c (Phase 8)
+    agb_flash_1m            # GBA 1M flash              -> host_flash.c (Phase 8)
+    agb_flash_le            # GBA flash (legacy)        -> host_flash.c (Phase 8)
+    agb_flash_mx            # GBA flash (Macronix)      -> host_flash.c (Phase 8)
+    AgbRfu_LinkManager      # GBA wireless link manager -> host_rfu.c (Phase 16)
     libisagbprn             # IS-AGB debug print        -> host_hal.c
-    main                    # AgbMain + GBA interrupts  -> host_main.c, main_loop.c
-    librfu_intr             # GBA link interrupt        -> Phase 16
-    librfu_rfu              # GBA RFU link              -> Phase 16
-    librfu_sio32id          # GBA SIO                   -> Phase 16
-    librfu_stwi             # GBA STWI                  -> Phase 16
-    m4a                     # GBA audio engine          -> Phase 13
-    m4a_tables              # GBA audio tables          -> Phase 13
+    librfu_intr             # GBA link interrupt        -> host_rfu.c (Phase 16)
+    librfu_rfu              # GBA RFU link              -> host_rfu.c (Phase 16)
+    librfu_sio32id          # GBA SIO                   -> host_rfu.c (Phase 16)
+    librfu_stwi             # GBA STWI                  -> host_rfu.c (Phase 16)
+    m4a                     # GBA audio engine          -> host_m4a.c (Phase 13)
+    m4a_tables              # GBA audio tables          -> host_m4a.c (Phase 13)
     multiboot               # GBA link-cable upload     -> host_multiboot.c
+    siirtc                  # cartridge RTC via GPIO    -> host_rtc.c
     test_runner_battle      # GBA test runner (TESTING builds only)
 )
-# Also never built: src/*.s and asm/ (ARM assembly), data/*.s (assembled data
-# — event scripts, maps; a later phase), data/mb_*.gba, sound/.
+# Also never built: src/*.s (ARM code: crt0, m4a_1, decompress_asm,
+# libgcnmultiboot, rom_header -> host_gba_misc.c).
 
 file(GLOB _ref_c RELATIVE "${REFRENCE_DIR}" CONFIGURE_DEPENDS "${REFRENCE_DIR}/src/*.c")
 set(REFRENCE_SRC)
@@ -153,6 +162,11 @@ foreach(_src ${_ref_c})
     endif()
 endforeach()
 
+# Assembly data, as upstream: every data/*.s, and one song per .mid (mid2agb
+# turns sound/songs/midi/X.mid into X.s during refrence-prepare).
+file(GLOB REFRENCE_DATA_ASM RELATIVE "${REFRENCE_DIR}" CONFIGURE_DEPENDS "${REFRENCE_DIR}/data/*.s")
+file(GLOB _ref_mid RELATIVE "${REFRENCE_DIR}" CONFIGURE_DEPENDS "${REFRENCE_DIR}/sound/songs/midi/*.mid")
+
 #-------------------------------------------------------------------------------
 # Step 1: upstream tools, generated headers and converted graphics
 #
@@ -160,7 +174,7 @@ endforeach()
 #     cmake --build build --target refrence-prepare
 #-------------------------------------------------------------------------------
 set(PREPARE_CMD
-    ${Python3_EXECUTABLE} "${TOOLS_DIR}/prepare_refrence.py" "${REFRENCE_DIR}" ${REFRENCE_SRC}
+    ${Python3_EXECUTABLE} "${TOOLS_DIR}/prepare_refrence.py" "${REFRENCE_DIR}" ${REFRENCE_SRC} ${REFRENCE_DATA_ASM}
 )
 set(PREPARE_STAMP "${CMAKE_BINARY_DIR}/refrence-prepare.stamp")
 add_custom_command(
@@ -246,6 +260,8 @@ set_source_files_properties(${REFRENCE_PP} PROPERTIES LANGUAGE C GENERATED TRUE)
 #-------------------------------------------------------------------------------
 add_library(refrence-objs OBJECT ${REFRENCE_PP})
 target_compile_options(refrence-objs PRIVATE
+    # CMake compiles the .i files with `-x c`; don't preprocess them again.
+    -fpreprocessed
     # Upstream builds with -Wno-strict-aliasing and the code type-puns freely;
     # GBA code also assumes two's-complement wraparound.
     -fno-strict-aliasing
@@ -253,11 +269,68 @@ target_compile_options(refrence-objs PRIVATE
 )
 
 #-------------------------------------------------------------------------------
+# Assembly data (data/*.s and songs)
+#-------------------------------------------------------------------------------
+set(ASM_DIR "${CMAKE_BINARY_DIR}/refrence_asm")
+file(MAKE_DIRECTORY "${ASM_DIR}/data" "${ASM_DIR}/songs")
+
+set(REFRENCE_ASM_CPPFLAGS
+    -iquote "${REFRENCE_INC}"
+    -I "${REFRENCE_INC}"
+    -Wno-trigraphs
+    -DMODERN=1
+    -DTESTING=0
+    -DEMERALD
+    -std=gnu17
+)
+set(HOST_ASFLAGS -Wa,--noexecstack)
+if(PKM_HOST_32BIT)
+    list(APPEND REFRENCE_ASM_CPPFLAGS -m32)
+    list(APPEND HOST_ASFLAGS -m32)
+endif()
+
+set(REFRENCE_ASM_OBJS)
+foreach(_src ${REFRENCE_DATA_ASM})
+    get_filename_component(_name "${_src}" NAME_WE)
+    set(_out "${ASM_DIR}/data/${_name}.o")
+    add_custom_command(
+        OUTPUT "${_out}"
+        COMMAND bash "${TOOLS_DIR}/host_assemble.sh" data
+                "${REFRENCE_DIR}" "${PREPROC_TOOL}" "${_out}" "${_out}.d" "${_src}"
+                -- ${CMAKE_C_COMPILER} ${REFRENCE_ASM_CPPFLAGS}
+                -- ${CMAKE_C_COMPILER} ${HOST_ASFLAGS}
+        DEPENDS "${REFRENCE_DIR}/${_src}" "${PREPARE_STAMP}" "${TOOLS_DIR}/host_assemble.sh"
+        DEPFILE "${_out}.d"
+        COMMENT "Assembling ${_src}"
+        VERBATIM
+    )
+    list(APPEND REFRENCE_ASM_OBJS "${_out}")
+endforeach()
+
+foreach(_mid ${_ref_mid})
+    get_filename_component(_name "${_mid}" NAME_WE)
+    set(_out "${ASM_DIR}/songs/${_name}.o")
+    add_custom_command(
+        OUTPUT "${_out}"
+        COMMAND bash "${TOOLS_DIR}/host_assemble.sh" song
+                "${REFRENCE_DIR}" "${ASM_DIR}/sound" "${_out}" "sound/songs/midi/${_name}.s"
+                -- ${CMAKE_C_COMPILER} ${HOST_ASFLAGS}
+        DEPENDS "${REFRENCE_DIR}/${_mid}" "${REFRENCE_DIR}/sound/MPlayDef.s" "${PREPARE_STAMP}" "${TOOLS_DIR}/host_assemble.sh"
+        COMMENT "Assembling song ${_name}"
+        VERBATIM
+    )
+    list(APPEND REFRENCE_ASM_OBJS "${_out}")
+endforeach()
+
+set_source_files_properties(${REFRENCE_ASM_OBJS} PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
+
+#-------------------------------------------------------------------------------
 # Target: pkmemerald-core (static lib)
 #-------------------------------------------------------------------------------
 add_library(pkmemerald-core STATIC
     ${PLATFORM_SOURCES}
     $<TARGET_OBJECTS:refrence-objs>
+    ${REFRENCE_ASM_OBJS}
 )
 
 target_include_directories(pkmemerald-core
@@ -321,13 +394,37 @@ endif()
 # PKM_HOST_32BIT is on).
 #-------------------------------------------------------------------------------
 add_executable(pkmemerald "${HOST_MAIN_SOURCE}")
-target_link_libraries(pkmemerald PRIVATE pkmemerald-core)
+# Link the *whole* library, not just what host_main reaches: every symbol the
+# game references must resolve, so gaps show up at build time instead of as
+# missing behaviour later.
+target_link_libraries(pkmemerald PRIVATE
+    -Wl,--whole-archive pkmemerald-core -Wl,--no-whole-archive
+    m
+)
 
-# Phase 4 "done when": boots, runs 60 frames, exits 0.
+# Boots the platform and the game, runs 60 game frames, exits 0.
 add_test(NAME pkmemerald-boot COMMAND pkmemerald -f 60)
 set_tests_properties(pkmemerald-boot PROPERTIES
-    PASS_REGULAR_EXPRESSION "boot ok\nran 60 frames"
+    PASS_REGULAR_EXPRESSION "boot ok\ngame init ok\nran 60 frames"
 )
+
+# The host build must read upstream's assembled data exactly as the GBA does:
+# identical bytes and relocations, and identical struct layouts. Checked
+# against upstream's own ARM toolchain when it's installed.
+find_program(ARM_NONE_EABI_GCC arm-none-eabi-gcc)
+find_program(GDB_EXECUTABLE gdb)
+if(ARM_NONE_EABI_GCC AND GDB_EXECUTABLE)
+    set(_abi_flags)
+    if(PKM_HOST_32BIT)
+        set(_abi_flags -m32)
+    endif()
+    add_test(NAME data-abi-matches-gba
+        COMMAND ${Python3_EXECUTABLE} "${TOOLS_DIR}/verify_data_abi.py"
+                "${REFRENCE_DIR}" "${CMAKE_BINARY_DIR}" ${CMAKE_C_COMPILER} ${_abi_flags}
+    )
+else()
+    message(STATUS "arm-none-eabi-gcc or gdb not found: skipping the data-abi-matches-gba test")
+endif()
 
 #-------------------------------------------------------------------------------
 # Reporting

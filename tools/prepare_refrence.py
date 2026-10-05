@@ -2,8 +2,9 @@
 """
 tools/prepare_refrence.py
 
-Phase 3 helper: produce every *generated* input that the C sources in
-`refrence/src/` need before they can be preprocessed on the host.
+Produce every *generated* input that the sources we build from `refrence/`
+need: C files in `src/`, assembly data in `data/*.s`, and the songs in
+`sound/songs/midi/`.
 
 Upstream builds these as side effects of compiling the ROM. We don't want the
 ROM (or the ARM toolchain), only the inputs, so we drive upstream's own make
@@ -13,21 +14,25 @@ rules in four steps:
      via `make -f make_tools.mk`.
   2. `make generated` — auto-generated headers (map constants, trainers.h,
      wild_encounters.h, heal_locations.h, ...).
-  3. Ask make for the scaninc `.d` dependency files of every C source we
+  3. Generated files wired up by explicit Makefile rules rather than scaninc:
+     a few C headers, every map's header/events/connections .inc (mapjson),
+     and each song's .s (mid2agb, from sound/songs/midi/*.mid).
+  4. Ask make for the scaninc `.d` dependency files of every source we
      compile. These list INCBIN/INCGFX inputs and carry the recipes for
      `build/assets/**` (INCGFX) targets.
-  4. Ask make for every non-source prerequisite found in those `.d` files:
-     the converted graphics (.4bpp/.gbapal/.lz/.smol/...) and generated
-     data headers (teachable_learnsets.h, tutor_moves.h, ...).
+  5. Ask make for every non-source prerequisite found in those `.d` files:
+     the converted graphics (.4bpp/.gbapal/.lz/.smol/...), sound samples
+     (.bin) and generated data headers (teachable_learnsets.h, ...).
 
 All outputs land where upstream puts them (refrence/build/ or next to their
 sources) and are covered by upstream's .gitignore, so the submodule stays
 clean in `git status`.
 
-Usage: prepare_refrence.py REFRENCE_DIR SRC1.c [SRC2.c ...]
-       (sources are given relative to REFRENCE_DIR, e.g. src/util.c)
+Usage: prepare_refrence.py REFRENCE_DIR SOURCE [SOURCE ...]
+       (sources relative to REFRENCE_DIR: src/*.c or data/*.s)
 """
 
+import glob
 import os
 import subprocess
 import sys
@@ -68,8 +73,14 @@ def main():
 
     make(refdir, "-f", "make_tools.mk")
     make(refdir, "generated")
-    # Generated headers wired up by explicit Makefile rules, not by scaninc.
-    make(refdir, *EXTRA_GENERATED)
+    # Generated files wired up by explicit Makefile rules, not by scaninc.
+    maps = [
+        os.path.join(os.path.dirname(j), inc)
+        for j in sorted(glob.glob("data/maps/*/map.json", root_dir=refdir))
+        for inc in ("header.inc", "events.inc", "connections.inc")
+    ]
+    songs = [m[:-len(".mid")] + ".s" for m in sorted(glob.glob("sound/songs/midi/*.mid", root_dir=refdir))]
+    make(refdir, *EXTRA_GENERATED, *maps, *songs)
 
     dep_files = [f"{OBJ_DIR}/{os.path.splitext(s)[0]}.d" for s in sources]
     make(refdir, *dep_files)

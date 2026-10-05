@@ -1,0 +1,18 @@
+--- a/src/save.c
++++ b/src/save.c
+@@ -502,6 +502,15 @@
+         if (id == 0)
+             gLastWrittenSector = i;
+ 
++#ifdef HOST_BUILD
++        // PC port: an erased sector reads id 0xFFFF, and locations[id] below
++        // would read far past the table. The GBA survives that (every address
++        // is mapped) and then copies nothing, because an erased sector's
++        // signature never matches -- so skipping it is equivalent.
++        if (id >= NUM_SECTORS_PER_SLOT)
++            continue;
++#endif
++
+         checksum = CalculateChecksum(gReadWriteSector->data, locations[id].size);
+ 
+         // Only copy data for sectors whose signature and checksum fields are correct

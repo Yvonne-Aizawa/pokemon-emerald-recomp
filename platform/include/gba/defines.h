@@ -37,10 +37,14 @@
 /* Section / linkage attributes — no-ops on host                        */
 /* --------------------------------------------------------------------- */
 #define IWRAM_DATA   /* empty: host .bss */
-#define EWRAM_DATA   /* empty: host .bss */
 #define IWRAM_INIT   /* empty */
-#define EWRAM_INIT   /* empty */
 #define COMMON_DATA  /* empty */
+/* EWRAM variables get their own sections so RegisterRamReset(RESET_EWRAM)
+ * and ReInitializeEWRAM (host_gba_misc.c) can reset them as on hardware:
+ * EWRAM_DATA is zero-initialised (upstream: .sbss), EWRAM_INIT keeps its
+ * initial values (upstream: .ewram, restored from ROM). */
+#define EWRAM_DATA   __attribute__((section("ewram_data")))
+#define EWRAM_INIT   __attribute__((section("ewram_init")))
 #define UNUSED          __attribute__((unused))
 #define USED            __attribute__((used))
 #define KEEP_SECTION    __attribute__((section(".text.consts")))

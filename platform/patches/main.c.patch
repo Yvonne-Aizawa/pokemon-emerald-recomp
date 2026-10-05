@@ -1,0 +1,85 @@
+--- a/src/main.c
++++ b/src/main.c
+@@ -33,7 +33,12 @@
+ static void IntrDummy(void);
+ 
+ // Defined in the linker script so that the test build can override it.
++#ifdef HOST_BUILD
++// PC port: no linker script; alias it the way ld_script_modern.ld does.
++#define gInitialMainCB2 CB2_InitCopyrightScreenAfterBootup
++#else
+ extern void gInitialMainCB2(void);
++#endif
+ extern void CB2_FlashNotDetectedScreen(void);
+ 
+ const enum GameVersion gGameVersion = GAME_VERSION;
+@@ -76,6 +81,7 @@
+ 
+ //EWRAM_DATA void (**gFlashTimerIntrFunc)(void) = NULL;
+ 
++static void AgbMainLoopIteration(void);
+ static void UpdateLinkAndCallCallbacks(void);
+ static void InitMainCallbacks(void);
+ static void CallCallbacks(void);
+@@ -127,14 +133,43 @@
+     AGBPrintInit();
+ #endif
+ #endif
++#ifdef HOST_BUILD
++    // PC port: the host main loop (platform/src/main_loop.c) owns the frame
++    // loop and calls HostMain_RunFrame once per frame.
++#else
+     gAgbMainLoop_sp = __builtin_frame_address(0);
+     AgbMainLoop();
++#endif
+ }
+ 
+ void AgbMainLoop(void)
+ {
+     for (;;)
+     {
++        AgbMainLoopIteration();
++        WaitForVBlank();
++    }
++}
++
++#ifdef HOST_BUILD
++// PC port: one frame of AgbMainLoop, then the interrupts the GBA raises while
++// WaitForVBlank waits -- V-count (line 150), then V-blank (line 160) --
++// dispatched through gIntrTable as IntrMain does on hardware. H-blank and
++// serial interrupts are not emulated yet.
++void HostMain_RunFrame(void)
++{
++    AgbMainLoopIteration();
++
++    if (REG_IME && (REG_IE & INTR_FLAG_VCOUNT) && gIntrTable[0])
++        gIntrTable[0]();
++    if (REG_IME && (REG_IE & INTR_FLAG_VBLANK) && gIntrTable[4])
++        gIntrTable[4]();
++}
++#endif
++
++static void AgbMainLoopIteration(void)
++{
++    {
+         ReadKeys();
+ 
+         if (gSoftResetDisabled == FALSE
+@@ -169,7 +204,6 @@
+ 
+         PlayTimeCounter_Update();
+         MapMusicMain();
+-        WaitForVBlank();
+     }
+ }
+ 
+@@ -317,7 +351,9 @@
+     for (i = 0; i < INTR_COUNT; i++)
+         gIntrTable[i] = gIntrTableTemplate[i];
+ 
++#ifndef HOST_BUILD
+     INTR_VECTOR = IntrMain;
++#endif
+ 
+     SetVBlankCallback(NULL);
+     SetHBlankCallback(NULL);

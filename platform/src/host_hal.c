@@ -44,6 +44,20 @@ uint8_t  g_host_oam[OAM_SIZE];       /*   1 KiB */
 uint8_t  g_host_palette[PLTT_SIZE];  /*   1 KiB */
 volatile uint16_t g_host_mmio[0x400];/*   2 KiB, addresses 0x04000000..0x040007FF */
 
+/* Power-on values of the I/O registers that aren't 0. KEYINPUT is
+ * active-low: all bits set means no button is pressed. (Zero would read as
+ * every button held -- including the A+B+Start+Select soft-reset combo.) */
+static void ResetIoRegs(void)
+{
+    memset((void *)g_host_mmio, 0, sizeof(g_host_mmio));
+    REG_KEYINPUT = KEYS_MASK;
+}
+
+__attribute__((constructor)) static void InitIoRegs(void)
+{
+    ResetIoRegs();
+}
+
 void *g_host_sound_info = NULL;      /* Phase 13 sets this. */
 uint16_t g_host_intr_check;          /* INTR_CHECK  */
 void *g_host_intr_vector;            /* INTR_VECTOR */
@@ -59,6 +73,8 @@ void SoftReset(u32 resetFlags)
     exit(0);
 }
 
+void Host_ResetEwram(void);  /* host_gba_misc.c */
+
 void RegisterRamReset(u32 resetFlags)
 {
     /* Map the GBA's resetFlags bits onto the host arrays. */
@@ -68,8 +84,10 @@ void RegisterRamReset(u32 resetFlags)
         memset(g_host_vram, 0, sizeof(g_host_vram));
     if (resetFlags & RESET_OAM)
         memset(g_host_oam, 0, sizeof(g_host_oam));
-    if (resetFlags & RESET_EWRAM)
+    if (resetFlags & RESET_EWRAM) {
         memset(g_host_ewram, 0, sizeof(g_host_ewram));
+        Host_ResetEwram();  /* the game's EWRAM_DATA/EWRAM_INIT variables */
+    }
     if (resetFlags & RESET_IWRAM)
         memset(g_host_iwram, 0, sizeof(g_host_iwram));
     if (resetFlags & RESET_SIO_REGS)
@@ -77,7 +95,7 @@ void RegisterRamReset(u32 resetFlags)
     if (resetFlags & RESET_SOUND_REGS)
         memset((void *)g_host_mmio + 0x60, 0, 0x30); /* sound region */
     if (resetFlags & RESET_REGS)
-        memset((void *)g_host_mmio, 0, sizeof(g_host_mmio));
+        ResetIoRegs();
 }
 
 void VBlankIntrWait(void)

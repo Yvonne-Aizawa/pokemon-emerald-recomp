@@ -1,7 +1,7 @@
 /*
  * platform/tests/test_main_loop.c
  *
- * Host main loop smoke test: the VBlank callback runs once per frame, the
+ * Host main loop smoke test: the frame callback runs once per frame, the
  * frame limit and quit flag stop the loop, and frames are paced at the GBA
  * refresh rate.
  */
@@ -16,7 +16,7 @@
 static unsigned sCalls;
 static unsigned sQuitAfter;
 
-static void CountVBlank(void)
+static void CountFrame(void)
 {
     sCalls++;
     if (sQuitAfter != 0 && sCalls == sQuitAfter)
@@ -40,14 +40,14 @@ int main(void)
         return Check(0, "Platform_Init");
 
     /* Frame limit + pacing. */
-    Host_SetVBlankCallback(CountVBlank);
+    Host_SetFrameCallback(CountFrame);
     start = Platform_GetTimeNs();
     ran = Host_RunMainLoop(FRAMES);
     elapsed = Platform_GetTimeNs() - start;
     expected = (uint64_t)FRAMES * HOST_FRAME_NS;
 
     failures += Check(ran == FRAMES, "loop stops at the frame limit");
-    failures += Check(sCalls == FRAMES, "VBlank callback runs once per frame");
+    failures += Check(sCalls == FRAMES, "frame callback runs once per frame");
     failures += Check(Host_GetFrameCount() == FRAMES, "frame counter matches");
     /* Generous upper bound: CI machines can be slow to wake up. */
     failures += Check(elapsed >= expected - HOST_FRAME_NS && elapsed < expected * 2,

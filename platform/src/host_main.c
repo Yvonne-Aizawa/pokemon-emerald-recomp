@@ -4,10 +4,12 @@
  * Program entry point. Replaces the GBA's crt0.s + AgbMain (refrence/src/
  * main.c, excluded from the host build).
  *
- * Phase 4: boots the platform layer, runs an empty main loop for a fixed
- * number of frames and exits. The game itself is hooked in later phases.
+ * Boots the platform layer, then the game (AgbMain), and runs the game's
+ * frames until the frame limit or a quit request. Still headless: nothing
+ * is drawn, played or read from input until Phases 5-13.
  */
 
+#include "platform/host_game.h"
 #include "platform/main_loop.h"
 #include "platform/platform.h"
 
@@ -81,6 +83,11 @@ int main(int argc, char **argv)
     }
     printf("boot ok\n");
     fflush(stdout);
+
+    AgbMain();
+    printf("game init ok\n");
+    fflush(stdout);
+    Host_SetFrameCallback(HostMain_RunFrame);
 
     startNs = Platform_GetTimeNs();
     framesRun = Host_RunMainLoop((uint32_t)maxFrames);

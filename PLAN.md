@@ -153,6 +153,16 @@ Each phase is sized to fit a single focused session. Phases list the **files tou
 - `refrence/src/main.c` is excluded; `gMain`, `ReadKeys`, the interrupt table etc. live there and will be undefined once game code is linked in.
 - Tests: `platform/tests/test_main_loop.c`, plus a ctest `pkmemerald-boot` check of the "done when" output.
 
+### Phase 4b — Full link: the game boots headless (done)
+
+Added after a link check showed 97% of unresolved symbols were assembly *data*. `./build/pkmemerald` now links the whole game (`--whole-archive`, so any missing symbol is a build error), runs `AgbMain`, and plays through the copyright screen into the intro scenes with nothing drawn.
+- **Assembly data is assembled for x86, not converted.** `data/*.s` and the 530 `mid2agb` songs go through `tools/host_assemble.sh`, which uses upstream's preproc/cpp pipeline plus three ARM→x86 fixups: `@` comments (keeping `\@`), `.word` → `.4byte`, `.align N` → `.p2align N`. `tools/verify_data_abi.py` (ctest `data-abi-matches-gba`, runs when `arm-none-eabi-gcc` and gdb are installed) checks the result against upstream's ARM toolchain: all 544 objects are byte-identical, with identical relocations, and the C structs read from that data (map headers/events/connections, voicegroups, ...) have identical layouts under both ABIs.
+- **`main.c` is built, patched** (`platform/patches/main.c.patch`): `AgbMain` only initialises; `HostMain_RunFrame` runs one loop iteration, then dispatches the V-count and V-blank interrupts through `gIntrTable`. H-blank and serial interrupts are not emulated yet. The main loop's callback API is now `Host_SetFrameCallback`/`Host_RunFrame`.
+- **Other patches:** `decompress.c` (no copying of machine code into RAM buffers; call the functions directly) and `save.c` (an erased flash sector made `CopySaveSlotData` read far out of bounds — harmless on GBA, a segfault on PC).
+- **Temporary stand-ins, replaced by later phases:** `host_m4a.c` (silent audio, Phase 13), `host_flash.c` (in-memory flash, saves don't persist yet, Phase 8), `host_rfu.c` (no wireless adapter, Phase 16).
+- **Permanent host versions:** `host_rtc.c` (the cartridge clock reads the PC's local time; `siirtc.c` excluded), `host_gba_misc.c` (EWRAM reset/`ReInitializeEWRAM`, ROM header, GameCube multiboot, `BitUnPack`).
+- **Hardware details that mattered:** `EWRAM_DATA`/`EWRAM_INIT` now live in their own sections so RAM resets behave as on hardware; `REG_KEYINPUT` powers on as `0x03FF` (active-low — at 0 the game saw A+B+Start+Select held and soft-reset); executables link with `-no-pie`.
+
 ---
 
 ## Phase 5 — Window, events, and VBlank timing

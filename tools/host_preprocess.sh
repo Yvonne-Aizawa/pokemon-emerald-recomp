@@ -38,6 +38,8 @@ cd "$refdir"
 "$@" -E -MD -MF "$depfile" -MT "$out" "$input" \
     | "$preproc" -i -g build/assets "$src_name" charmap.txt \
     | sed -E 's/(\\"aM\\",%progbits,[0-9]+) @"/\1 #"/g' \
-    > "$out.tmp"
+    > "$out.tmp.$$"
 
-mv "$out.tmp" "$out"
+# Per-process temp name: two builds racing in one build tree can't clobber
+# each other's half-written output.
+mv "$out.tmp.$$" "$out"
