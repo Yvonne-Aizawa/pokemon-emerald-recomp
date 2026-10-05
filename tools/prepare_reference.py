@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-tools/prepare_refrence.py
+tools/prepare_reference.py
 
-Produce every *generated* input that the sources we build from `refrence/`
+Produce every *generated* input that the sources we build from `reference/`
 need: C files in `src/`, assembly data in `data/*.s`, and the songs in
 `sound/songs/midi/`.
 
@@ -24,12 +24,12 @@ rules in four steps:
      the converted graphics (.4bpp/.gbapal/.lz/.smol/...), sound samples
      (.bin) and generated data headers (teachable_learnsets.h, ...).
 
-All outputs land where upstream puts them (refrence/build/ or next to their
+All outputs land where upstream puts them (reference/build/ or next to their
 sources) and are covered by upstream's .gitignore, so the submodule stays
 clean in `git status`.
 
-Usage: prepare_refrence.py REFRENCE_DIR SOURCE [SOURCE ...]
-       (sources relative to REFRENCE_DIR: src/*.c or data/*.s)
+Usage: prepare_reference.py REFERENCE_DIR SOURCE [SOURCE ...]
+       (sources relative to REFERENCE_DIR: src/*.c or data/*.s)
 """
 
 import glob
@@ -53,7 +53,7 @@ def make(refdir, *args):
     env = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL")}
     result = subprocess.run(cmd, stdout=subprocess.DEVNULL, env=env)
     if result.returncode != 0:
-        sys.exit(f"prepare_refrence: `{' '.join(cmd)}` failed ({result.returncode})")
+        sys.exit(f"prepare_reference: `{' '.join(cmd)}` failed ({result.returncode})")
 
 
 def dep_prereqs(dep_path):

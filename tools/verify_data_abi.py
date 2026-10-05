@@ -15,7 +15,7 @@ build does. Needs the ARM toolchain (arm-none-eabi-*) and gdb.
    offsets under the GBA ABI (arm-none-eabi-gcc -mabi=apcs-gnu) as in the
    host build. Compared via `gdb ptype /o` on a probe compiled both ways.
 
-Usage: verify_data_abi.py REFRENCE_DIR BUILD_DIR HOST_CC [HOST_CFLAGS...]
+Usage: verify_data_abi.py REFERENCE_DIR BUILD_DIR HOST_CC [HOST_CFLAGS...]
 """
 
 import os
@@ -23,7 +23,7 @@ import subprocess
 import sys
 import tempfile
 
-# Upstream refrence/Makefile: ASFLAGS and CPPFLAGS for data/*.s, and the C
+# Upstream reference/Makefile: ASFLAGS and CPPFLAGS for data/*.s, and the C
 # flags that determine struct layout.
 ARM_ASFLAGS = ["-mcpu=arm7tdmi", "-march=armv4t", "-meabi=5", "--defsym", "MODERN=1", "--defsym", "EMERALD=1"]
 ARM_CPPFLAGS = ["-iquote", "include", "-I", "include", "-Wno-trigraphs", "-DMODERN=1", "-DTESTING=0", "-DEMERALD", "-std=gnu17"]
@@ -153,7 +153,7 @@ def main():
         sys.exit(__doc__)
     refdir, build_dir, host_cc, host_cflags = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
     with tempfile.TemporaryDirectory() as tmp:
-        failures = check_data(refdir, os.path.join(build_dir, "refrence_asm"), tmp)
+        failures = check_data(refdir, os.path.join(build_dir, "reference_asm"), tmp)
         failures += check_layout(refdir, build_dir, host_cc, host_cflags, tmp)
     sys.exit(1 if failures else 0)
 

@@ -1,7 +1,7 @@
 /*
  * platform/src/host_main.c
  *
- * Program entry point. Replaces the GBA's crt0.s + AgbMain (refrence/src/
+ * Program entry point. Replaces the GBA's crt0.s + AgbMain (reference/src/
  * main.c, excluded from the host build).
  *
  * Boots the platform layer (window), then the game (AgbMain), and runs the

@@ -8,7 +8,7 @@ Work in progress. See [PLAN.md](PLAN.md) for the phased port plan and current st
 
 | Path        | What it is |
 |-------------|------------|
-| `refrence/` | Upstream pokeemerald-expansion (git submodule). **Not edited**: host changes go in `platform/`. |
+| `reference/` | Upstream pokeemerald-expansion (git submodule). **Not edited**: host changes go in `platform/`. |
 | `platform/` | The PC port: GBA hardware stubs (`include/gba/`), host implementations (`src/`), build-time patches to upstream sources (`patches/`), and smoke tests (`tests/`). |
 | `tools/`    | Host build helpers that drive upstream's tools (preproc, gbagfx, mapjson, ...). |
 
@@ -27,10 +27,10 @@ cmake -S . -B build
 cmake --build build -j
 ```
 
-The first build also builds upstream's tools and converts its graphics into `refrence/build/` (ignored by upstream's `.gitignore`). After changing upstream graphics or data, re-run that step with:
+The first build also builds upstream's tools and converts its graphics into `reference/build/` (ignored by upstream's `.gitignore`). After changing upstream graphics or data, re-run that step with:
 
 ```sh
-cmake --build build --target refrence-prepare
+cmake --build build --target reference-prepare
 ```
 
 Saves go to `saves/pkmemerald.sav` (a standard 128 KiB GBA flash save; `-s DIR` to use another directory).

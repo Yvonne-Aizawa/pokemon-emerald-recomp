@@ -1,7 +1,7 @@
 /*
  * platform/src/host_flash.c
  *
- * Stand-in for the GBA's 1 Mbit flash save chip (refrence/src/agb_flash*.c,
+ * Stand-in for the GBA's 1 Mbit flash save chip (reference/src/agb_flash*.c,
  * excluded from the host build).
  *
  * The chip is emulated in memory -- 32 sectors of 4 KiB, reading 0xFF when

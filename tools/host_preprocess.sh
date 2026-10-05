@@ -2,7 +2,7 @@
 #
 # tools/host_preprocess.sh
 #
-# Host equivalent of upstream's per-file C pipeline (refrence/Makefile):
+# Host equivalent of upstream's per-file C pipeline (reference/Makefile):
 #
 #     cpp $(CPPFLAGS) src/x.c | preproc -i -g build/assets src/x.c charmap.txt | cc1 ...
 #
@@ -19,7 +19,7 @@
 # Usage:
 #   host_preprocess.sh REFDIR PREPROC OUT_I DEPFILE SRC_NAME INPUT -- CC CPPFLAGS...
 #
-#   REFDIR    refrence/ (cwd for preproc; INCBIN paths are relative to it)
+#   REFDIR    reference/ (cwd for preproc; INCBIN paths are relative to it)
 #   PREPROC   path to the built preproc tool
 #   OUT_I     output .i file
 #   DEPFILE   Makefile-style depfile for CMake

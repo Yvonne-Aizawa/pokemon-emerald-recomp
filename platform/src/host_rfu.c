@@ -1,7 +1,7 @@
 /*
  * platform/src/host_rfu.c
  *
- * Stand-in for the GBA wireless adapter library (refrence/src/librfu_*.c and
+ * Stand-in for the GBA wireless adapter library (reference/src/librfu_*.c and
  * AgbRfu_LinkManager.c, excluded from the host build).
  *
  * Behaves as if no wireless adapter is plugged in: the API initialises

@@ -1,7 +1,7 @@
 /*
  * platform/src/host_rtc.c
  *
- * Host replacement for refrence/src/siirtc.c, the driver for the Seiko
+ * Host replacement for reference/src/siirtc.c, the driver for the Seiko
  * S-3511 real-time clock on the cartridge. The original bit-bangs the chip
  * through GPIO registers at fixed ROM addresses (0x80000C4..C8), which don't
  * exist on the host, so siirtc.c is excluded and this file implements the

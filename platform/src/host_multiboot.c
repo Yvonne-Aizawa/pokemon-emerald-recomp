@@ -1,7 +1,7 @@
 /*
  * platform/src/host_multiboot.c
  *
- * Host replacement for `refrence/src/multiboot.c`.
+ * Host replacement for `reference/src/multiboot.c`.
  *
  * Multiboot uploads a program to another GBA over the link cable (used by
  * the Berry Fix program). The upstream file drives SIO registers directly and

@@ -1,7 +1,7 @@
 /*
  * platform/include/gba/defines.h
  *
- * Host-side replacement for `refrence/include/gba/defines.h`.
+ * Host-side replacement for `reference/include/gba/defines.h`.
  *
  * Differences from the GBA original:
  *   - Section attributes (IWRAM_DATA, EWRAM_DATA, COMMON_DATA, ARM_FUNC, ...)

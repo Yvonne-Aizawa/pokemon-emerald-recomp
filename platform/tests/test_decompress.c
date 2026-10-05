@@ -13,7 +13,7 @@
 /* Include gba/gba.h FIRST so the host type aliases (u8, u16, ...) are
  * defined before libc's <string.h> (transitively) pulls in
  * <strings.h>, which on this codebase collides with the local
- * refrence/include/strings.h shadow. */
+ * reference/include/strings.h shadow. */
 #include "gba/gba.h"
 
 #include <stdio.h>

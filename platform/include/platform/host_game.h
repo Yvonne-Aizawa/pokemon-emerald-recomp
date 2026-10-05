@@ -1,7 +1,7 @@
 /*
  * platform/include/platform/host_game.h
  *
- * Entry points into the game (refrence/src/main.c, patched by
+ * Entry points into the game (reference/src/main.c, patched by
  * platform/patches/main.c.patch). Declared here so the platform layer can
  * call them without pulling in the game's headers.
  */

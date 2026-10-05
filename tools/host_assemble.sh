@@ -14,7 +14,7 @@
 # preproc's first pass inlines every .include, so for data files the whole
 # input passes through the fixups.
 #
-#   data:  Same pipeline as upstream (refrence/Makefile, data/*.s):
+#   data:  Same pipeline as upstream (reference/Makefile, data/*.s):
 #              preproc SRC charmap.txt | cpp | preproc -ie SRC charmap.txt | as
 #          preproc expands strings and .include/INCBIN; cpp the #includes.
 #

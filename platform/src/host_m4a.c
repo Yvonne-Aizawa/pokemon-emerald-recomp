@@ -1,7 +1,7 @@
 /*
  * platform/src/host_m4a.c
  *
- * Silent stand-in for the GBA's M4A sound engine (refrence/src/m4a.c,
+ * Silent stand-in for the GBA's M4A sound engine (reference/src/m4a.c,
  * m4a_tables.c and m4a_1.s, all excluded from the host build).
  *
  * No sound is produced, but the players' status words follow the real

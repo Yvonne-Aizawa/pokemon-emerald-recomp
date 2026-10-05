@@ -1,7 +1,7 @@
 /*
  * platform/include/gba/gba.h
  *
- * Host-side replacement for `refrence/include/gba/gba.h`.
+ * Host-side replacement for `reference/include/gba/gba.h`.
  *
  * Pulls in the host stubs for every GBA HAL header. The include order
  * matters: defines.h is first because io_reg.h evaluates REG_BASE.

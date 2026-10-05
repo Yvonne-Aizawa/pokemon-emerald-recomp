@@ -2,16 +2,16 @@
 # pkmemerald — PC port of pokeemerald-expansion
 #
 # Phase 5: SDL2 window, events and frame timing, running the whole game
-# (refrence/src/*.c, data/*.s and the songs).
+# (reference/src/*.c, data/*.s and the songs).
 #
 # This CMakeLists builds:
 #   - pkmemerald-core  (STATIC)   the ported game code + platform layer
 #   - pkmemerald       (executable) platform/src/host_main.c
 #   - platform/tests/* (executables, HAL smoke tests; run with `ctest`)
 #
-# How a refrence/src/*.c file is built (mirrors refrence/Makefile):
-#   1. tools/prepare_refrence.py   upstream's host tools + generated headers +
-#                                  converted graphics (once, see refrence-prepare)
+# How a reference/src/*.c file is built (mirrors reference/Makefile):
+#   1. tools/prepare_reference.py   upstream's host tools + generated headers +
+#                                  converted graphics (once, see reference-prepare)
 #   2. platform/patches/<f>.patch  optional host patch, applied to a copy
 #   3. tools/host_preprocess.sh    host cpp | preproc  ->  <f>.i
 #   4. host compiler               <f>.i -> object in pkmemerald-core
@@ -76,10 +76,10 @@ add_compile_options(
 #-------------------------------------------------------------------------------
 # Layout
 #-------------------------------------------------------------------------------
-set(REFRENCE_DIR    "${CMAKE_SOURCE_DIR}/refrence")
+set(REFERENCE_DIR    "${CMAKE_SOURCE_DIR}/reference")
 set(PLATFORM_DIR    "${CMAKE_SOURCE_DIR}/platform")
 set(PLATFORM_INC    "${PLATFORM_DIR}/include")
-set(REFRENCE_INC    "${REFRENCE_DIR}/include")
+set(REFERENCE_INC    "${REFERENCE_DIR}/include")
 set(TOOLS_DIR       "${CMAKE_SOURCE_DIR}/tools")
 
 #-------------------------------------------------------------------------------
@@ -88,9 +88,9 @@ set(TOOLS_DIR       "${CMAKE_SOURCE_DIR}/tools")
 # Upstream headers include each other with quotes, e.g. global.h does
 # `#include "gba/gba.h"`. GCC always searches the including file's own
 # directory first for quoted includes, so -I/-iquote ordering can't make that
-# resolve to our stub — it would always pick refrence/include/gba/gba.h.
+# resolve to our stub — it would always pick reference/include/gba/gba.h.
 #
-# Instead we build a mirror of refrence/include/ out of symlinks, with `gba`
+# Instead we build a mirror of reference/include/ out of symlinks, with `gba`
 # pointing at platform/include/gba. GCC uses the path it found a header
 # through (not its realpath) as "the including file's directory", so headers
 # reached via this tree see the host stubs.
@@ -98,12 +98,12 @@ set(TOOLS_DIR       "${CMAKE_SOURCE_DIR}/tools")
 set(HOST_INC "${CMAKE_BINARY_DIR}/host_include")
 file(REMOVE_RECURSE "${HOST_INC}")
 file(MAKE_DIRECTORY "${HOST_INC}")
-file(GLOB _ref_inc_entries LIST_DIRECTORIES true RELATIVE "${REFRENCE_INC}" "${REFRENCE_INC}/*")
+file(GLOB _ref_inc_entries LIST_DIRECTORIES true RELATIVE "${REFERENCE_INC}" "${REFERENCE_INC}/*")
 foreach(_entry ${_ref_inc_entries})
     if(_entry STREQUAL "gba")
         file(CREATE_LINK "${PLATFORM_INC}/gba" "${HOST_INC}/gba" SYMBOLIC)
     else()
-        file(CREATE_LINK "${REFRENCE_INC}/${_entry}" "${HOST_INC}/${_entry}" SYMBOLIC)
+        file(CREATE_LINK "${REFERENCE_INC}/${_entry}" "${HOST_INC}/${_entry}" SYMBOLIC)
     endif()
 endforeach()
 
@@ -124,14 +124,14 @@ set(HOST_MAIN_SOURCE "${PLATFORM_DIR}/src/host_main.c")
 list(REMOVE_ITEM PLATFORM_SOURCES "${HOST_MAIN_SOURCE}")
 
 #-------------------------------------------------------------------------------
-# refrence/src/ sources
+# reference/src/ sources
 #
-# Every top-level refrence/src/*.c (the same set upstream compiles), minus the
+# Every top-level reference/src/*.c (the same set upstream compiles), minus the
 # GBA-only files below. These are excluded permanently; where the game calls
 # into them, platform/src/ provides a host replacement (noted per file) or
 # a later phase will.
 #-------------------------------------------------------------------------------
-set(REFRENCE_SRC_EXCLUDE
+set(REFERENCE_SRC_EXCLUDE
     agb_flash               # GBA flash save            -> host_flash.c (Phase 8)
     agb_flash_1m            # GBA 1M flash              -> host_flash.c (Phase 8)
     agb_flash_le            # GBA flash (legacy)        -> host_flash.c (Phase 8)
@@ -151,39 +151,39 @@ set(REFRENCE_SRC_EXCLUDE
 # Also never built: src/*.s (ARM code: crt0, m4a_1, decompress_asm,
 # libgcnmultiboot, rom_header -> host_gba_misc.c).
 
-file(GLOB _ref_c RELATIVE "${REFRENCE_DIR}" CONFIGURE_DEPENDS "${REFRENCE_DIR}/src/*.c")
-set(REFRENCE_SRC)
+file(GLOB _ref_c RELATIVE "${REFERENCE_DIR}" CONFIGURE_DEPENDS "${REFERENCE_DIR}/src/*.c")
+set(REFERENCE_SRC)
 foreach(_src ${_ref_c})
     get_filename_component(_name "${_src}" NAME_WE)
-    if(NOT _name IN_LIST REFRENCE_SRC_EXCLUDE)
-        list(APPEND REFRENCE_SRC "${_src}")
+    if(NOT _name IN_LIST REFERENCE_SRC_EXCLUDE)
+        list(APPEND REFERENCE_SRC "${_src}")
     endif()
 endforeach()
 
 # Assembly data, as upstream: every data/*.s, and one song per .mid (mid2agb
-# turns sound/songs/midi/X.mid into X.s during refrence-prepare).
-file(GLOB REFRENCE_DATA_ASM RELATIVE "${REFRENCE_DIR}" CONFIGURE_DEPENDS "${REFRENCE_DIR}/data/*.s")
-file(GLOB _ref_mid RELATIVE "${REFRENCE_DIR}" CONFIGURE_DEPENDS "${REFRENCE_DIR}/sound/songs/midi/*.mid")
+# turns sound/songs/midi/X.mid into X.s during reference-prepare).
+file(GLOB REFERENCE_DATA_ASM RELATIVE "${REFERENCE_DIR}" CONFIGURE_DEPENDS "${REFERENCE_DIR}/data/*.s")
+file(GLOB _ref_mid RELATIVE "${REFERENCE_DIR}" CONFIGURE_DEPENDS "${REFERENCE_DIR}/sound/songs/midi/*.mid")
 
 #-------------------------------------------------------------------------------
 # Step 1: upstream tools, generated headers and converted graphics
 #
 # Runs once (stamp file). Re-run after changing upstream graphics/data with
-#     cmake --build build --target refrence-prepare
+#     cmake --build build --target reference-prepare
 #-------------------------------------------------------------------------------
 set(PREPARE_CMD
-    ${Python3_EXECUTABLE} "${TOOLS_DIR}/prepare_refrence.py" "${REFRENCE_DIR}" ${REFRENCE_SRC} ${REFRENCE_DATA_ASM}
+    ${Python3_EXECUTABLE} "${TOOLS_DIR}/prepare_reference.py" "${REFERENCE_DIR}" ${REFERENCE_SRC} ${REFERENCE_DATA_ASM}
 )
-set(PREPARE_STAMP "${CMAKE_BINARY_DIR}/refrence-prepare.stamp")
+set(PREPARE_STAMP "${CMAKE_BINARY_DIR}/reference-prepare.stamp")
 add_custom_command(
     OUTPUT "${PREPARE_STAMP}"
     COMMAND ${PREPARE_CMD}
     COMMAND ${CMAKE_COMMAND} -E touch "${PREPARE_STAMP}"
-    DEPENDS "${TOOLS_DIR}/prepare_refrence.py"
+    DEPENDS "${TOOLS_DIR}/prepare_reference.py"
     COMMENT "Building upstream tools, generated headers and graphics"
     VERBATIM
 )
-add_custom_target(refrence-prepare
+add_custom_target(reference-prepare
     COMMAND ${PREPARE_CMD}
     COMMAND ${CMAKE_COMMAND} -E touch "${PREPARE_STAMP}"
     COMMENT "Re-running upstream tools, generated headers and graphics"
@@ -193,18 +193,18 @@ add_custom_target(refrence-prepare
 #-------------------------------------------------------------------------------
 # Steps 2+3: patch (optional) and preprocess each source to a .i file
 #-------------------------------------------------------------------------------
-set(PREPROC_TOOL "${REFRENCE_DIR}/tools/preproc/preproc")
+set(PREPROC_TOOL "${REFERENCE_DIR}/tools/preproc/preproc")
 set(PATCH_DIR    "${PLATFORM_DIR}/patches")
-set(PATCHED_DIR  "${CMAKE_BINARY_DIR}/refrence_patched")
-set(PP_DIR       "${CMAKE_BINARY_DIR}/refrence_pp")
+set(PATCHED_DIR  "${CMAKE_BINARY_DIR}/reference_patched")
+set(PP_DIR       "${CMAKE_BINARY_DIR}/reference_pp")
 file(MAKE_DIRECTORY "${PATCHED_DIR}/src" "${PP_DIR}")
 
 # Upstream's CPPFLAGS, plus HOST_BUILD and the host include tree. -iquote of
-# refrence/src lets patched copies (which live elsewhere) still find
+# reference/src lets patched copies (which live elsewhere) still find
 # src-relative includes such as "data/trainers.h".
-set(REFRENCE_CPPFLAGS
+set(REFERENCE_CPPFLAGS
     -iquote "${HOST_INC}"
-    -iquote "${REFRENCE_DIR}/src"
+    -iquote "${REFERENCE_DIR}/src"
     -Wno-trigraphs
     -DMODERN=1
     -DTESTING=0
@@ -213,7 +213,7 @@ set(REFRENCE_CPPFLAGS
     -std=gnu17
 )
 if(PKM_HOST_32BIT)
-    list(APPEND REFRENCE_CPPFLAGS -m32)
+    list(APPEND REFERENCE_CPPFLAGS -m32)
 endif()
 
 find_program(PATCH_EXECUTABLE patch REQUIRED)
@@ -224,10 +224,10 @@ file(GLOB _host_patches CONFIGURE_DEPENDS "${PATCH_DIR}/*.patch")
 # a patch is added or removed.
 file(GLOB _host_patches CONFIGURE_DEPENDS "${PATCH_DIR}/*.patch")
 
-set(REFRENCE_PP)
-foreach(_src ${REFRENCE_SRC})
+set(REFERENCE_PP)
+foreach(_src ${REFERENCE_SRC})
     get_filename_component(_name "${_src}" NAME_WE)
-    set(_input "${REFRENCE_DIR}/${_src}")
+    set(_input "${REFERENCE_DIR}/${_src}")
     set(_patch "${PATCH_DIR}/${_name}.c.patch")
 
     if(EXISTS "${_patch}")
@@ -246,34 +246,34 @@ foreach(_src ${REFRENCE_SRC})
     add_custom_command(
         OUTPUT "${_out}"
         COMMAND bash "${TOOLS_DIR}/host_preprocess.sh"
-                "${REFRENCE_DIR}" "${PREPROC_TOOL}" "${_out}" "${_out}.d" "${_src}" "${_input}"
-                -- ${CMAKE_C_COMPILER} ${REFRENCE_CPPFLAGS}
+                "${REFERENCE_DIR}" "${PREPROC_TOOL}" "${_out}" "${_out}.d" "${_src}" "${_input}"
+                -- ${CMAKE_C_COMPILER} ${REFERENCE_CPPFLAGS}
         DEPENDS "${_input}" "${PREPARE_STAMP}" "${TOOLS_DIR}/host_preprocess.sh"
         DEPFILE "${_out}.d"
         COMMENT "Preprocessing ${_src}"
         VERBATIM
     )
-    list(APPEND REFRENCE_PP "${_out}")
+    list(APPEND REFERENCE_PP "${_out}")
 endforeach()
 
 # GCC treats .i as already-preprocessed C; tell CMake it's C too.
-set_source_files_properties(${REFRENCE_PP} PROPERTIES LANGUAGE C GENERATED TRUE)
+set_source_files_properties(${REFERENCE_PP} PROPERTIES LANGUAGE C GENERATED TRUE)
 
 #-------------------------------------------------------------------------------
 # Step 4: compile the game code
 #-------------------------------------------------------------------------------
-add_library(refrence-objs OBJECT ${REFRENCE_PP})
+add_library(reference-objs OBJECT ${REFERENCE_PP})
 # Debug aid: report shifts by >= the type's width at run time. ARM gives 0
 # for those, x86 wraps the count, so each hit is a likely porting bug (see
 # platform/patches/text.c.patch). Use a separate build directory:
 #   cmake -S . -B build-ubsan -DPKM_SANITIZE_SHIFT=ON
 option(PKM_SANITIZE_SHIFT "Instrument game code with -fsanitize=shift-exponent" OFF)
 if(PKM_SANITIZE_SHIFT)
-    target_compile_options(refrence-objs PRIVATE -fsanitize=shift-exponent)
+    target_compile_options(reference-objs PRIVATE -fsanitize=shift-exponent)
     add_link_options(-fsanitize=shift-exponent)
 endif()
 
-target_compile_options(refrence-objs PRIVATE
+target_compile_options(reference-objs PRIVATE
     # CMake compiles the .i files with `-x c`; don't preprocess them again.
     -fpreprocessed
     # Upstream builds with -Wno-strict-aliasing and the code type-puns freely;
@@ -285,12 +285,12 @@ target_compile_options(refrence-objs PRIVATE
 #-------------------------------------------------------------------------------
 # Assembly data (data/*.s and songs)
 #-------------------------------------------------------------------------------
-set(ASM_DIR "${CMAKE_BINARY_DIR}/refrence_asm")
+set(ASM_DIR "${CMAKE_BINARY_DIR}/reference_asm")
 file(MAKE_DIRECTORY "${ASM_DIR}/data" "${ASM_DIR}/songs")
 
-set(REFRENCE_ASM_CPPFLAGS
-    -iquote "${REFRENCE_INC}"
-    -I "${REFRENCE_INC}"
+set(REFERENCE_ASM_CPPFLAGS
+    -iquote "${REFERENCE_INC}"
+    -I "${REFERENCE_INC}"
     -Wno-trigraphs
     -DMODERN=1
     -DTESTING=0
@@ -299,26 +299,26 @@ set(REFRENCE_ASM_CPPFLAGS
 )
 set(HOST_ASFLAGS -Wa,--noexecstack)
 if(PKM_HOST_32BIT)
-    list(APPEND REFRENCE_ASM_CPPFLAGS -m32)
+    list(APPEND REFERENCE_ASM_CPPFLAGS -m32)
     list(APPEND HOST_ASFLAGS -m32)
 endif()
 
-set(REFRENCE_ASM_OBJS)
-foreach(_src ${REFRENCE_DATA_ASM})
+set(REFERENCE_ASM_OBJS)
+foreach(_src ${REFERENCE_DATA_ASM})
     get_filename_component(_name "${_src}" NAME_WE)
     set(_out "${ASM_DIR}/data/${_name}.o")
     add_custom_command(
         OUTPUT "${_out}"
         COMMAND bash "${TOOLS_DIR}/host_assemble.sh" data
-                "${REFRENCE_DIR}" "${PREPROC_TOOL}" "${_out}" "${_out}.d" "${_src}"
-                -- ${CMAKE_C_COMPILER} ${REFRENCE_ASM_CPPFLAGS}
+                "${REFERENCE_DIR}" "${PREPROC_TOOL}" "${_out}" "${_out}.d" "${_src}"
+                -- ${CMAKE_C_COMPILER} ${REFERENCE_ASM_CPPFLAGS}
                 -- ${CMAKE_C_COMPILER} ${HOST_ASFLAGS}
-        DEPENDS "${REFRENCE_DIR}/${_src}" "${PREPARE_STAMP}" "${TOOLS_DIR}/host_assemble.sh"
+        DEPENDS "${REFERENCE_DIR}/${_src}" "${PREPARE_STAMP}" "${TOOLS_DIR}/host_assemble.sh"
         DEPFILE "${_out}.d"
         COMMENT "Assembling ${_src}"
         VERBATIM
     )
-    list(APPEND REFRENCE_ASM_OBJS "${_out}")
+    list(APPEND REFERENCE_ASM_OBJS "${_out}")
 endforeach()
 
 foreach(_mid ${_ref_mid})
@@ -327,24 +327,24 @@ foreach(_mid ${_ref_mid})
     add_custom_command(
         OUTPUT "${_out}"
         COMMAND bash "${TOOLS_DIR}/host_assemble.sh" song
-                "${REFRENCE_DIR}" "${ASM_DIR}/sound" "${_out}" "sound/songs/midi/${_name}.s"
+                "${REFERENCE_DIR}" "${ASM_DIR}/sound" "${_out}" "sound/songs/midi/${_name}.s"
                 -- ${CMAKE_C_COMPILER} ${HOST_ASFLAGS}
-        DEPENDS "${REFRENCE_DIR}/${_mid}" "${REFRENCE_DIR}/sound/MPlayDef.s" "${PREPARE_STAMP}" "${TOOLS_DIR}/host_assemble.sh"
+        DEPENDS "${REFERENCE_DIR}/${_mid}" "${REFERENCE_DIR}/sound/MPlayDef.s" "${PREPARE_STAMP}" "${TOOLS_DIR}/host_assemble.sh"
         COMMENT "Assembling song ${_name}"
         VERBATIM
     )
-    list(APPEND REFRENCE_ASM_OBJS "${_out}")
+    list(APPEND REFERENCE_ASM_OBJS "${_out}")
 endforeach()
 
-set_source_files_properties(${REFRENCE_ASM_OBJS} PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
+set_source_files_properties(${REFERENCE_ASM_OBJS} PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
 
 #-------------------------------------------------------------------------------
 # Target: pkmemerald-core (static lib)
 #-------------------------------------------------------------------------------
 add_library(pkmemerald-core STATIC
     ${PLATFORM_SOURCES}
-    $<TARGET_OBJECTS:refrence-objs>
-    ${REFRENCE_ASM_OBJS}
+    $<TARGET_OBJECTS:reference-objs>
+    ${REFERENCE_ASM_OBJS}
 )
 
 target_include_directories(pkmemerald-core
@@ -353,7 +353,7 @@ target_include_directories(pkmemerald-core
 )
 
 # Game headers are reached through the host include tree (see above), as
-# quoted includes only: refrence/include/strings.h must not shadow libc's
+# quoted includes only: reference/include/strings.h must not shadow libc's
 # <strings.h>.
 target_compile_options(pkmemerald-core
     PUBLIC
@@ -422,7 +422,7 @@ if(ARM_NONE_EABI_GCC AND GDB_EXECUTABLE)
     endif()
     add_test(NAME data-abi-matches-gba
         COMMAND ${Python3_EXECUTABLE} "${TOOLS_DIR}/verify_data_abi.py"
-                "${REFRENCE_DIR}" "${CMAKE_BINARY_DIR}" ${CMAKE_C_COMPILER} ${_abi_flags}
+                "${REFERENCE_DIR}" "${CMAKE_BINARY_DIR}" ${CMAKE_C_COMPILER} ${_abi_flags}
     )
 else()
     message(STATUS "arm-none-eabi-gcc or gdb not found: skipping the data-abi-matches-gba test")
@@ -431,12 +431,12 @@ endif()
 #-------------------------------------------------------------------------------
 # Reporting
 #-------------------------------------------------------------------------------
-list(LENGTH REFRENCE_SRC _n_ref)
+list(LENGTH REFERENCE_SRC _n_ref)
 message(STATUS "")
 message(STATUS "pkmemerald Phase 5 build configuration:")
 message(STATUS "  C compiler        : ${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}")
 message(STATUS "  Build type        : ${CMAKE_BUILD_TYPE}")
 message(STATUS "  32-bit host       : ${PKM_HOST_32BIT}")
 message(STATUS "  SDL2              : ${SDL2_VERSION}")
-message(STATUS "  refrence src/     : ${_n_ref} files")
+message(STATUS "  reference src/     : ${_n_ref} files")
 message(STATUS "")
