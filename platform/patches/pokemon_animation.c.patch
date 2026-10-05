@@ -1,0 +1,17 @@
+--- a/src/pokemon_animation.c
++++ b/src/pokemon_animation.c
+@@ -527,7 +527,14 @@
+         // Task_HandleMonAnimation handles more than just KO animations,
+         // but if the counter is non-zero then only KO animations are running.
+         // This assumption is not checked.
++#ifdef HOST_BUILD
++        // PC port: outside battle gBattleStruct is NULL. On the GBA this reads
++        // the BIOS area and any write is ignored, so nothing happens; on the
++        // host it would crash. (Hit by Professor Birch's Lotad.)
++        if (gBattleStruct != NULL && gBattleStruct->battlerKOAnimsRunning > 0)
++#else
+         if (gBattleStruct->battlerKOAnimsRunning > 0)
++#endif
+             gBattleStruct->battlerKOAnimsRunning--;
+         DestroyTask(taskId);
+     }
