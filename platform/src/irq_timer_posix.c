@@ -25,17 +25,18 @@ static void OnAlarm(int sig)
         sRaise();
 }
 
-static void SetTimer(long usec)
+static void SetTimer(unsigned long usec)
 {
     struct itimerval timer;
 
     memset(&timer, 0, sizeof(timer));
-    timer.it_value.tv_usec = usec;
-    timer.it_interval.tv_usec = usec;
+    timer.it_value.tv_sec = usec / 1000000;
+    timer.it_value.tv_usec = usec % 1000000;
+    timer.it_interval = timer.it_value;
     setitimer(ITIMER_REAL, &timer, NULL);
 }
 
-void IrqTimer_Arm(void (*raise)(void))
+void IrqTimer_Arm(void (*raise)(void), unsigned long intervalNs)
 {
     static int sInstalled;
 
@@ -52,7 +53,7 @@ void IrqTimer_Arm(void (*raise)(void))
         sInstalled = 1;
     }
     sRaise = raise;
-    SetTimer(HOST_FRAME_NS / 1000);
+    SetTimer(intervalNs / 1000);
 }
 
 void IrqTimer_Disarm(void)

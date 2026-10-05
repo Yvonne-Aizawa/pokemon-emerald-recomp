@@ -19,10 +19,14 @@
 extern "C" {
 #endif
 
-/* Arm: call `raise` every GBA frame time until disarmed. `raise` runs
+/* Arm: call `raise` every `intervalNs` until disarmed. `raise` runs
  * asynchronously (from a signal handler), preempting game code exactly
- * where the hardware would; it must only run game interrupt handlers. */
-void IrqTimer_Arm(void (*raise)(void));
+ * where the hardware would; it must only run game interrupt handlers.
+ * Normal play uses the GBA frame time (HOST_FRAME_NS). Unpaced test runs use
+ * a much longer "stall" interval so only frames that are really stuck in a
+ * busy-wait get interrupts: those don't care where in their polling loop an
+ * interrupt lands, so the run becomes repeatable. */
+void IrqTimer_Arm(void (*raise)(void), unsigned long intervalNs);
 void IrqTimer_Disarm(void);
 
 #ifdef __cplusplus

@@ -150,6 +150,12 @@ static uint16_t ScriptedButtons(uint32_t frame)
     return buttons;
 }
 
+/* How long a frame may run before interrupts arrive mid-frame: the GBA frame
+ * time when paced; with --fast, only frames stuck in a busy-wait (see
+ * platform/irq_timer.h). */
+#define STALL_INTERVAL_NS 100000000ul
+static unsigned long sIrqIntervalNs = HOST_FRAME_NS;
+
 static void RunGameFrame(void)
 {
     Host_SetKeypad(Platform_GetButtons() | ScriptedButtons(Host_GetFrameCount()));
@@ -157,7 +163,7 @@ static void RunGameFrame(void)
     /* If the game's frame overruns (it busy-waits for something an
      * interrupt does, or is just slow), interrupts arrive mid-frame as on
      * hardware. */
-    IrqTimer_Arm(HostMain_RaiseVBlankInterrupts);
+    IrqTimer_Arm(HostMain_RaiseVBlankInterrupts, sIrqIntervalNs);
     HostMain_RunFrame();
     IrqTimer_Disarm();
 
@@ -185,7 +191,7 @@ static void WaitForVBlankInsideFrame(void)
     elapsed = Platform_GetTimeNs() - start;
     if (elapsed < HOST_FRAME_NS)
         Platform_SleepNs(HOST_FRAME_NS - elapsed);
-    IrqTimer_Arm(HostMain_RaiseVBlankInterrupts);
+    IrqTimer_Arm(HostMain_RaiseVBlankInterrupts, sIrqIntervalNs);
 }
 
 int main(int argc, char **argv)
@@ -213,6 +219,7 @@ int main(int argc, char **argv)
         if (strcmp(arg, "--fast") == 0)
         {
             Host_SetPacing(false);
+            sIrqIntervalNs = STALL_INTERVAL_NS;
             continue;
         }
         if (arg[0] == '-' && strchr("dsxfoi", arg[1]) != NULL && arg[1] != '\0' && arg[2] == '\0' && i + 1 < argc)

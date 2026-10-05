@@ -1,0 +1,74 @@
+--- a/src/pokemon_storage_system.c
++++ b/src/pokemon_storage_system.c
+@@ -1965,6 +1965,14 @@
+     DoScheduledBgTilemapCopiesToVram();
+     ScrollBackground();
+     UpdateCloseBoxButtonFlash();
++#ifdef HOST_BUILD
++    // PC port: leaving the PC frees sStorage in RunTasks above, but the
++    // sprites' callbacks (e.g. SpriteCB_CursorShadow) still run this frame and
++    // read through it. Upstream already guards its own uses (see
++    // UpdateCloseBoxButtonFlash); on the GBA the sprite reads hit harmless
++    // memory, on the host they crash.
++    if (sStorage != NULL)
++#endif
+     AnimateSprites();
+     BuildOamBuffer();
+ }
+@@ -1974,6 +1982,11 @@
+     ResetTasks();
+     sCurrentBoxOption = boxOption;
+     sStorage = Alloc(sizeof(*sStorage));
++#ifdef HOST_BUILD
++    // PC port: see CreateDisplayMonSprite.
++    if (sStorage != NULL)
++        sStorage->displayMonPalette = NULL;
++#endif
+     if (sStorage == NULL)
+     {
+         if (boxOption == OPTION_SELECT_MON)
+@@ -1997,6 +2010,11 @@
+ {
+     ResetTasks();
+     sStorage = Alloc(sizeof(*sStorage));
++#ifdef HOST_BUILD
++    // PC port: see CreateDisplayMonSprite.
++    if (sStorage != NULL)
++        sStorage->displayMonPalette = NULL;
++#endif
+     if (sStorage == NULL)
+     {
+         if (sStorage->boxOption == OPTION_SELECT_MON)
+@@ -3958,7 +3976,17 @@
+     u8 palSlot;
+     u8 spriteId;
+     struct SpriteSheet sheet = {sStorage->tileBuffer, MON_PIC_SIZE, GFXTAG_DISPLAY_MON};
++#ifdef HOST_BUILD
++    // PC port: displayMonPalette is only set once the cursor is on a Pokemon,
++    // but this loads it when the PC opens, so it can still be uninitialized
++    // heap memory. On the GBA that reads 32 junk bytes (the bus ignores the
++    // top address bits) into a slot that is overwritten before the sprite is
++    // shown; on the host the junk pointer crashes. Load a blank palette then.
++    static const u16 sBlankPalette[16] = {0};
++    struct SpritePalette palette = {sStorage->displayMonPalette != NULL ? sStorage->displayMonPalette : sBlankPalette, PALTAG_DISPLAY_MON};
++#else
+     struct SpritePalette palette = {sStorage->displayMonPalette, PALTAG_DISPLAY_MON};
++#endif
+     struct SpriteTemplate template = sSpriteTemplate_DisplayMon;
+ 
+     for (i = 0; i < MON_PIC_SIZE; i++)
+@@ -5126,6 +5154,14 @@
+ 
+ static void SetMovingMonPriority(u8 priority)
+ {
++#ifdef HOST_BUILD
++    // PC port: called whenever the cursor reaches the buttons, the party or
++    // the box, also when no Pokemon is held and movingMonSprite is NULL. On
++    // the GBA that writes to the BIOS area, which ignores it; on the host it
++    // crashes.
++    if (sStorage->movingMonSprite == NULL)
++        return;
++#endif
+     sStorage->movingMonSprite->oam.priority = priority;
+ }
+ 
