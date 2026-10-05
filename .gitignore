@@ -1,0 +1,20 @@
+# Build output
+build/
+build-*/
+cmake-build-*/
+CMakeUserPresets.json
+
+# Generated at build/run time (see PLAN.md)
+assets/
+saves/
+
+# Python
+__pycache__/
+*.pyc
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
