@@ -1,5 +1,23 @@
 # Port Plan: `reference/` (pokeemerald-expansion) → PC game
 
+## Current status (2026-10-05)
+
+The game is playable from boot to the overworld and battles, with graphics, input, saves and sound, on Linux (32-bit build). Playtesting so far covers the intro (Birch's speech), the truck, Littleroot, Route 101, wild battles, catching and nicknaming, learning moves, the Pokémon Center PC and the Pokédex. Crashes found while playing are fixed with patches documented in [known_crashes.md](known_crashes.md); none are open.
+
+| Phase | Status |
+|------:|--------|
+| 0–6   | Done |
+| 7     | Done (no separate work needed; see its status note) |
+| 8     | Done |
+| 9     | Not needed |
+| 10–11 | Done |
+| 12    | Done (no separate work needed) |
+| 13    | Done (checked by ear and against mGBA) |
+| 14–15 | In progress: verified by playtesting so far, continuing as the game is played further |
+| 16    | Not started (optional) |
+| 17    | Not started: **next** |
+
+
 ## Source under analysis
 
 - `reference/` is a git submodule of [`rh-hideout/pokeemerald-expansion`](https://github.com/rh-hideout/pokeemerald-expansion) (a GBA ROM hack base, not a standalone game).
@@ -80,6 +98,8 @@ Each phase is sized to fit a single focused session. Phases list the **files tou
 
 **Done when** `cmake -S . -B build && cmake --build build` compiles `pkmemerald-core` (with at most a few hundred expected `gba/` undefined-symbol errors that Phase 2 will resolve). Don't link an executable yet.
 
+**Status (done, as part of Phase 3).** `CMakeLists.txt` builds a 32-bit host (`-m32`) and runs upstream's own preprocessing (`preproc`, graphics conversion) instead of a separate asset pipeline. `m4a.c` and `m4a_tables.c` are no longer excluded (Phase 13).
+
 ---
 
 ## Phase 2 — HAL stub headers (`include/gba/`)
@@ -97,6 +117,8 @@ Each phase is sized to fit a single focused session. Phases list the **files tou
 - Update `CMakeLists.txt` to add `platform/include` and `reference/include` to `target_include_directories`.
 
 **Done when** the headers compile cleanly from a test TU that includes every GBA header. **No** source-file behaviour changes yet.
+
+**Status (done, as part of Phase 3).** `platform/include/gba/` replaces the GBA headers; `REG_*` and the VRAM/palette/OAM macros point into host arrays (`g_host_mmio` etc.) that the renderer, sound and input code read. `test_gba_headers` covers them.
 
 ---
 
@@ -227,6 +249,8 @@ Added after a link check showed 97% of unresolved symbols were assembly *data*. 
 
 **Done when** running the game, internal `malloc`/`free` (the local one, not libc) works — verified by allocating a Pokémon party, freeing it, and re-allocating without corruption. A small unit-style smoke test in `host_main.c` does this on boot.
 
+**Status (done; no separate work was needed).** The game's memory is emulated rather than replaced: IWRAM/EWRAM are host arrays, `EWRAM_DATA`/`COMMON_DATA` variables are reset like on hardware (`Host_ResetEwram`), and the game's own `malloc.c` runs unchanged on its `gHeap` (0x1C500 bytes, as on the GBA) — every screen that allocates (summary, PC, Pokédex, battles) exercises it. `SOUND_INFO_PTR`, `INTR_CHECK` and `INTR_VECTOR` are host variables (`gba/defines.h`); `INTR_VECTOR` is unused because interrupts are dispatched by the host. No bump allocator or boot-time smoke test was added.
+
 ---
 
 ## Phase 8 — Save system
@@ -328,6 +352,8 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 
 **Done when** the overworld HUD ("PLAYER • 0123 / 0234") renders with the right font, kerning, and palette.
 
+**Status (done; no separate work was needed).** The game draws its own text into window tiles, which the Phase 10 renderer displays: dialogue, menus, the summary screen, the Pokédex and battle text render correctly. The only fix was in the glyph blitter: `text.c.patch` replaces shifts by ≥ 32 (0 on ARM, wrapped on x86), which had drawn stray bars next to glyphs.
+
 ---
 
 ## Phase 13 — Audio (M4A → SDL_mixer)
@@ -349,7 +375,7 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 
 **Done when** booting into the title plays music, and the overworld BGM plays without crackle at 60 fps.
 
-**Status (done; awaiting a listening check).** Not the outline above: the game's own sound engine runs, so music, sound effects and cries play exactly as the game drives them (fades, ducking under cries, the Pokédex cry waveform, which reads the mix buffer). `reference/src/m4a.c` and `m4a_tables.c` are built as-is plus `platform/patches/m4a.c.patch` (NULL players are ignored, no BIOS call, no wait for `VCOUNT`). `platform/src/m4a_engine.c` is a C translation of `m4a_1.s` (sequencer, track commands, note allocation, and the software mixer with the expansion's compressed/reversed cry samples), keeping the original arithmetic. `platform/src/host_audio.c` is the sound hardware: the four PSG channels emulated from the registers `CgbSound` writes (triggers, envelopes, sweep, length, wave RAM, noise LFSR, frame sequencer), mixed with Direct Sound the way `SOUNDCNT_*`/`SOUNDBIAS` mix them, at 48 kHz into a ring buffer that `audio_sdl2.c` plays; the output rate is nudged by up to ±0.5% to keep ~50 ms buffered. Tests: `test_m4a_engine` (music, a sound effect, compressed and reversed cries, fade-out) and `test_m4a_null_player`.
+**Status (done).** Not the outline above: the game's own sound engine runs, so music, sound effects and cries play exactly as the game drives them (fades, ducking under cries, the Pokédex cry waveform, which reads the mix buffer). `reference/src/m4a.c` and `m4a_tables.c` are built as-is plus `platform/patches/m4a.c.patch` (NULL players are ignored, no BIOS call, no wait for `VCOUNT`). `platform/src/m4a_engine.c` is a C translation of `m4a_1.s` (sequencer, track commands, note allocation, and the software mixer with the expansion's compressed/reversed cry samples), keeping the original arithmetic. `platform/src/host_audio.c` is the sound hardware: the four PSG channels emulated from the registers `CgbSound` writes (triggers, envelopes, sweep, length, wave RAM, noise LFSR, frame sequencer), mixed with Direct Sound the way `SOUNDCNT_*`/`SOUNDBIAS` mix them, at 48 kHz into a ring buffer that `audio_sdl2.c` plays; the output rate is nudged by up to ±0.5% to keep ~50 ms buffered. Tests: `test_m4a_engine` (music, a sound effect, compressed and reversed cries, fade-out) and `test_m4a_null_player`.
 - The interrupt timer's SIGALRM can be delivered to any thread, e.g. SDL's audio thread; it is now forwarded to the game thread, so game interrupts never run beside the game.
 - Checked against mGBA running the real ROM (built from `reference/` with upstream's toolchain): the game's mix buffer matches mGBA's at the same frame, and the output tracks mGBA's at a constant ratio (64/48, the two output scales) through the intro. That comparison found the host never set `SOUNDBIAS` to its BIOS power-on value (0x200): with bias 0 the DAC clipped the negative half of every Direct Sound sample, so instruments came out quiet and distorted under the PSG ("crunchy", "too much bass"). `RegisterRamReset`'s serial-register reset also cleared the sound control registers (wrong offset); both fixed in `host_hal.c`.
 - Output style: by default the exact DAC output (held samples, 8-bit steps), as emulators play it; `--smooth-sound` interpolates Direct Sound and low-passes at 10 kHz (standing in for the analog stage after the GBA's DAC), ~12 dB less hash above the 6.7 kHz mixing Nyquist. The device reports underruns/dropped audio on exit (0 in a 15 s PulseAudio run).
@@ -368,6 +394,8 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 
 **Done when** a 5-minute walkthrough plays end-to-end with no visual glitches.
 
+**Status (in progress, by playtesting).** Littleroot, the houses and the lab, Route 101, NPCs, the Pokémon Center (PC storage) and the Pokédex work without visual glitches. Fixes found this way: script pointers tagged with the ROM mirror (`script.c`/`scrcmd.c` patches), the map loader waiting on interrupts (mid-frame interrupt timer), and the crashes listed in `known_crashes.md`. Continues as the game is played further.
+
 ---
 
 ## Phase 15 — Battle system
@@ -380,6 +408,8 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 - Move animations are sprite swaps; mostly already work.
 
 **Done when** a wild battle starts, the intro anim plays, you select moves, and the battle resolves with HP bars, exp gain, and the victory music.
+
+**Status (in progress, by playtesting).** Wild battles work end to end with no battle-specific renderer work: transitions, intro animations, move animations, HP/exp bars, music, catching (Poké Ball throw), nicknaming and learning moves. Fixed on the way: `battle_transition.c`, `pokemon_animation.c`, `item_use.c` and the naming-screen and sprite patches (see `known_crashes.md`). Trainer battles and later move animations are still to be seen.
 
 ---
 
@@ -397,6 +427,8 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 
 **Done when** two PC instances on the same LAN can see each other in the Union Room. (Defer to a follow-up if not on the critical path — single-player is the main goal.)
 
+**Status: not started (optional).** The link and wireless code currently talks to stubs (`host_rfu.c`), so link features report no partner.
+
 ---
 
 ## Phase 17 — Polish & distribution
@@ -413,6 +445,11 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 - Documentation: `README.md` build instructions, a `CONTRIBUTING_PC.md` explaining what's safe to merge from upstream.
 
 **Done when** a tester can download a `.zip`/`.dmg`/`.AppImage`, run it, save, quit, relaunch, and continue with all progress intact.
+
+**Status: not started — next.** Already in place: integer-scaled window (`-x SCALE`, default 3×), saves that survive crashes and restarts, crash reports, `README.md` build instructions. Additional items found along the way:
+- `RelWithDebInfo`/`Release` builds fail (`NDEBUG` changes the `AGBPrintInit` macro that `host_hal.c` defines); fix before packaging.
+- Windows/macOS need their own interrupt timer (`irq_timer_posix.c` uses SIGALRM) and crash handler (`crash_handler_linux.c`).
+- The build is 32-bit only (the game assumes 32-bit pointers), so packages need 32-bit SDL2.
 
 ---
 
@@ -442,20 +479,13 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 ## Risks & open questions
 
 1. **Asset legality.** `reference/data/` and the baseline ROM contain Nintendo's IP. Distributing a port that ships these assets is the same legal posture as the existing `pokeemerald-expansion` repo, but a *commercial* PC release isn't viable without original assets. Decide up front whether this is a public binary or a source-only fork.
-2. **Voice groups and battle SFX.** The M4A engine has hand-tuned per-channel volume and ADSR. Naive `fluidsynth`-baked OGGs lose nuance. The pragmatic path is to use a high-quality General MIDI soundfont for now; if it sounds bad, the fallback is a C re-implementation of M4A (months of work) or `libvgm`/`libgme` for VGM-style playback.
+2. **Voice groups and battle SFX.** *Resolved:* the game's own M4A engine runs (its assembly translated to C) on emulated sound hardware, so nothing is lost (Phase 13).
 3. **Battle animations & special effects.** Some use window blending, mosaic, and capture-effect tricks that don't map 1:1 to SDL2. The "blend" register in particular is non-trivial. Plan for one extra week of renderer polish during Phase 15.
 4. **Link protocol.** RFU is undocumented; we only have a decomp of it. The UDP-replacement will need a custom discovery layer. (See Phase 16.)
 5. **Upstream drift.** `reference/` is a submodule on `upcoming`. Plan a quarterly merge: rebase the platform layer, re-run asset pipeline. The cleanest mitigation is to keep our diff in `platform/` and `tools/` only, and never edit `reference/src/`.
 
 ---
 
-## How to start (Phase 0 → Phase 1)
+## Building and running
 
-```sh
-cd /home/yvonne/Documents/port/pkmemerald
-# Phase 0: edit README.md and .gitignore
-# Phase 1: write CMakeLists.txt, scaffold platform/
-cmake -S . -B build
-cmake --build build -j
-# expect thousands of "undefined reference" — that's fine, Phase 2 starts.
-```
+See [README.md](README.md): `cmake -S . -B build && cmake --build build -j`, then `./build/pkmemerald` (`-h` for options) and `ctest --test-dir build`.
