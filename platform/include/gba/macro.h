@@ -90,14 +90,13 @@
 
 #define CpuFastCopy(src, dest, size) CpuFastSet(src, dest, ((size)/(32/8) & 0x1FFFFF))
 
+/* On hardware, writing an enabled control word starts the transfer. The host
+ * has no bus to snoop, so the register writes go through Host_DmaSet
+ * (platform/src/host_dma.c), which stores them and performs the transfer. */
+void Host_DmaSet(u32 dmaNum, const void *src, void *dest, u32 control);
+
 #define DmaSetUnchecked(dmaNum, src, dest, control) \
-{                                                 \
-    vu32 *dmaRegs = (vu32 *)REG_ADDR_DMA##dmaNum; \
-    dmaRegs[0] = (vu32)(src);                     \
-    dmaRegs[1] = (vu32)(dest);                    \
-    dmaRegs[2] = (vu32)(control);                 \
-    dmaRegs[2];                                   \
-}
+    Host_DmaSet(dmaNum, (const void *)(src), (void *)(dest), (u32)(control))
 
 #if MODERN
 // NOTE: Assumes 16-bit DMAs.

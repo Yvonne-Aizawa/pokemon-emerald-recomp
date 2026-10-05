@@ -18,6 +18,7 @@ Requirements (Debian/Ubuntu names):
 
 - `cmake` (3.20+), `gcc`, `g++`, `make`, `python3`, `patch`
 - `gcc-multilib`: the port builds 32-bit, because the game assumes 32-bit pointers
+- `libsdl2-dev:i386`: SDL2, in its 32-bit version
 - `libpng-dev`: for upstream's graphics tool
 
 ```sh
@@ -32,7 +33,7 @@ The first build also builds upstream's tools and converts its graphics into `ref
 cmake --build build --target refrence-prepare
 ```
 
-There is no playable game yet. `./build/pkmemerald` boots the game headless (no window, sound or input yet), runs 60 frames and exits (`-h` for options). Run the tests with:
+There is no playable game yet. `./build/pkmemerald` opens a window and runs the game, but only the background colour is drawn so far, with no sound or input (`-h` for options). Run the tests with:
 
 ```sh
 ctest --test-dir build

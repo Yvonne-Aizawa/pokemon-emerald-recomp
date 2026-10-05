@@ -1,8 +1,8 @@
 ###############################################################################
 # pkmemerald — PC port of pokeemerald-expansion
 #
-# Phase 4: host entry point and main loop (headless), linked against the
-# whole game: refrence/src/*.c, data/*.s and the songs.
+# Phase 5: SDL2 window, events and frame timing, running the whole game
+# (refrence/src/*.c, data/*.s and the songs).
 #
 # This CMakeLists builds:
 #   - pkmemerald-core  (STATIC)   the ported game code + platform layer
@@ -21,6 +21,22 @@
 ###############################################################################
 
 cmake_minimum_required(VERSION 3.20)
+
+# The game assumes 32-bit pointers: it stores pointers in u32 task-data pairs
+# (SetWordTaskArg), and static asserts struct sizes against GBA buffers
+# (list_menu.c, recorded_battle.c). We therefore build a 32-bit host binary.
+# This needs 32-bit libc headers and libgcc even to compile
+# (Debian/Ubuntu: `gcc-multilib`), and a 32-bit SDL2 (`libsdl2-dev:i386`).
+#
+# Set before project() so CMake detects a 32-bit toolchain: that picks the
+# i386 library directories (and so the 32-bit SDL2) in find_package.
+option(PKM_HOST_32BIT "Build a 32-bit host binary (matches GBA pointer size)" ON)
+if(PKM_HOST_32BIT)
+    set(CMAKE_C_FLAGS_INIT "-m32")
+    set(CMAKE_EXE_LINKER_FLAGS_INIT "-m32")
+    set(CMAKE_SHARED_LINKER_FLAGS_INIT "-m32")
+endif()
+
 project(pkmemerald
     VERSION 0.1.0
     LANGUAGES C
@@ -34,17 +50,6 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)  # pokeemerald uses GCC extensions (gnu17 upstream)
-
-# The game assumes 32-bit pointers: it stores pointers in u32 task-data pairs
-# (SetWordTaskArg), and static asserts struct sizes against GBA buffers
-# (list_menu.c, recorded_battle.c). We therefore build a 32-bit host binary.
-# This needs 32-bit libc headers and libgcc even to compile
-# (Debian/Ubuntu: `gcc-multilib`).
-option(PKM_HOST_32BIT "Build a 32-bit host binary (matches GBA pointer size)" ON)
-if(PKM_HOST_32BIT)
-    add_compile_options(-m32)
-    add_link_options(-m32)
-endif()
 
 # The assembled game data (data/*.s) holds absolute pointers in read-only
 # sections, as on the GBA; a position-independent executable would need text
@@ -103,17 +108,10 @@ foreach(_entry ${_ref_inc_entries})
 endforeach()
 
 #-------------------------------------------------------------------------------
-# Optional dependency: SDL2
-#
-# Not required until Phase 5. Note that a 32-bit build needs a 32-bit SDL2
-# (Debian/Ubuntu: `libsdl2-dev:i386`).
+# SDL2: window, rendering, events (and later input and audio)
 #-------------------------------------------------------------------------------
-find_package(SDL2 QUIET)
-if(SDL2_FOUND)
-    message(STATUS "SDL2 found: ${SDL2_VERSION}")
-else()
-    message(STATUS "SDL2 not found — required in Phase 5 (window/renderer/input)")
-endif()
+find_package(SDL2 REQUIRED CONFIG)
+message(STATUS "SDL2 found: ${SDL2_VERSION} (${SDL2_DIR})")
 
 #-------------------------------------------------------------------------------
 # Platform layer sources
@@ -346,6 +344,8 @@ target_compile_options(pkmemerald-core
         -iquote "${HOST_INC}"
 )
 
+target_link_libraries(pkmemerald-core PUBLIC SDL2::SDL2)
+
 target_compile_definitions(pkmemerald-core
     PUBLIC
         MODERN=1
@@ -359,39 +359,24 @@ endif()
 #-------------------------------------------------------------------------------
 # Test executables
 #
-# Each test under platform/tests/ becomes its own executable. Tests are
-# compile-and-run smoke tests for the host HAL stubs. They need a working
-# link for the selected word size.
+# Each test under platform/tests/ becomes its own executable. Tests that open
+# the platform layer run SDL's dummy video driver, so no display is needed.
 #-------------------------------------------------------------------------------
-include(CheckCSourceCompiles)
-if(PKM_HOST_32BIT)
-    set(CMAKE_REQUIRED_FLAGS -m32)
-endif()
-check_c_source_compiles("int main(void) { return 0; }" PKM_CAN_LINK)
-unset(CMAKE_REQUIRED_FLAGS)
-
 file(GLOB PLATFORM_TEST_SOURCES CONFIGURE_DEPENDS
     "${PLATFORM_DIR}/tests/*.c"
 )
 enable_testing()
-if(PKM_CAN_LINK)
-    foreach(TEST_SRC ${PLATFORM_TEST_SOURCES})
-        get_filename_component(TEST_NAME "${TEST_SRC}" NAME_WE)
-        add_executable(${TEST_NAME} "${TEST_SRC}")
-        target_link_libraries(${TEST_NAME} PRIVATE pkmemerald-core m)
-        add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
-    endforeach()
-else()
-    message(WARNING
-        "Cannot link ${CMAKE_SIZEOF_VOID_P}-byte-pointer host executables with -m32; "
-        "skipping platform/tests. Install a 32-bit libc/libgcc (Debian/Ubuntu: gcc-multilib).")
-endif()
+set(HEADLESS_TEST_ENV "SDL_VIDEODRIVER=dummy")
+foreach(TEST_SRC ${PLATFORM_TEST_SOURCES})
+    get_filename_component(TEST_NAME "${TEST_SRC}" NAME_WE)
+    add_executable(${TEST_NAME} "${TEST_SRC}")
+    target_link_libraries(${TEST_NAME} PRIVATE pkmemerald-core m)
+    add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
+    set_tests_properties(${TEST_NAME} PROPERTIES ENVIRONMENT "${HEADLESS_TEST_ENV}")
+endforeach()
 
 #-------------------------------------------------------------------------------
 # Target: pkmemerald (executable)
-#
-# SDL2 is not linked until Phase 5 (and must then be a 32-bit build when
-# PKM_HOST_32BIT is on).
 #-------------------------------------------------------------------------------
 add_executable(pkmemerald "${HOST_MAIN_SOURCE}")
 # Link the *whole* library, not just what host_main reaches: every symbol the
@@ -406,6 +391,7 @@ target_link_libraries(pkmemerald PRIVATE
 add_test(NAME pkmemerald-boot COMMAND pkmemerald -f 60)
 set_tests_properties(pkmemerald-boot PROPERTIES
     PASS_REGULAR_EXPRESSION "boot ok\ngame init ok\nran 60 frames"
+    ENVIRONMENT "${HEADLESS_TEST_ENV}"
 )
 
 # The host build must read upstream's assembled data exactly as the GBA does:
@@ -431,14 +417,10 @@ endif()
 #-------------------------------------------------------------------------------
 list(LENGTH REFRENCE_SRC _n_ref)
 message(STATUS "")
-message(STATUS "pkmemerald Phase 4 build configuration:")
+message(STATUS "pkmemerald Phase 5 build configuration:")
 message(STATUS "  C compiler        : ${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}")
 message(STATUS "  Build type        : ${CMAKE_BUILD_TYPE}")
 message(STATUS "  32-bit host       : ${PKM_HOST_32BIT}")
-if(PKM_CAN_LINK)
-    message(STATUS "  Can link tests    : yes")
-else()
-    message(STATUS "  Can link tests    : no (install gcc-multilib)")
-endif()
+message(STATUS "  SDL2              : ${SDL2_VERSION}")
 message(STATUS "  refrence src/     : ${_n_ref} files")
 message(STATUS "")

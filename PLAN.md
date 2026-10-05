@@ -182,6 +182,13 @@ Added after a link check showed 97% of unresolved symbols were assembly *data*. 
 
 **Done when** launching `./build/pkmemerald` opens a 720×480 window, clears it to a known colour (we use white for now; Pokémon Emerald boots to white), and closes on window close.
 
+**Status (done; checked on an X11 desktop).** Differences from the outline above:
+- `platform/src/platform_sdl2.c` replaces the headless POSIX backend (`platform.c`, removed). It owns a 240×160 `0x00RRGGBB` framebuffer (`Platform_GetFramebuffer`) shown at an integer scale with letterboxing; the window is resizable and `-x SCALE` sets its initial size (default 3 → 720×480). No vsync: the main loop paces at 59.73 Hz, sleeping with `SDL_Delay` and spinning the last ~2 ms. Closing the window or Ctrl-C quits; the default run length is now "until quit".
+- `platform/src/host_render.c` is the GBA display emulation, separate from SDL. For now it draws what a GBA shows with every layer off: white during forced blank, otherwise the backdrop colour (BG palette entry 0) — the game's real palette, fades included. Phases 10–11 add BG layers and sprites on top.
+- **DMA now actually transfers** (`platform/src/host_dma.c`): the stub `DmaSet` only wrote registers, so no palette/VRAM/OAM upload ever happened. Immediate transfers now run in `Host_DmaSet`; V-blank/H-blank-timed ones stay armed in the registers for Phase 10 (scanline effects) and Phase 13 (sound FIFO).
+- 32-bit SDL2 (`libsdl2-dev:i386`) is required. `PKM_HOST_32BIT` now sets `-m32` before `project()` so CMake picks the i386 library directories.
+- `-o FILE` saves the last frame as a PPM, for checking rendering without a display. Tests run SDL's dummy video driver.
+
 ---
 
 ## Phase 6 — Input
