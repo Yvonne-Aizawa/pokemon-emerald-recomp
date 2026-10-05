@@ -1,0 +1,33 @@
+--- a/src/battle_transition.c
++++ b/src/battle_transition.c
+@@ -1021,6 +1021,15 @@
+     u8 taskId = FindTaskIdByFunc(Task_BattleTransition);
+     if (gTasks[taskId].tTransitionDone)
+     {
++#ifdef HOST_BUILD
++        // PC port: Some transitions (e.g. SLICE / SHRED_SPLIT) never clear
++        // their VBlank/HBlank callbacks. On the GBA the leftover callback
++        // either keeps reading stale state or harmlessly hits freed memory;
++        // on the host the freed state is reliably NULL and the next VBlank
++        // segfaults dereferencing sTransitionData.
++        SetVBlankCallback(NULL);
++        SetHBlankCallback(NULL);
++#endif
+         DestroyTask(taskId);
+         FREE_AND_SET_NULL(sTransitionData);
+         return TRUE;
+@@ -2867,6 +2876,14 @@
+ 
+ static void VBlankCB_Slice(void)
+ {
++#ifdef HOST_BUILD
++    // PC port: Slice_End destroys Task_Slice but leaves this callback
++    // installed, and IsBattleTransitionDone then FREE_AND_SET_NULLs
++    // sTransitionData. On the GBA the stale read was harmless; on the
++    // host the next VBlank dereferences NULL and SIGSEGVs here.
++    if (sTransitionData == NULL)
++        return;
++#endif
+     DmaStop(0);
+     VBlankCB_BattleTransition();
+     REG_WININ = sTransitionData->WININ;
