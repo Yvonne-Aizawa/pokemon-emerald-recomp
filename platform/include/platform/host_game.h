@@ -20,6 +20,14 @@ void AgbMain(void);
  * interrupt handlers. Register with Host_SetFrameCallback. */
 void HostMain_RunFrame(void);
 
+/* Just the V-count and V-blank interrupt handlers. */
+void HostMain_RaiseVBlankInterrupts(void);
+
+/* Called by the BIOS VBlankIntrWait (host_hal.c), i.e. when game code waits
+ * for V-blank from inside a frame (crash screen, debug tools). It should
+ * finish the frame: interrupts, display, input, timing. NULL: returns at once. */
+extern void (*gHostVBlankIntrWaitHandler)(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -5,10 +5,15 @@
  * in gba/macro.h.
  *
  * Immediate transfers (DMA_START_NOW) happen inside Host_DmaSet, as they do
- * on hardware (the CPU is halted until they finish). Transfers timed to
- * V-blank or H-blank, and the sound FIFO "special" timing, are stored in the
- * channel registers but not run yet: H-blank DMA (scanline effects) needs the
- * scanline renderer (Phase 10) and sound DMA the audio engine (Phase 13).
+ * on hardware (the CPU is halted until they finish). H-blank transfers -- the
+ * game's scanline effects -- run from Host_DmaHBlank, which the renderer calls
+ * after each visible line (platform/src/host_render.c). V-blank timing isn't
+ * used by the game; the sound FIFO "special" timing waits for the audio engine
+ * (Phase 13).
+ *
+ * Like the hardware, a timed channel keeps internal source/destination
+ * addresses that carry on from one trigger to the next, while the count (and,
+ * with DMA_DEST_RELOAD, the destination) is reloaded from the registers.
  */
 
 #include <string.h>
@@ -27,8 +32,24 @@
 #define ADDR_FIXED 2
 #define ADDR_RELOAD 3  /* destination only: increments during the transfer */
 
-static void Transfer(u32 dmaNum, const u8 *src, u8 *dest, u32 cnt)
+struct DmaChannel
 {
+    const u8 *src;
+    u8 *dest;
+};
+
+static struct DmaChannel sChannels[4];
+
+static vu32 *ChannelRegs(u32 dmaNum)
+{
+    return (vu32 *)(REG_ADDR_DMA0 + 12 * dmaNum);
+}
+
+/* Copies `count` units and advances *src / *dest past them. */
+static void Transfer(u32 dmaNum, const u8 **srcp, u8 **destp, u32 cnt)
+{
+    const u8 *src = *srcp;
+    u8 *dest = *destp;
     u32 cntH = cnt >> 16;
     u32 count = cnt & 0xFFFF;
     u32 unit = (cntH & CNT_32BIT) ? 4 : 2;
@@ -50,22 +71,51 @@ static void Transfer(u32 dmaNum, const u8 *src, u8 *dest, u32 cnt)
         src += srcStep;
         dest += destStep;
     }
+    *srcp = src;
+    *destp = dest;
 }
 
 void Host_DmaSet(u32 dmaNum, const void *src, void *dest, u32 control)
 {
-    vu32 *dmaRegs = (vu32 *)(REG_ADDR_DMA0 + 12 * dmaNum);
+    vu32 *dmaRegs = ChannelRegs(dmaNum);
     u32 cntH = control >> 16;
 
     dmaRegs[0] = (u32)(uintptr_t)src;
     dmaRegs[1] = (u32)(uintptr_t)dest;
     dmaRegs[2] = control;
 
+    /* Enabling a channel latches its addresses into the internal registers. */
+    sChannels[dmaNum].src = src;
+    sChannels[dmaNum].dest = dest;
+
     if (!(cntH & CNT_ENABLE) || (cntH & CNT_START_MASK) != DMA_START_NOW)
         return;
 
-    Transfer(dmaNum, src, dest, control);
+    Transfer(dmaNum, &sChannels[dmaNum].src, &sChannels[dmaNum].dest, control);
 
     /* An immediate transfer clears its enable bit when done. */
     dmaRegs[2] = control & ~((u32)CNT_ENABLE << 16);
+}
+
+/* Run every enabled H-blank channel once, in priority order (DMA0 first). */
+void Host_DmaHBlank(void)
+{
+    u32 dmaNum;
+
+    for (dmaNum = 0; dmaNum < 4; dmaNum++)
+    {
+        vu32 *dmaRegs = ChannelRegs(dmaNum);
+        u32 control = dmaRegs[2];
+        u32 cntH = control >> 16;
+
+        if (!(cntH & CNT_ENABLE) || (cntH & CNT_START_MASK) != DMA_START_HBLANK)
+            continue;
+
+        Transfer(dmaNum, &sChannels[dmaNum].src, &sChannels[dmaNum].dest, control);
+
+        if (((cntH & CNT_DEST_MASK) >> 5) == ADDR_RELOAD)
+            sChannels[dmaNum].dest = (u8 *)(uintptr_t)dmaRegs[1];
+        if (!(cntH & DMA_REPEAT))
+            dmaRegs[2] = control & ~((u32)CNT_ENABLE << 16);
+    }
 }

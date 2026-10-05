@@ -98,11 +98,14 @@ void RegisterRamReset(u32 resetFlags)
         ResetIoRegs();
 }
 
+/* The main loop never calls this (it owns the frame loop); game code that
+ * waits for V-blank from inside a frame does. Set by host_main.c. */
+void (*gHostVBlankIntrWaitHandler)(void);
+
 void VBlankIntrWait(void)
 {
-    /* The host main loop drives frames at 60 Hz; this just yields. */
-    struct timespec ts = { .tv_sec = 0, .tv_nsec = 16000000L };  /* ~16 ms */
-    nanosleep(&ts, NULL);
+    if (gHostVBlankIntrWaitHandler != NULL)
+        gHostVBlankIntrWaitHandler();
 }
 
 u16 Sqrt(u32 num)
@@ -190,45 +193,68 @@ void CpuFastSet(const void *src, void *dest, u32 control)
 /* BgAffineSet: build a 2x3 affine matrix from a source spec.
  * GBA fixed-point: pa/pb/pc/pd are s16 in 8.8 fixed-point.
  * dx/dy are s32 in 16.8 fixed-point (24.8 actually — see pret/gba-tech). */
+/* BgAffineSet / ObjAffineSet, as the BIOS computes them: only the angle's
+ * top 8 bits are used, looked up in a 256-entry sine table with 14
+ * fractional bits; scales and results are 8.8 fixed point. */
+static s16 sSinTable[256];
+
+static void InitSinTable(void)
+{
+    if (sSinTable[64] == 0) {
+        for (int i = 0; i < 256; i++)
+            sSinTable[i] = (s16)lround(sin(i * 2.0 * M_PI / 256.0) * 0x4000);
+    }
+}
+
+static s32 SinFixed(u16 angle)
+{
+    InitSinTable();
+    return sSinTable[angle >> 8];
+}
+
+static s32 CosFixed(u16 angle)
+{
+    InitSinTable();
+    return sSinTable[((angle >> 8) + 64) & 0xFF];
+}
+
 void BgAffineSet(struct BgAffineSrcData *src, struct BgAffineDstData *dest, s32 count)
 {
     for (s32 i = 0; i < count; i++) {
-        s32 sx    = src[i].sx;
-        s32 sy    = src[i].sy;
-        s16 angle = src[i].alpha;
-        double rad = (angle * 2.0 * M_PI) / 65536.0;
-        double c = cos(rad);
-        double s = sin(rad);
-        dest[i].pa = (s16)((c * sx) * 256.0);
-        dest[i].pb = (s16)((s * sx) * 256.0);
-        dest[i].pc = (s16)((-s * sy) * 256.0);
-        dest[i].pd = (s16)((c * sy) * 256.0);
-        dest[i].dx = (s32)(src[i].scrX * 256.0 + (double)src[i].texX
-                          - ((double)dest[i].pa * src[i].scrX
-                           + (double)dest[i].pb * src[i].scrY));
-        dest[i].dy = (s32)(src[i].scrY * 256.0 + (double)src[i].texY
-                          - ((double)dest[i].pc * src[i].scrX
-                           + (double)dest[i].pd * src[i].scrY));
+        s32 sinA = SinFixed(src[i].alpha);
+        s32 cosA = CosFixed(src[i].alpha);
+        s32 pa = (src[i].sx * cosA) >> 14;
+        s32 pb = -((src[i].sx * sinA) >> 14);
+        s32 pc = (src[i].sy * sinA) >> 14;
+        s32 pd = (src[i].sy * cosA) >> 14;
+
+        dest[i].pa = (s16)pa;
+        dest[i].pb = (s16)pb;
+        dest[i].pc = (s16)pc;
+        dest[i].pd = (s16)pd;
+        /* The texture point (texX, texY), 8.8, lands on screen (scrX, scrY). */
+        dest[i].dx = src[i].texX - (pa * src[i].scrX + pb * src[i].scrY);
+        dest[i].dy = src[i].texY - (pc * src[i].scrX + pd * src[i].scrY);
     }
 }
 
 void ObjAffineSet(struct ObjAffineSrcData *src, void *dest, s32 count, s32 offset)
 {
-    /* The destination is `count` OamData-like affine entries laid out
-     * consecutively. offset is in bytes between entries. */
+    /* Writes pa, pb, pc, pd, each `offset` bytes apart (2 for a plain
+     * array, 8 to fill the parameter slots of consecutive OAM entries);
+     * successive sources follow at 4 * offset. */
     u8 *d = (u8 *)dest;
     for (s32 i = 0; i < count; i++) {
-        s16 sx    = src[i].xScale;
-        s16 sy    = src[i].yScale;
-        u16 angle = src[i].rotation;
-        double rad = (angle * 2.0 * M_PI) / 65536.0;
-        double c = cos(rad);
-        double s = sin(rad);
-        s16 *entry = (s16 *)(d + i * offset);
-        entry[0] = (s16)(c * sx);             /* pa */
-        entry[1] = (s16)(s * sx);             /* pb */
-        entry[2] = (s16)(-s * sy);            /* pc */
-        entry[3] = (s16)(c * sy);             /* pd */
+        s32 sinA = SinFixed(src[i].rotation);
+        s32 cosA = CosFixed(src[i].rotation);
+        s16 params[4] = {
+            (s16)((src[i].xScale * cosA) >> 14),
+            (s16)-((src[i].xScale * sinA) >> 14),
+            (s16)((src[i].yScale * sinA) >> 14),
+            (s16)((src[i].yScale * cosA) >> 14),
+        };
+        for (int j = 0; j < 4; j++)
+            memcpy(d + (i * 4 + j) * offset, &params[j], sizeof(s16));
     }
 }
 

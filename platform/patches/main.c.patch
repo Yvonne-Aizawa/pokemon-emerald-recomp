@@ -21,7 +21,7 @@
  static void UpdateLinkAndCallCallbacks(void);
  static void InitMainCallbacks(void);
  static void CallCallbacks(void);
-@@ -127,14 +133,43 @@
+@@ -127,14 +133,48 @@
      AGBPrintInit();
  #endif
  #endif
@@ -44,18 +44,23 @@
 +}
 +
 +#ifdef HOST_BUILD
-+// PC port: one frame of AgbMainLoop, then the interrupts the GBA raises while
-+// WaitForVBlank waits -- V-count (line 150), then V-blank (line 160) --
-+// dispatched through gIntrTable as IntrMain does on hardware. H-blank and
-+// serial interrupts are not emulated yet.
-+void HostMain_RunFrame(void)
++// PC port: the interrupts the GBA raises while WaitForVBlank waits -- V-count
++// (line 150), then V-blank (line 160) -- dispatched through gIntrTable as
++// IntrMain does on hardware. H-blank interrupts are raised by the renderer
++// (platform/src/host_render.c); serial ones are not emulated.
++void HostMain_RaiseVBlankInterrupts(void)
 +{
-+    AgbMainLoopIteration();
-+
 +    if (REG_IME && (REG_IE & INTR_FLAG_VCOUNT) && gIntrTable[0])
 +        gIntrTable[0]();
 +    if (REG_IME && (REG_IE & INTR_FLAG_VBLANK) && gIntrTable[4])
 +        gIntrTable[4]();
++}
++
++// PC port: one frame of AgbMainLoop, then its V-blank interrupts.
++void HostMain_RunFrame(void)
++{
++    AgbMainLoopIteration();
++    HostMain_RaiseVBlankInterrupts();
 +}
 +#endif
 +
@@ -65,7 +70,7 @@
          ReadKeys();
  
          if (gSoftResetDisabled == FALSE
-@@ -169,7 +204,6 @@
+@@ -169,7 +209,6 @@
  
          PlayTimeCounter_Update();
          MapMusicMain();
@@ -73,7 +78,7 @@
      }
  }
  
-@@ -317,7 +351,9 @@
+@@ -317,7 +356,9 @@
      for (i = 0; i < INTR_COUNT; i++)
          gIntrTable[i] = gIntrTableTemplate[i];
  

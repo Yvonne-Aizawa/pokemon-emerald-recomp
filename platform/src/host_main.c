@@ -67,6 +67,25 @@ static void RunGameFrame(void)
     Host_RenderFrame(Platform_GetFramebuffer());
 }
 
+/* Game code waiting for V-blank inside a frame (the crash screen, debug
+ * tools): end the frame there -- interrupts, display, input -- then wait out
+ * the rest of the frame time, as the hardware would. */
+static void WaitForVBlankInsideFrame(void)
+{
+    uint64_t start = Platform_GetTimeNs();
+    uint64_t elapsed;
+
+    HostMain_RaiseVBlankInterrupts();
+    Host_RenderFrame(Platform_GetFramebuffer());
+    Platform_FrameEnd();
+    Platform_PollEvents();
+    Host_SetKeypad(Platform_GetButtons());
+
+    elapsed = Platform_GetTimeNs() - start;
+    if (elapsed < HOST_FRAME_NS)
+        Platform_SleepNs(HOST_FRAME_NS - elapsed);
+}
+
 int main(int argc, char **argv)
 {
     struct PlatformConfig config = {
@@ -140,6 +159,7 @@ int main(int argc, char **argv)
     printf("game init ok\n");
     fflush(stdout);
     Host_SetFrameCallback(RunGameFrame);
+    gHostVBlankIntrWaitHandler = WaitForVBlankInsideFrame;
 
     startNs = Platform_GetTimeNs();
     framesRun = Host_RunMainLoop((uint32_t)maxFrames);

@@ -259,6 +259,7 @@ Added after a link check showed 97% of unresolved symbols were assembly *data*. 
 
 **Done when** `make assets` produces a valid PNG of, say, Pikachu's front sprite at the correct palette.
 
+**Status: not needed.** Upstream's graphics pipeline (gbagfx + preproc `INCBIN`/`INCGFX`) already compiles every asset into the game in the GBA's own formats, and the game decompresses and uploads them to (emulated) VRAM itself, so the renderer reads GBA tile data directly. A separate asset pack would only matter for replacing assets.
 
 ---
 
@@ -276,6 +277,12 @@ Added after a link check showed 97% of unresolved symbols were assembly *data*. 
 
 **Done when** booting into the title screen shows the copyright screen text/gradient, and the lit Pokéball intro plays (just visuals; no music yet).
 
+**Status (done).** `platform/src/host_render.c` is a scanline renderer following the GBA PPU rather than per-layer SDL textures: each line is drawn from the registers as they stand at that line, then that line's H-blank runs (H-blank DMA via `Host_DmaHBlank`, the H-blank interrupt, `REG_VCOUNT`), in the hardware's order (V-blank interrupt → H-blanks of lines 160–227 → lines 0–159). Covers video modes 0–5 (text, affine with per-line reference points, bitmap), priorities, mosaic, windows 0/1/outside, and alpha/brighten/darken effects. Sprites and the OBJ window are Phase 11. The copyright screen, the expansion splash, all three intro scenes' backgrounds and the title screen (affine logo, blended clouds, Rayquaza) render; screenshots via `pkmemerald -f N -o frame.ppm`.
+
+Bugs found on the way:
+- The Phase 2 `BgAffineSet`/`ObjAffineSet` had wrong scaling and swapped signs; now integer BIOS math (top 8 angle bits, 256-entry sine table), covered by `platform/tests/test_bios_affine.c`.
+- `VBlankIntrWait` slept 16 ms; it now finishes the frame (interrupts, display, input, timing) for code that waits for V-blank mid-frame (crash screen, debug tools). The `main.c` patch exposes `HostMain_RaiseVBlankInterrupts` for it.
+- The silent `host_m4a.c` reported all music as already finished, so the title screen returned to the intro immediately. BGM now counts as playing until stopped/faded, as the real engine's status words would show; sound effects still finish at once.
 
 ---
 
