@@ -1,0 +1,45 @@
+--- a/src/script.c
++++ b/src/script.c
+@@ -1,4 +1,15 @@
+ #include "global.h"
++
++#ifdef HOST_BUILD
++// PC port: some script command and special function pointers are tagged by
++// adding ROM_SIZE, which on the GBA still points at the same code (the
++// cartridge ROM is mirrored at 0x0A000000). The host has no mirror, so
++// strip the tag before calling. Code always lies in 0x08000000-0x09FFFFFF
++// (checked at startup in platform/src/host_gba_misc.c).
++#define CALLABLE(func) ((__typeof__(func))((uintptr_t)(func) & ~(uintptr_t)0x2000000))
++#else
++#define CALLABLE(func) (func)
++#endif
+ #include "script.h"
+ #include "event_data.h"
+ #include "field_screen_effect.h"
+@@ -98,7 +109,7 @@
+         // Continue to bytecode if no function or it returns TRUE
+         if (ctx->nativePtr)
+         {
+-            if (ctx->nativePtr() == TRUE)
++            if (CALLABLE(ctx->nativePtr)() == TRUE)
+                 ctx->mode = SCRIPT_MODE_BYTECODE;
+             return TRUE;
+         }
+@@ -126,7 +137,7 @@
+                 return FALSE;
+             }
+ 
+-            if ((*func)(ctx) == TRUE)
++            if (CALLABLE(*func)(ctx) == TRUE)
+                 return TRUE;
+         }
+     }
+@@ -644,7 +655,7 @@
+                 return TRUE;
+ 
+             // Command which waits for a frame.
+-            if ((*func)(ctx))
++            if (CALLABLE(*func)(ctx))
+             {
+                 gScriptEffectContext->nextCmd = ctx->scriptPtr;
+                 return TRUE;

@@ -9,10 +9,13 @@
  *   src/libgcnmultiboot.s  GameCubeMultiBoot_* (as if no GameCube is attached)
  *   ld_script_modern.ld    __rom_end, __iwram_end (debug-only size readouts)
  *   BIOS                   BitUnPack (SWI 0x10)
+ *
+ * plus the host's answers to "where is GBA RAM / ROM?" (see below).
  */
 
 /* libc first: global.h defines function-like macros (abs, ...) that would
  * break libc's own declarations. */
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -68,6 +71,54 @@ void ReInitializeEWRAM(void)
 
     if (size != 0 && sEwramInitImage != NULL)
         memcpy(__start_ewram_init, sEwramInitImage, size);
+}
+
+/* --------------------------------------------------------------------- */
+/* Memory map                                                             */
+/*                                                                        */
+/* Game code sometimes tells ROM from RAM by address:                    */
+/*  - bg.c's IsTileMapOutsideWram: is a tilemap buffer writable RAM?     */
+/*    (patched to call Host_IsGbaRamPointer)                             */
+/*  - script commands/specials "tagged" by adding ROM_SIZE, relying on   */
+/*    the GBA's ROM mirror at 0x0A000000 to still be callable (patched   */
+/*    in script.c/scrcmd.c to strip the tag), and recognised by          */
+/*    (address & 0xE000000) == 0xA000000.                                */
+/* The executable is non-PIE at 0x08048000, so code lands inside the     */
+/* GBA's ROM window like on hardware; CheckMemoryMap makes sure it stays  */
+/* there.                                                                 */
+/* --------------------------------------------------------------------- */
+
+extern char __executable_start[];
+extern char etext[];
+extern char __data_start[];  /* glibc: start of .data */
+extern char _end[];
+extern char __start_script_data[] __attribute__((weak));
+extern char __stop_script_data[] __attribute__((weak));
+
+/* The game's RAM: every writable variable -- .data, the EWRAM sections,
+ * .bss -- except the event/battle scripts, which upstream keeps in a
+ * writable-flagged section but which live in ROM on hardware. */
+bool32 Host_IsGbaRamPointer(const void *ptr)
+{
+    const char *p = ptr;
+
+    if (p < __data_start || p >= _end)
+        return FALSE;
+    if (__start_script_data != NULL && p >= __start_script_data && p < __stop_script_data)
+        return FALSE;
+    return TRUE;
+}
+
+__attribute__((constructor)) static void CheckMemoryMap(void)
+{
+    if ((uintptr_t)__executable_start < ROM_START || (uintptr_t)etext > ROM_START + 0x2000000)
+    {
+        fprintf(stderr, "pkmemerald: code at %p-%p is outside the GBA ROM window "
+                        "0x08000000-0x0A000000; tagged script pointers would break. "
+                        "Link non-PIE at the default i386 address.\n",
+                (void *)__executable_start, (void *)etext);
+        abort();
+    }
 }
 
 /* --------------------------------------------------------------------- */

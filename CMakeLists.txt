@@ -217,6 +217,12 @@ if(PKM_HOST_32BIT)
 endif()
 
 find_program(PATCH_EXECUTABLE patch REQUIRED)
+# Which sources have a patch is decided at configure time; re-configure when
+# a patch is added or removed.
+file(GLOB _host_patches CONFIGURE_DEPENDS "${PATCH_DIR}/*.patch")
+# Which sources have a patch is decided at configure time; re-configure when
+# a patch is added or removed.
+file(GLOB _host_patches CONFIGURE_DEPENDS "${PATCH_DIR}/*.patch")
 
 set(REFRENCE_PP)
 foreach(_src ${REFRENCE_SRC})

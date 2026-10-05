@@ -10,6 +10,9 @@
  *     paused or faded out. (Without audio we can't tell when a song would
  *     end; the title screen, for one, returns to the intro when its music
  *     ends, so "already ended" would skip it at once.)
+ *   - Fades take as long as on hardware (16 steps of `speed` frames, ticked
+ *     from m4aSoundMain each V-blank): game code starts a fade-out and checks
+ *     whether the music has ended in the same frame, and expects "not yet".
  *   - Sound effects, fanfare and cries finish immediately, so nothing ever
  *     waits on them.
  * Phase 13 replaces this with real playback.
@@ -30,7 +33,16 @@ struct PokemonCrySong gPokemonCrySongs[MAX_POKEMON_CRIES];
 static struct MusicPlayerInfo sCryPlayer;
 
 void m4aSoundInit(void) { }
-void m4aSoundMain(void) { }
+static void FadeTick(struct MusicPlayerInfo *mplayInfo);
+
+void m4aSoundMain(void)
+{
+    FadeTick(&gMPlayInfo_BGM);
+    FadeTick(&gMPlayInfo_SE1);
+    FadeTick(&gMPlayInfo_SE2);
+    FadeTick(&gMPlayInfo_SE3);
+    FadeTick(&sCryPlayer);
+}
 void m4aSoundVSync(void) { }
 void m4aSoundVSyncOn(void) { }
 void m4aSoundVSyncOff(void) { }
@@ -92,24 +104,53 @@ void m4aMPlayAllStop(void)
     m4aMPlayStop(&sCryPlayer);
 }
 
-/* Fades complete at once: a finished fade-out stops the song (clearing its
- * tracks), a temporary one pauses it so a fade-in can resume it. */
+/* Fades, as m4a.c sets them up and FadeOutBody advances them. When a
+ * fade-out completes it stops the song (clearing its tracks); a temporary one
+ * only pauses it, so a fade-in can resume it. */
 void m4aMPlayFadeOut(struct MusicPlayerInfo *mplayInfo, u16 speed)
 {
-    (void)speed;
-    mplayInfo->status = MUSICPLAYER_STATUS_PAUSE;
+    mplayInfo->fadeOC = speed;
+    mplayInfo->fadeOI = speed;
+    mplayInfo->fadeOV = (64 << FADE_VOL_SHIFT);
 }
 
 void m4aMPlayFadeOutTemporarily(struct MusicPlayerInfo *mplayInfo, u16 speed)
 {
-    (void)speed;
-    mplayInfo->status |= MUSICPLAYER_STATUS_PAUSE;
+    mplayInfo->fadeOC = speed;
+    mplayInfo->fadeOI = speed;
+    mplayInfo->fadeOV = (64 << FADE_VOL_SHIFT) | TEMPORARY_FADE;
 }
 
 void m4aMPlayFadeIn(struct MusicPlayerInfo *mplayInfo, u16 speed)
 {
-    (void)speed;
-    m4aMPlayContinue(mplayInfo);
+    mplayInfo->fadeOC = speed;
+    mplayInfo->fadeOI = speed;
+    mplayInfo->fadeOV = (0 << FADE_VOL_SHIFT) | FADE_IN;
+    mplayInfo->status &= ~MUSICPLAYER_STATUS_PAUSE;
+}
+
+static void FadeTick(struct MusicPlayerInfo *mplayInfo)
+{
+    if (mplayInfo->fadeOI == 0 || --mplayInfo->fadeOC != 0)
+        return;
+    mplayInfo->fadeOC = mplayInfo->fadeOI;
+
+    if (mplayInfo->fadeOV & FADE_IN)
+    {
+        if ((u16)(mplayInfo->fadeOV += (4 << FADE_VOL_SHIFT)) >= (64 << FADE_VOL_SHIFT))
+        {
+            mplayInfo->fadeOV = (64 << FADE_VOL_SHIFT);
+            mplayInfo->fadeOI = 0;
+        }
+    }
+    else if ((s16)(mplayInfo->fadeOV -= (4 << FADE_VOL_SHIFT)) <= 0)
+    {
+        if (mplayInfo->fadeOV & TEMPORARY_FADE)
+            mplayInfo->status |= MUSICPLAYER_STATUS_PAUSE;
+        else
+            mplayInfo->status = MUSICPLAYER_STATUS_PAUSE;
+        mplayInfo->fadeOI = 0;
+    }
 }
 
 void m4aMPlayImmInit(struct MusicPlayerInfo *mplayInfo) { (void)mplayInfo; }

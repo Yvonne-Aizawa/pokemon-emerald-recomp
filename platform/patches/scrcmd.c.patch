@@ -1,0 +1,45 @@
+--- a/src/scrcmd.c
++++ b/src/scrcmd.c
+@@ -1,4 +1,15 @@
+ #include "global.h"
++
++#ifdef HOST_BUILD
++// PC port: some script command and special function pointers are tagged by
++// adding ROM_SIZE, which on the GBA still points at the same code (the
++// cartridge ROM is mirrored at 0x0A000000). The host has no mirror, so
++// strip the tag before calling. Code always lies in 0x08000000-0x09FFFFFF
++// (checked at startup in platform/src/host_gba_misc.c).
++#define CALLABLE(func) ((__typeof__(func))((uintptr_t)(func) & ~(uintptr_t)0x2000000))
++#else
++#define CALLABLE(func) (func)
++#endif
+ #include "frontier_util.h"
+ #include "battle_setup.h"
+ #include "battle_util.h"
+@@ -142,7 +153,7 @@
+     Script_RequestEffects(SCREFF_V1);
+     Script_CheckEffectInstrumentedSpecial(index);
+ 
+-    gSpecials[index]();
++    CALLABLE(gSpecials[index])();
+     return FALSE;
+ }
+ 
+@@ -156,7 +167,7 @@
+     Script_RequestWriteVar(varId);
+     Script_CheckEffectInstrumentedSpecial(index);
+ 
+-    *ptr = gSpecials[index]();
++    *ptr = CALLABLE(gSpecials[index])();
+     return FALSE;
+ }
+ 
+@@ -168,7 +179,7 @@
+     Script_CheckEffectInstrumentedCallNative(func);
+ 
+     ctx->waitAfterCallNative = FALSE;
+-    func(ctx);
++    CALLABLE(func)(ctx);
+     return ctx->waitAfterCallNative;
+ }
+ 

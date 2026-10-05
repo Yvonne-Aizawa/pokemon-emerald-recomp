@@ -9,10 +9,11 @@
  * effects -- scroll waves, window shapes, battle transitions -- work as on
  * hardware.
  *
- * Implemented: video modes 0-5 (text, affine and bitmap backgrounds), layer
- * priority, mosaic, windows 0/1 and the outside window, and colour effects
- * (alpha blending, brighten, darken). Not yet: sprites (OBJ) and the OBJ
- * window (Phase 11).
+ * Implemented: video modes 0-5 (text, affine and bitmap backgrounds),
+ * sprites (regular and affine, semi-transparent, OBJ window), layer priority,
+ * mosaic, windows 0/1/OBJ/outside, and colour effects (alpha blending,
+ * brighten, darken). Not emulated: the per-line sprite pixel budget (the
+ * hardware drops sprites past ~1210 cycles per line; the game stays under it).
  *
  * Timing: Host_RenderFrame runs right after the game's V-blank interrupt, and
  * does what the GBA does between that interrupt and the next frame's logic:
@@ -76,6 +77,11 @@ static u16 Vram16(u32 addr)
 static u16 BgPalette(u32 index)
 {
     return ((const u16 *)BG_PLTT)[index] & 0x7FFF;
+}
+
+static u16 ObjPalette(u32 index)
+{
+    return ((const u16 *)OBJ_PLTT)[index] & 0x7FFF;
 }
 
 /* --------------------------------------------------------------------- */
@@ -290,6 +296,177 @@ static void DrawBitmapBgLine(int mode, int y, u16 *out)
 }
 
 /* --------------------------------------------------------------------- */
+/* Sprites (OBJ)                                                         */
+/* --------------------------------------------------------------------- */
+
+#define OBJ_TILE_BASE 0x10000  /* sprite tiles live in VRAM's last 32 KiB */
+
+#define OBJ_MODE_NORMAL 0
+#define OBJ_MODE_SEMI   1  /* semi-transparent: always alpha-blends */
+#define OBJ_MODE_WINDOW 2  /* not drawn; its pixels form the OBJ window */
+
+/* One line of sprite output. */
+struct ObjLine
+{
+    u16 color[WIDTH];   /* TRANSPARENT where no sprite pixel */
+    u8 priority[WIDTH];
+    bool8 semi[WIDTH];
+    bool8 window[WIDTH]; /* covered by an OBJ-window sprite */
+};
+
+/* Width and height by [shape][size]: square, horizontal, vertical. */
+static const u8 sObjSizes[3][4][2] = {
+    { {  8,  8 }, { 16, 16 }, { 32, 32 }, { 64, 64 } },
+    { { 16,  8 }, { 32,  8 }, { 32, 16 }, { 64, 32 } },
+    { {  8, 16 }, {  8, 32 }, { 16, 32 }, { 32, 64 } },
+};
+
+static u16 Oam16(u32 index)
+{
+    return ((const u16 *)OAM)[index];
+}
+
+/* Colour index of sprite pixel (tx, ty) within a w-pixel-wide sprite whose
+ * graphics start at tile `baseTile`; 0 = transparent. */
+static u32 ObjPixel(u32 baseTile, u32 w, u32 tx, u32 ty, bool32 is8bpp, bool32 map1D, int mode)
+{
+    u32 tileStep = is8bpp ? 2 : 1;  /* tile numbers count 32-byte units */
+    u32 rowStride = map1D ? (w / 8) * tileStep : 32;
+    u32 tile = (baseTile + (ty / 8) * rowStride + (tx / 8) * tileStep) & 0x3FF;
+    u32 addr;
+
+    /* In the bitmap modes the lower half of sprite VRAM holds the bitmap. */
+    if (mode >= 3 && tile < 512)
+        return 0;
+    addr = OBJ_TILE_BASE + tile * 32;
+    if (is8bpp)
+        return Vram()[addr + (ty & 7) * 8 + (tx & 7)];
+    return (Vram()[addr + (ty & 7) * 4 + (tx & 7) / 2] >> ((tx & 1) * 4)) & 0xF;
+}
+
+static void DrawObjLine(int y, struct ObjLine *line)
+{
+    u16 dispcnt = Reg(REG_OFFSET_DISPCNT);
+    int mode = dispcnt & 7;
+    bool32 map1D = dispcnt & DISPCNT_OBJ_1D_MAP;
+    u16 mosaicReg = Reg(REG_OFFSET_MOSAIC);
+    int mosaicH = ((mosaicReg >> 8) & 0xF) + 1;
+    int mosaicV = ((mosaicReg >> 12) & 0xF) + 1;
+    int i, x;
+
+    for (x = 0; x < WIDTH; x++)
+    {
+        line->color[x] = TRANSPARENT;
+        line->priority[x] = 4;
+        line->semi[x] = FALSE;
+        line->window[x] = FALSE;
+    }
+    if (!(dispcnt & DISPCNT_OBJ_ON))
+        return;
+
+    for (i = 0; i < 128; i++)
+    {
+        u16 attr0 = Oam16(i * 4), attr1 = Oam16(i * 4 + 1), attr2 = Oam16(i * 4 + 2);
+        bool32 affine = attr0 & 0x100;
+        int objMode = (attr0 >> 10) & 3;
+        int shape = attr0 >> 14;
+        int w, h, boxW, boxH, top, left, lineInBox, lx;
+        bool32 mosaic = attr0 & 0x1000;
+        bool32 is8bpp = attr0 & 0x2000;
+        u32 baseTile = attr2 & 0x3FF;
+        int priority = (attr2 >> 10) & 3;
+        u32 palBank = (attr2 >> 12) * 16;
+        s32 pa = 0x100, pb = 0, pc = 0, pd = 0x100;
+
+        if ((!affine && (attr0 & 0x200)) || objMode == 3 || shape == 3)
+            continue;  /* hidden, or invalid */
+
+        w = sObjSizes[shape][attr1 >> 14][0];
+        h = sObjSizes[shape][attr1 >> 14][1];
+        boxW = w;
+        boxH = h;
+        if (affine && (attr0 & 0x200))  /* double-size bounding box */
+        {
+            boxW *= 2;
+            boxH *= 2;
+        }
+
+        /* Y is 8 bits and wraps around the 256-line space. */
+        top = attr0 & 0xFF;
+        lineInBox = (u8)(y - top);
+        if (lineInBox >= boxH)
+            continue;
+        /* Mosaic snaps to the screen's grid, not the sprite's. */
+        if (mosaic)
+        {
+            lineInBox -= y % mosaicV;
+            if (lineInBox < 0)
+                lineInBox = 0;
+        }
+        left = attr1 & 0x1FF;
+        if (left >= WIDTH)
+            left -= 512;
+
+        if (affine)
+        {
+            u32 group = ((attr1 >> 9) & 0x1F) * 16;
+            pa = (s16)Oam16(group + 3);
+            pb = (s16)Oam16(group + 7);
+            pc = (s16)Oam16(group + 11);
+            pd = (s16)Oam16(group + 15);
+        }
+
+        for (lx = 0; lx < boxW; lx++)
+        {
+            int sx = left + lx;
+            int col = lx;
+            s32 tx, ty;
+            u32 index;
+
+            if (sx < 0 || sx >= WIDTH)
+                continue;
+            if (mosaic)
+                col = (sx - sx % mosaicH) - left;
+            if (col < 0)
+                col = 0;
+
+            if (affine)
+            {
+                /* Rotate around the box centre; the texture centre is the
+                 * sprite's centre. */
+                s32 cx = col - boxW / 2, cy = lineInBox - boxH / 2;
+                tx = ((pa * cx + pb * cy) >> 8) + w / 2;
+                ty = ((pc * cx + pd * cy) >> 8) + h / 2;
+                if (tx < 0 || ty < 0 || tx >= w || ty >= h)
+                    continue;
+            }
+            else
+            {
+                tx = (attr1 & 0x1000) ? w - 1 - col : col;
+                ty = (attr1 & 0x2000) ? h - 1 - lineInBox : lineInBox;
+            }
+
+            index = ObjPixel(baseTile, w, tx, ty, is8bpp, map1D, mode);
+            if (index == 0)
+                continue;
+
+            if (objMode == OBJ_MODE_WINDOW)
+            {
+                line->window[sx] = TRUE;
+                continue;
+            }
+            /* Among sprites, a pixel is only taken over by a strictly better
+             * priority, so on ties the lower OAM index stays in front. */
+            if (line->color[sx] != TRANSPARENT && priority >= line->priority[sx])
+                continue;
+            line->color[sx] = ObjPalette(is8bpp ? index : palBank + index);
+            line->priority[sx] = priority;
+            line->semi[sx] = (objMode == OBJ_MODE_SEMI);
+        }
+    }
+}
+
+/* --------------------------------------------------------------------- */
 /* Windows and colour effects                                             */
 /* --------------------------------------------------------------------- */
 
@@ -308,7 +485,8 @@ static bool32 InWindow(u32 hOffset, u32 vOffset, int x, int y)
 }
 
 /* Per pixel: which layers and effects the windows allow. */
-static void ComputeWindowLine(int y, u8 *mask)
+/* Window priority: WIN0, then WIN1, then the OBJ window, then outside. */
+static void ComputeWindowLine(int y, const struct ObjLine *obj, u8 *mask)
 {
     u16 dispcnt = Reg(REG_OFFSET_DISPCNT);
     u16 winIn = Reg(REG_OFFSET_WININ);
@@ -323,8 +501,10 @@ static void ComputeWindowLine(int y, u8 *mask)
             mask[x] = winIn & 0x3F;
         else if ((dispcnt & DISPCNT_WIN1_ON) && InWindow(REG_OFFSET_WIN1H, REG_OFFSET_WIN1V, x, y))
             mask[x] = (winIn >> 8) & 0x3F;
+        else if ((dispcnt & DISPCNT_OBJWIN_ON) && obj->window[x])
+            mask[x] = (winOut >> 8) & 0x3F;
         else
-            mask[x] = winOut & 0x3F;  /* OBJ window: Phase 11 */
+            mask[x] = winOut & 0x3F;
     }
 }
 
@@ -377,6 +557,7 @@ static uint32_t ToRgb(u16 color)
 static void RenderLine(int y, uint32_t *out)
 {
     static u16 sBgLine[4][WIDTH];
+    static struct ObjLine sObjLine;
     u8 window[WIDTH];
     u16 dispcnt = Reg(REG_OFFSET_DISPCNT);
     int mode = dispcnt & 7;
@@ -426,7 +607,8 @@ static void RenderLine(int y, uint32_t *out)
             DrawAffineBgLine(bg, y, sBgLine[bg]);
     }
 
-    ComputeWindowLine(y, window);
+    DrawObjLine(y, &sObjLine);
+    ComputeWindowLine(y, &sObjLine, window);
 
     for (x = 0; x < WIDTH; x++)
     {
@@ -434,10 +616,29 @@ static void RenderLine(int y, uint32_t *out)
         u16 color[2] = { backdrop, backdrop };
         int layer[2] = { LAYER_BD, LAYER_BD };
         int found = 0;
+        bool32 objPending = sObjLine.color[x] != TRANSPARENT && (window[x] & (1 << LAYER_OBJ));
+        bool32 topIsSemiObj = FALSE;
         u16 result;
 
-        for (i = 0; i < count && found < 2; i++)
+        /* Walk the backgrounds front to back; a sprite pixel goes in front of
+         * every background whose priority is the same or lower. */
+        for (i = 0; i <= count && found < 2; i++)
         {
+            int bgPriority = (i < count) ? (Reg(REG_OFFSET_BG0CNT + 2 * order[i]) & 3) : 4;
+
+            if (objPending && sObjLine.priority[x] <= bgPriority)
+            {
+                if (found == 0)
+                    topIsSemiObj = sObjLine.semi[x];
+                color[found] = sObjLine.color[x];
+                layer[found] = LAYER_OBJ;
+                found++;
+                objPending = FALSE;
+                if (found == 2)
+                    break;
+            }
+            if (i == count)
+                break;
             bg = order[i];
             if (!(window[x] & (1 << bg)) || sBgLine[bg][x] == TRANSPARENT)
                 continue;
@@ -447,14 +648,21 @@ static void RenderLine(int y, uint32_t *out)
         }
 
         result = color[0];
-        if ((window[x] & WINDOW_EFFECT) && (bldcnt & (1 << layer[0])))
+        if (window[x] & WINDOW_EFFECT)
         {
-            if (blendMode == BLEND_ALPHA && (bldcnt & (0x100 << layer[1])))
+            /* Semi-transparent sprites alpha-blend with any valid second
+             * target, whatever the blend mode and first-target bits say. */
+            if (topIsSemiObj && (bldcnt & (0x100 << layer[1])))
                 result = Blend(color[0], color[1], eva, evb);
-            else if (blendMode == BLEND_BRIGHTEN)
-                result = Brighten(color[0], evy);
-            else if (blendMode == BLEND_DARKEN)
-                result = Darken(color[0], evy);
+            else if (bldcnt & (1 << layer[0]))
+            {
+                if (blendMode == BLEND_ALPHA && (bldcnt & (0x100 << layer[1])))
+                    result = Blend(color[0], color[1], eva, evb);
+                else if (blendMode == BLEND_BRIGHTEN)
+                    result = Brighten(color[0], evy);
+                else if (blendMode == BLEND_DARKEN)
+                    result = Darken(color[0], evy);
+            }
         }
         out[x] = ToRgb(result);
     }

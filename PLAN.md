@@ -299,6 +299,15 @@ Bugs found on the way:
 
 **Done when** walking around the overworld shows the player sprite and the overworld NPCs.
 
+**Status (done).** Sprites are part of the scanline renderer (`platform/src/host_render.c`), not SDL textures: all 128 OAM entries, every shape/size, 4/8 bpp, 1D/2D tile mapping, flips, 8-bit Y / 9-bit X wraparound, mosaic, affine (incl. double-size), sprite-vs-sprite order (lower OAM index wins ties), sprite-vs-BG priority, semi-transparent sprites and the OBJ window. With quick-start (Select on the title), the truck ride and Littleroot Town show the player, Mom and the truck, with text boxes.
+
+Getting into the overworld surfaced GBA assumptions beyond rendering:
+- **Interrupts during busy-waits.** The map loader spins until the V-blank handler's DMA3 manager has copied the tilesets; on hardware V-blank interrupts preempt the loop. `platform/src/irq_timer_posix.c` (SIGALRM, armed only while game code runs) now raises the V-count/V-blank interrupts every GBA frame time if a frame overruns, like a lag frame. A Windows build needs its own timer (Phase 17).
+- **The ROM mirror.** Script commands/specials that "request effects" are tagged by adding `ROM_SIZE` to their pointer and called anyway — on the GBA the cartridge is mirrored at `0x0A000000`. `platform/patches/script.c.patch` and `scrcmd.c.patch` strip the tag at the call sites (`CALLABLE()`); `host_gba_misc.c` checks at startup that code lies in `0x08000000–0x0A000000` so the tag test keeps working.
+- **RAM by address.** `bg.c`'s `IsTileMapOutsideWram` treated every buffer above `IWRAM_END` as ROM, which would have stopped all text windows from drawing; `bg.c.patch` asks `Host_IsGbaRamPointer` instead.
+- **Fade timing.** `host_m4a.c` fades now take 16 × `speed` frames like the real engine: quick-start fades the music and checks "has it ended?" in the same frame, and the instant fade sent it back to the copyright screen.
+- `pkmemerald -i SCRIPT` presses buttons at given frames (e.g. `600:a,700:b,760:b,840:select`), for reproducible test runs. CMake now re-configures when a patch file is added.
+
 ---
 
 ## Phase 12 — Text rendering

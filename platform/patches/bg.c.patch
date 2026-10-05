@@ -1,0 +1,22 @@
+--- a/src/bg.c
++++ b/src/bg.c
+@@ -1200,9 +1200,19 @@
+     return BG_TYPE_NONE;
+ }
+ 
++#ifdef HOST_BUILD
++// PC port: the game's RAM isn't at GBA addresses (EWRAM 0x02xxxxxx, IWRAM
++// 0x03xxxxxx) on the host, so ask where it is (platform/src/host_gba_misc.c).
++bool32 Host_IsGbaRamPointer(const void *ptr);
++#endif
++
+ bool32 IsTileMapOutsideWram(u32 bg)
+ {
++#ifdef HOST_BUILD
++    if (!Host_IsGbaRamPointer(sGpuBgConfigs2[bg].tilemap))
++#else
+     if (sGpuBgConfigs2[bg].tilemap > (void *)IWRAM_END)
++#endif
+         return TRUE;
+     else if (sGpuBgConfigs2[bg].tilemap == NULL)
+         return TRUE;

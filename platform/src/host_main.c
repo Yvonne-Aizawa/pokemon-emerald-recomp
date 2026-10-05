@@ -13,6 +13,7 @@
 #include "platform/host_game.h"
 #include "platform/host_input.h"
 #include "platform/host_render.h"
+#include "platform/irq_timer.h"
 #include "platform/main_loop.h"
 #include "platform/platform.h"
 
@@ -23,16 +24,42 @@
 #define DEFAULT_SCALE 3
 #define MAX_SCALE 16
 
+/* Scripted input (-i): long enough for the game to see a press and release. */
+#define DEFAULT_HOLD_FRAMES 5
+#define MAX_SCRIPT_STEPS 256
+
+struct ScriptStep
+{
+    uint32_t frame;
+    uint32_t hold;
+    uint16_t buttons;
+};
+
+static struct ScriptStep sScript[MAX_SCRIPT_STEPS];
+static int sScriptLength;
+
+static const struct { const char *name; uint16_t button; } sButtonNames[] = {
+    { "a", PLATFORM_BUTTON_A },         { "b", PLATFORM_BUTTON_B },
+    { "select", PLATFORM_BUTTON_SELECT }, { "start", PLATFORM_BUTTON_START },
+    { "up", PLATFORM_BUTTON_UP },       { "down", PLATFORM_BUTTON_DOWN },
+    { "left", PLATFORM_BUTTON_LEFT },   { "right", PLATFORM_BUTTON_RIGHT },
+    { "l", PLATFORM_BUTTON_L },         { "r", PLATFORM_BUTTON_R },
+};
+
 static void Usage(FILE *out, const char *argv0)
 {
     fprintf(out,
-            "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [-x SCALE] [-f FRAMES] [-o FILE]\n"
+            "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [-x SCALE] [-f FRAMES] [-o FILE] [-i SCRIPT]\n"
             "  -d DATA_DIR  converted game data (default: assets)\n"
             "  -s SAVE_DIR  save files (default: saves)\n"
             "  -x SCALE     initial window size as a multiple of 240x160 (default: %d)\n"
             "  -f FRAMES    stop after FRAMES frames (default: run until the window is closed)\n"
-            "  -o FILE      on exit, save the last frame to FILE (binary PPM)\n",
-            argv0, DEFAULT_SCALE);
+            "  -o FILE      on exit, save the last frame to FILE (binary PPM)\n"
+            "  -i SCRIPT    press buttons at given frames, for testing: comma-separated\n"
+            "               FRAME[+HOLD]:BUTTON[|BUTTON...], e.g. 600:a,3700+10:select\n"
+            "               (buttons: a b select start up down left right l r; HOLD\n"
+            "               defaults to %d frames)\n",
+            argv0, DEFAULT_SCALE, DEFAULT_HOLD_FRAMES);
 }
 
 static bool ParseNumber(const char *value, unsigned long max, unsigned long *out)
@@ -60,10 +87,78 @@ static bool SaveFrame(const char *path, const uint32_t *framebuffer)
     return fclose(f) == 0;
 }
 
+/* Parses "FRAME[+HOLD]:BUTTON[|BUTTON...],..." into sScript. */
+static bool ParseScript(const char *text)
+{
+    char buffer[4096];
+    char *step, *saveStep;
+
+    if (strlen(text) >= sizeof(buffer))
+        return false;
+    strcpy(buffer, text);
+    for (step = strtok_r(buffer, ",", &saveStep); step != NULL; step = strtok_r(NULL, ",", &saveStep))
+    {
+        struct ScriptStep *out;
+        char *colon = strchr(step, ':');
+        char *plus, *name, *saveName, *end;
+
+        if (colon == NULL || sScriptLength == MAX_SCRIPT_STEPS)
+            return false;
+        *colon = '\0';
+        out = &sScript[sScriptLength++];
+        out->hold = DEFAULT_HOLD_FRAMES;
+        if ((plus = strchr(step, '+')) != NULL)
+        {
+            *plus = '\0';
+            out->hold = strtoul(plus + 1, &end, 10);
+            if (plus[1] == '\0' || *end != '\0')
+                return false;
+        }
+        out->frame = strtoul(step, &end, 10);
+        if (*step == '\0' || *end != '\0')
+            return false;
+        out->buttons = 0;
+        for (name = strtok_r(colon + 1, "|", &saveName); name != NULL; name = strtok_r(NULL, "|", &saveName))
+        {
+            size_t i;
+
+            for (i = 0; i < sizeof(sButtonNames) / sizeof(sButtonNames[0]); i++)
+            {
+                if (strcmp(name, sButtonNames[i].name) == 0)
+                    break;
+            }
+            if (i == sizeof(sButtonNames) / sizeof(sButtonNames[0]))
+                return false;
+            out->buttons |= sButtonNames[i].button;
+        }
+    }
+    return true;
+}
+
+static uint16_t ScriptedButtons(uint32_t frame)
+{
+    uint16_t buttons = 0;
+    int i;
+
+    for (i = 0; i < sScriptLength; i++)
+    {
+        if (frame >= sScript[i].frame && frame - sScript[i].frame < sScript[i].hold)
+            buttons |= sScript[i].buttons;
+    }
+    return buttons;
+}
+
 static void RunGameFrame(void)
 {
-    Host_SetKeypad(Platform_GetButtons());
+    Host_SetKeypad(Platform_GetButtons() | ScriptedButtons(Host_GetFrameCount()));
+
+    /* If the game's frame overruns (it busy-waits for something an
+     * interrupt does, or is just slow), interrupts arrive mid-frame as on
+     * hardware. */
+    IrqTimer_Arm(HostMain_RaiseVBlankInterrupts);
     HostMain_RunFrame();
+    IrqTimer_Disarm();
+
     Host_RenderFrame(Platform_GetFramebuffer());
 }
 
@@ -75,6 +170,7 @@ static void WaitForVBlankInsideFrame(void)
     uint64_t start = Platform_GetTimeNs();
     uint64_t elapsed;
 
+    IrqTimer_Disarm();
     HostMain_RaiseVBlankInterrupts();
     Host_RenderFrame(Platform_GetFramebuffer());
     Platform_FrameEnd();
@@ -84,6 +180,7 @@ static void WaitForVBlankInsideFrame(void)
     elapsed = Platform_GetTimeNs() - start;
     if (elapsed < HOST_FRAME_NS)
         Platform_SleepNs(HOST_FRAME_NS - elapsed);
+    IrqTimer_Arm(HostMain_RaiseVBlankInterrupts);
 }
 
 int main(int argc, char **argv)
@@ -108,7 +205,7 @@ int main(int argc, char **argv)
             Usage(stdout, argv[0]);
             return 0;
         }
-        if (arg[0] == '-' && strchr("dsxfo", arg[1]) != NULL && arg[1] != '\0' && arg[2] == '\0' && i + 1 < argc)
+        if (arg[0] == '-' && strchr("dsxfoi", arg[1]) != NULL && arg[1] != '\0' && arg[2] == '\0' && i + 1 < argc)
         {
             const char *value = argv[++i];
             unsigned long scale;
@@ -123,6 +220,13 @@ int main(int argc, char **argv)
                 break;
             case 'o':
                 framePath = value;
+                break;
+            case 'i':
+                if (!ParseScript(value))
+                {
+                    fprintf(stderr, "%s: invalid input script '%s'\n", argv[0], value);
+                    return 2;
+                }
                 break;
             case 'x':
                 if (!ParseNumber(value, MAX_SCALE, &scale) || scale == 0)
