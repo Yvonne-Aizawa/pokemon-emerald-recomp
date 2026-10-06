@@ -34,6 +34,12 @@ void Platform_Shutdown(void);
 const char *Platform_GetDataDir(void);
 const char *Platform_GetSaveDir(void);
 
+/* The per-user directory for saves and crash reports, created if missing:
+ * ~/.local/share/pkmemerald on Linux, %APPDATA%\pkmemerald on Windows. No
+ * trailing separator. NULL if it can't be determined. Callable before
+ * Platform_Init. */
+const char *Platform_GetUserDataDir(void);
+
 /* Per-frame hooks. The host main loop calls these once per frame;
  * Platform_FrameEnd presents the framebuffer. */
 void Platform_FrameBegin(void);

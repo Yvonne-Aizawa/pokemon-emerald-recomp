@@ -121,6 +121,20 @@ const char *Platform_GetSaveDir(void)
     return sConfig.saveDir;
 }
 
+const char *Platform_GetUserDataDir(void)
+{
+    static char *sPath;
+
+    if (sPath == NULL && (sPath = SDL_GetPrefPath("", "pkmemerald")) != NULL)
+    {
+        size_t length = strlen(sPath);
+
+        if (length > 1 && (sPath[length - 1] == '/' || sPath[length - 1] == '\\'))
+            sPath[length - 1] = '\0';
+    }
+    return sPath;
+}
+
 uint32_t *Platform_GetFramebuffer(void)
 {
     return sFramebuffer;

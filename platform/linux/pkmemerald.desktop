@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Pokémon Emerald (PC port)
+Comment=pokeemerald-expansion built as a native PC game
+Exec=pkmemerald
+Icon=applications-games
+Terminal=false
+Categories=Game;

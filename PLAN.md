@@ -454,7 +454,9 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 
 **Done when** following `README.md` on a clean Linux and a clean Windows machine builds the game, which runs, saves, quits, relaunches and continues with all progress intact; and CI builds and tests both platforms.
 
-**Status: not started — next.** Already in place: integer-scaled window (`-x SCALE`, default 3×), saves that survive crashes and restarts, crash reports (Linux), `README.md` build instructions (Linux). The build is 32-bit only (the game assumes 32-bit pointers), so Linux and Windows builds need 32-bit SDL2; making it 64-bit is Phase 18.
+**Status: in progress.** Already in place: integer-scaled window (`-x SCALE`, default 3×), saves that survive crashes and restarts, crash reports (Linux), `README.md` build instructions (Linux).
+- *Done (Linux):* `RelWithDebInfo` is the default build type; CMake's `-DNDEBUG` is stripped so build types only change optimisation (the game's own `RELEASE` switch still picks its debug/release configuration). 32-bit builds use SSE2 maths (`-msse2 -mfpmath=sse`): with x87, the sound mix differed by ±1 LSB between Debug and Release; now both produce byte-identical audio and identical frames on scripted runs. The optimised build runs ~3× faster than `-O0`. `cmake --install` installs the binary and a `.desktop` launcher; `--target package` makes a local `.tar.gz`. Saves and crash reports default to the per-user data directory (`SDL_GetPrefPath`: `~/.local/share/pkmemerald/`, `%APPDATA%\pkmemerald\` on Windows), except that an existing `./saves/pkmemerald.sav` keeps being used.
+- Note: `-d DATA_DIR` is never read (the game data is compiled into the executable). The build is 32-bit only (the game assumes 32-bit pointers), so Linux and Windows builds need 32-bit SDL2; making it 64-bit is Phase 18.
 
 ---
 

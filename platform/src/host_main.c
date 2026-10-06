@@ -58,7 +58,8 @@ static void Usage(FILE *out, const char *argv0)
     fprintf(out,
             "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [-x SCALE] [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT] [--fast] [--mute] [--smooth-sound]\n"
             "  -d DATA_DIR  converted game data (default: assets)\n"
-            "  -s SAVE_DIR  save files (default: saves)\n"
+            "  -s SAVE_DIR  save files and crash reports (default: ./saves if it holds\n"
+            "               a save, otherwise the per-user data directory)\n"
             "  -x SCALE     initial window size as a multiple of 240x160 (default: %d)\n"
             "  -f FRAMES    stop after FRAMES frames (default: run until the window is closed)\n"
             "  -o FILE      on exit, save the last frame to FILE (binary PPM)\n"
@@ -71,6 +72,24 @@ static void Usage(FILE *out, const char *argv0)
             "  --mute       no sound\n"
             "  --smooth-sound  interpolated, low-passed sound instead of the exact GBA output\n",
             argv0, DEFAULT_SCALE, DEFAULT_HOLD_FRAMES);
+}
+
+/* Where saves went before the game had a per-user directory; still used when
+ * it holds a save, so existing saves keep working. */
+#define LEGACY_SAVE_DIR "saves"
+
+static const char *DefaultSaveDir(void)
+{
+    FILE *legacy = fopen(LEGACY_SAVE_DIR "/" HOST_SAVE_FILE_NAME, "rb");
+    const char *userDir;
+
+    if (legacy != NULL)
+    {
+        fclose(legacy);
+        return LEGACY_SAVE_DIR;
+    }
+    userDir = Platform_GetUserDataDir();
+    return userDir != NULL ? userDir : LEGACY_SAVE_DIR;
 }
 
 static bool ParseNumber(const char *value, unsigned long max, unsigned long *out)
@@ -247,7 +266,6 @@ int main(int argc, char **argv)
 {
     struct PlatformConfig config = {
         .dataDir = "assets",
-        .saveDir = "saves",
         .scale = DEFAULT_SCALE,
     };
     unsigned long maxFrames = 0;
@@ -256,6 +274,7 @@ int main(int argc, char **argv)
     const char *audioPath = NULL;
     uint64_t startNs;
     uint32_t framesRun;
+    char crashReportPath[1024];
     int i;
 
     for (i = 1; i < argc; i++)
@@ -333,7 +352,10 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    Crash_Install(CRASH_REPORT_FILE);
+    if (config.saveDir == NULL)
+        config.saveDir = DefaultSaveDir();
+    snprintf(crashReportPath, sizeof(crashReportPath), "%s/%s", config.saveDir, CRASH_REPORT_FILE);
+    Crash_Install(crashReportPath);
     Crash_SetFrameCounter(Host_GetFrameCount);
     Host_RegisterCrashWatches();
 

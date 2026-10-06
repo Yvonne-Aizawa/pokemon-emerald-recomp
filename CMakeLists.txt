@@ -32,7 +32,10 @@ cmake_minimum_required(VERSION 3.20)
 # i386 library directories (and so the 32-bit SDL2) in find_package.
 option(PKM_HOST_32BIT "Build a 32-bit host binary (matches GBA pointer size)" ON)
 if(PKM_HOST_32BIT)
-    set(CMAKE_C_FLAGS_INIT "-m32")
+    # SSE2 maths instead of x87: x87 keeps 80-bit intermediates or not
+    # depending on optimisation, so the sound mix (host_audio.c) came out
+    # slightly different between Debug and Release builds.
+    set(CMAKE_C_FLAGS_INIT "-m32 -msse2 -mfpmath=sse")
     set(CMAKE_EXE_LINKER_FLAGS_INIT "-m32")
     set(CMAKE_SHARED_LINKER_FLAGS_INIT "-m32")
 endif()
@@ -50,6 +53,20 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)  # pokeemerald uses GCC extensions (gnu17 upstream)
+
+# Players get an optimised build with symbols (crash reports stay readable).
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
+endif()
+
+# Build types only change optimisation. The game chooses its own debug or
+# release configuration (upstream's RELEASE define turns on NDEBUG in
+# config/general.h), and its sources are preprocessed separately, so they never
+# see CMake's -DNDEBUG. Keep it out of the platform code too, so both halves
+# agree on which debug-print functions exist (host_hal.c).
+foreach(_cfg RELEASE RELWITHDEBINFO MINSIZEREL)
+    string(REPLACE "-DNDEBUG" "" CMAKE_C_FLAGS_${_cfg} "${CMAKE_C_FLAGS_${_cfg}}")
+endforeach()
 
 # The assembled game data (data/*.s) holds absolute pointers in read-only
 # sections, as on the GBA; a position-independent executable would need text
@@ -426,6 +443,31 @@ if(ARM_NONE_EABI_GCC AND GDB_EXECUTABLE)
 else()
     message(STATUS "arm-none-eabi-gcc or gdb not found: skipping the data-abi-matches-gba test")
 endif()
+
+#-------------------------------------------------------------------------------
+# Install and packaging
+#
+# The game data is compiled into the executable, so installing is the
+# executable plus a desktop launcher; saves go to the per-user data directory
+# (Platform_GetUserDataDir). Packages are for the builder's own machines: the
+# built game contains Nintendo's assets, so none are published (PLAN.md,
+# Phase 17).
+#
+#   cmake --install build --prefix ~/.local
+#   cmake --build build --target package     # local .tar.gz
+#-------------------------------------------------------------------------------
+include(GNUInstallDirs)
+install(TARGETS pkmemerald RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+if(UNIX AND NOT APPLE)
+    install(FILES "${PLATFORM_DIR}/linux/pkmemerald.desktop"
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+endif()
+
+set(CPACK_PACKAGE_NAME "pkmemerald")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_GENERATOR "TGZ")
+set(CPACK_SOURCE_GENERATOR "")
+include(CPack)
 
 #-------------------------------------------------------------------------------
 # Reporting
