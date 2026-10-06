@@ -510,6 +510,9 @@ if(WIN32 OR PKM_SANITIZE)
     list(FILTER PLATFORM_TEST_SOURCES EXCLUDE REGEX "/test_crash_handler\\.c$")
 endif()
 enable_testing()
+add_test(NAME save_json_export
+    COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tests/test_save_json.py")
+
 set(HEADLESS_TEST_ENV "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
 foreach(TEST_SRC ${PLATFORM_TEST_SOURCES})
     get_filename_component(TEST_NAME "${TEST_SRC}" NAME_WE)

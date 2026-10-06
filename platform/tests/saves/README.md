@@ -48,3 +48,23 @@ For each approved fixture, record checkpoint, game/upstream commit IDs, clock,
 restarts, SHA-256, location, party, badges and relevant events. Later regression
 runs must copy fixtures into temporary directories before running the game.
 Save files and completed builds must not be uploaded as CI artifacts.
+
+## Export JSON inspection reports
+
+Export one checkpoint, or a group, using the native inspector from the matching
+build. Original saves remain untouched; existing output files are refused.
+
+```sh
+python3 platform/tools/inspect_save.py test-saves/00-truck.sav -o /tmp/truck-report.json
+python3 platform/tools/inspect_save.py test-saves/*.sav --output-dir /tmp/checkpoint-reports
+```
+
+Each report has `format`, `schema_version`, source filename/size/SHA-256, and
+`state` containing the decoded inspection fields. Reports are pretty-printed
+with stable key ordering for reading and diffing. Raw name bytes and numeric
+map/species/item IDs preserve the values used by this build. These are inspection
+projections, not lossless save conversions: storage, all event objects and other
+unreported data are omitted, and JSON cannot be converted back into a game save.
+Use the original `.sav` as the regression fixture. The source hash associates
+its JSON report with that exact input. JSON reports are local outputs, not CI
+artifacts.
