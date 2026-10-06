@@ -16,6 +16,7 @@ The game is playable from boot to the overworld and battles, with graphics, inpu
 | 14–15 | In progress: verified by playtesting so far, continuing as the game is played further |
 | 16    | Not started (optional) |
 | 17    | Not started: **next** |
+| 18    | Not started (64-bit build; needed for macOS) |
 
 
 ## Source under analysis
@@ -449,7 +450,34 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 **Status: not started — next.** Already in place: integer-scaled window (`-x SCALE`, default 3×), saves that survive crashes and restarts, crash reports, `README.md` build instructions. Additional items found along the way:
 - `RelWithDebInfo`/`Release` builds fail (`NDEBUG` changes the `AGBPrintInit` macro that `host_hal.c` defines); fix before packaging.
 - Windows/macOS need their own interrupt timer (`irq_timer_posix.c` uses SIGALRM) and crash handler (`crash_handler_linux.c`).
-- The build is 32-bit only (the game assumes 32-bit pointers), so packages need 32-bit SDL2.
+- The build is 32-bit only (the game assumes 32-bit pointers), so packages need 32-bit SDL2. Making it 64-bit is Phase 18.
+
+---
+
+## Phase 18 — 64-bit build — *needed for macOS*
+
+**Goal**: Build and run as a native 64-bit binary (`-DPKM_HOST_32BIT=OFF`) with no behaviour change. macOS requires it: it hasn't run 32-bit programs since Catalina, and Apple Silicon is arm64 only. On Linux and Windows the 32-bit build runs fine, so this phase is not needed to ship there.
+
+**Survey (2026-10-06, trial 64-bit compile of `pkmemerald-core`):**
+- **Assembly data hard-codes 4-byte pointers** (`.4byte label`). The current build's asm objects hold ~61,000 of them: event scripts 18.1k, battle anim scripts 15.4k, songs 11.0k (530 files), voicegroups (`sound_data`) 5.3k, map headers/connections (`maps`) 4.4k, map events 4.1k, battle/contest AI/field effect scripts 2.8k. Two kinds:
+  - *Tables C reads as structs or pointer arrays* (map headers, object/warp/coord/bg events, connections, `ToneData` voicegroups, song headers, anim and battle-script pointer tables). On 64-bit these silently mismatch the C layout — no compiler warning.
+  - *Pointers inside bytecode* (event, battle, anim, contest AI, field effect, movement scripts; song `GOTO`/`PATT`), read with `ScriptReadWord`, `T1_READ_PTR`, etc. and cast to pointers.
+- **411 pointer↔integer cast warnings in ~60 files**, normally hidden by `-Wno-pointer-to-int-cast`/`-Wno-int-to-pointer-cast` in `CMakeLists.txt`. Most are the bytecode readers (`contest_ai.c` 100, `scrcmd.c` 44); the rest store pointers in 32-bit task/sprite data (`SetWordTaskArg` and friends, `battle_factory_screen.c` 29). Platform code is clean apart from an implicit declaration of `MidiKeyToFreq` in `m4a_engine.c`.
+- **Two compile errors** (size asserts): `struct ListMenu` holds pointers and outgrows task data (`list_menu.c`); `struct RecordedBattleSave` grows because `u64` is 8-byte aligned on x86-64 but 4-byte on the GBA (`recorded_battle.c`). The latter also changes save-struct padding, which would break `.sav` compatibility.
+
+**Edits**
+- `platform/include/gba/types.h`: `typedef uint64_t u64 __attribute__((aligned(4)))` (and `s64`), so save structs keep the GBA layout. Add a test that the save block sizes match the 32-bit build.
+- Struct tables: host versions of the `asm/macros/*.inc` macros (map, events, voicegroups, song headers, pointer tables) that emit pointer-sized, C-aligned slots (`.8byte` + `.p2align 3`), applied through `tools/host_assemble.sh`; `reference/` stays unmodified. Check each against its C struct with a size/offset test.
+- Bytecode pointers: keep them 4 bytes but self-relative (`.4byte label - .`), and patch the readers to decode `slot + (s32)value`: `script.c`, `scrcmd.c`, battle script commands, `battle_anim.c`, `contest_ai.c`, field effect scripts, movement, `mystery_event_script.c`, and the song sequencer in `m4a_engine.c`. (Widening to 8 bytes would mean finding every place that skips an operand by 4.)
+- Pointers in task/sprite data: patch the `SetWordTaskArg`-style sites (or add a host handle table), and make `ListMenu` fit.
+- Fix every remaining cast warning, then drop the four `-Wno-*` pointer/int flags so new ones show up.
+- CMake: 64-bit SDL2 (`libsdl2-dev`), and flip `PKM_HOST_32BIT` to default OFF once 64-bit passes playtesting.
+
+**Shortcut (Linux/Windows only, not macOS):** linking without PIE (`-no-pie`; on Windows a low image base) keeps all static data — including `gHeap` and the emulated RAM — below 4 GB, so 4-byte bytecode pointers and the casts round-trip unchanged. Only the struct tables and the two compile errors need fixing (~1 week). It doesn't work on macOS, where 64-bit programs always load above 4 GB and arm64 requires PIE.
+
+**Done when** the 64-bit build passes `ctest`, a save from the 32-bit build loads and plays on it (and vice versa), and the Phase 14–15 playtest route (intro, Littleroot, Route 101, battles, catching, PC, Pokédex, music) behaves identically.
+
+**Status: not started.** Do after Phase 17 unless macOS becomes a target sooner. Expect most failures as wrong data at runtime, not compile errors.
 
 ---
 
@@ -471,6 +499,7 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 | 15    | 2–3 weeks | medium |
 | 16    | 1–2 weeks | medium (optional) |
 | 17    | 1–2 weeks | low |
+| 18    | 3–5 weeks (1 week for the Linux/Windows shortcut) | medium — layout mismatches fail silently at runtime |
 
 **Realistic total**: 3–5 months to a single-player build of the full Hoenn region. With multiplayer, plan on 4–6 months. The first playable milestone (walk around one map) is reachable in **~4–6 weeks** with focused work.
 
