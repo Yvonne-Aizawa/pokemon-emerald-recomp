@@ -214,7 +214,7 @@ static char *ReadScriptFile(const char *path)
                 *p = ',';
         }
         n = strlen(line);
-        if ((grown = realloc(text, length + n + 2)) == NULL)
+        if ((grown = realloc(text, length + n + 1)) == NULL)
         {
             free(text);
             fclose(f);
@@ -223,7 +223,6 @@ static char *ReadScriptFile(const char *path)
         text = grown;
         memcpy(text + length, line, n);
         length += n;
-        text[length++] = ',';
         text[length] = '\0';
     }
     if (ferror(f))

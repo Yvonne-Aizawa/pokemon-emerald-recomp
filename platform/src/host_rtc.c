@@ -20,6 +20,7 @@
 /* libc first: global.h defines function-like macros that clash with it. */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include "global.h"
@@ -48,22 +49,49 @@ static time_t FixedTimeBase(void)
         sParsed = 1;
         if (value != NULL && *value != '\0')
         {
-            if (sscanf(value, "%d-%d-%d %d:%d:%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
-                       &tm.tm_hour, &tm.tm_min, &tm.tm_sec) != 6)
+            struct tm parsed;
+            time_t base;
+            size_t i;
+
+            /* Exact-width decimal fields keep overflow, signs and trailing
+             * text out before sscanf; the cartridge year is 2000..2099. */
+            if (strlen(value) != 19)
+                goto invalid;
+            for (i = 0; i < 19; i++)
             {
-                fprintf(stderr, "rtc: PKM_FIXED_TIME should be \"YYYY-MM-DD HH:MM:SS\", not \"%s\"; using the PC's clock\n", value);
-                return -1;
+                char separator = i == 4 || i == 7 ? '-' : i == 10 ? ' ' : i == 13 || i == 16 ? ':' : 0;
+                if (separator ? value[i] != separator : value[i] < '0' || value[i] > '9')
+                    goto invalid;
             }
+            if (sscanf(value, "%4d-%2d-%2d %2d:%2d:%2d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
+                       &tm.tm_hour, &tm.tm_min, &tm.tm_sec) != 6
+                || tm.tm_year < 2000 || tm.tm_year > 2099
+                || tm.tm_mon < 1 || tm.tm_mon > 12 || tm.tm_mday < 1 || tm.tm_mday > 31
+                || tm.tm_hour > 23 || tm.tm_min > 59 || tm.tm_sec > 59)
+                goto invalid;
             tm.tm_year -= 1900;
             tm.tm_mon -= 1;
+            parsed = tm;
 #ifdef _WIN32
-            sBase = _mkgmtime(&tm);
+            base = _mkgmtime(&tm);
 #else
-            sBase = timegm(&tm);
+            base = timegm(&tm);
 #endif
+            /* Conversion normalizes February 30 etc. Refuse any changed field
+             * and times that this platform's time_t cannot represent. */
+            if (base == (time_t)-1 || tm.tm_year != parsed.tm_year || tm.tm_mon != parsed.tm_mon
+                || tm.tm_mday != parsed.tm_mday || tm.tm_hour != parsed.tm_hour
+                || tm.tm_min != parsed.tm_min || tm.tm_sec != parsed.tm_sec)
+                goto invalid;
+            sBase = base;
+
         }
     }
     return sBase;
+
+invalid:
+    fprintf(stderr, "rtc: PKM_FIXED_TIME must be a valid UTC date in 2000..2099, \"YYYY-MM-DD HH:MM:SS\"; using the PC's clock\n");
+    return -1;
 }
 
 static void ReadLocalTime(struct SiiRtcInfo *rtc)

@@ -553,11 +553,23 @@ foreach(TEST_SRC ${PLATFORM_TEST_SOURCES})
     set_tests_properties(${TEST_NAME} PROPERTIES ENVIRONMENT "${HEADLESS_TEST_ENV}")
 endforeach()
 
+foreach(_invalid_time IN ITEMS
+    "2026-02-30 12:00:00" "2026-02-29 12:00:00" "2024-02-29 12:34:56junk"
+    "2024-02-29 24:00:00" "2024-02-29 12:60:00" "2024-02-29 12:34:60"
+    "2024-00-29 12:34:56" "2024-13-29 12:34:56" "2024-02-00 12:34:56"
+    "2024-04-31 12:34:56" "1999-12-31 12:34:56" "2100-01-01 12:34:56"
+    "2024-2-29 12:34:56" "999999999999-02-29 12:34:56")
+    string(MAKE_C_IDENTIFIER "${_invalid_time}" _time_id)
+    add_test(NAME "rtc-invalid-${_time_id}" COMMAND test_rtc "${_invalid_time}" --invalid)
+endforeach()
+
 #-------------------------------------------------------------------------------
 # Target: pkmemerald (executable)
 #-------------------------------------------------------------------------------
 add_executable(pkmemerald "${HOST_MAIN_SOURCE}")
 if(NOT CMAKE_CROSSCOMPILING)
+    add_test(NAME script_file_long_lines
+        COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tests/test_script_file.py" $<TARGET_FILE:pkmemerald>)
     add_test(NAME save_inspector_rejects_invalid
         COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tests/test_save_inspector.py" $<TARGET_FILE:pkmemerald>)
 endif()
