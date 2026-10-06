@@ -540,6 +540,9 @@ if(WIN32 OR PKM_SANITIZE)
     list(FILTER PLATFORM_TEST_SOURCES EXCLUDE REGEX "/test_crash_handler\\.c$")
 endif()
 enable_testing()
+add_test(NAME save_archive_roundtrip
+    COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tests/test_save_archive.py")
+
 add_test(NAME save_json_export
     COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tests/test_save_json.py")
 
