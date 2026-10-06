@@ -755,11 +755,20 @@ if(PKM_UPSTREAM_TESTS)
     set_property(TARGET pkmemerald-tests APPEND PROPERTY LINK_DEPENDS "${PLATFORM_DIR}/upstream_tests/tests.ld")
 
     # Without -j the runner starts a shard per CPU, while CTest counts a test
-    # as one; these few tests run as one shard.
-    # The tests that run so far, and the runner's own behaviour: a crashing
-    # test is reported and the run goes on (upstream's own runner tests), and
-    # a failing test fails the run with upstream's message.
-    add_test(NAME upstream-fpmath COMMAND pkmemerald-tests -j 1 test/fpmath.c)
+    # as one; these smaller tests run as one shard.
+    # The non-battle tests (19b-2): one entry per file, upstream-<file>.
+    set(_upstream_test_names)
+    foreach(_src ${UPSTREAM_TEST_SOURCES})
+        if(_src MATCHES "^test/(battle/|test_runner|test_test_runner)")
+            continue()
+        endif()
+        get_filename_component(_name "${_src}" NAME_WE)
+        add_test(NAME upstream-${_name} COMMAND pkmemerald-tests -j 1 "${_src}")
+        list(APPEND _upstream_test_names upstream-${_name})
+    endforeach()
+    # The runner's own behaviour: a crashing test is reported and the run
+    # goes on (upstream's own runner tests), and a failing test fails the run
+    # with upstream's message.
     add_test(NAME upstream-runner-crash COMMAND pkmemerald-tests -j 1 "Tests resume after CRASH")
     add_test(NAME upstream-runner-fatalf COMMAND pkmemerald-tests -j 1 "fatalf counts as CRASH")
     add_test(NAME upstream-runner-player-name COMMAND pkmemerald-tests -j 1 "Tests initialize a terminated player name")
@@ -774,7 +783,7 @@ if(PKM_UPSTREAM_TESTS)
     add_test(NAME upstream-battle-move-effect
         COMMAND pkmemerald-tests -j ${_test_cores} test/battle/move_effect/)
     set_tests_properties(upstream-battle-move-effect PROPERTIES PROCESSORS ${_test_cores})
-    set_tests_properties(upstream-fpmath upstream-runner-crash upstream-runner-fatalf
+    set_tests_properties(${_upstream_test_names} upstream-runner-crash upstream-runner-fatalf
                          upstream-runner-player-name upstream-runner-detects-failure
                          upstream-runner-battle upstream-battle-move-effect
         PROPERTIES ENVIRONMENT "${HEADLESS_TEST_ENV}")

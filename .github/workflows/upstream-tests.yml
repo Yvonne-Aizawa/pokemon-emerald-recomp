@@ -94,4 +94,4 @@ jobs:
       # reported, ...): once, not per part.
       - name: Test the runner
         if: matrix.part == 1
-        run: ctest --test-dir build --output-on-failure -R '^upstream-' -E '^upstream-battle-move-effect$'
+        run: ctest --test-dir build --output-on-failure -R '^upstream-runner-'
