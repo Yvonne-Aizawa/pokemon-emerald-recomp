@@ -1,0 +1,30 @@
+--- a/src/party_menu.c
++++ b/src/party_menu.c
+@@ -7653,7 +7653,12 @@
+         partyIds[1] = gBattlerPartyIndexes[GetBattlerAtPosition(B_POSITION_PLAYER_RIGHT)];
+         for (i = 0; i < PARTY_SIZE; i++)
+         {
+-            if (i != partyIds[0] && i != partyIds[1])
++            // PC port: in a battle against two trainers both opponents
++            // have party index 0 (each in its own half of the party), so
++            // only one slot is excluded and this wrote a 7th entry past
++            // partyIds[PARTY_SIZE]. Harmless on the GBA; the host's stack
++            // protector aborts. The entries read below are unchanged.
++            if (i != partyIds[0] && i != partyIds[1] && j < PARTY_SIZE)
+             {
+                 partyIds[j] = i;
+                 j++;
+@@ -7730,7 +7735,12 @@
+         partyIndexes[1] = gBattlerPartyIndexes[rightBattler];
+         for (i = 0; i < PARTY_SIZE; i++)
+         {
+-            if (i != partyIndexes[0] && i != partyIndexes[1])
++            // PC port: in a battle against two trainers both opponents
++            // have party index 0 (each in its own half of the party), so
++            // only one slot is excluded and this wrote a 7th entry past
++            // partyIndexes[PARTY_SIZE]. Harmless on the GBA; the host's stack
++            // protector aborts. The entries read below are unchanged.
++            if (i != partyIndexes[0] && i != partyIndexes[1] && j < PARTY_SIZE)
+             {
+                 partyIndexes[j] = i;
+                 j++;

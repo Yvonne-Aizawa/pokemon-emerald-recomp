@@ -4,6 +4,20 @@ None open.
 
 ## Fixed
 
+### A double battle against two trainers
+Found by upstream's battle tests on the host (PLAN.md, Phase 19b-4; the
+two-opponent tests in `test/battle/ability/commander.c` and
+`test/battle/ability/illusion.c`); fixed by
+`platform/patches/party_menu.c.patch`. At the start of every battle,
+`BufferBattlePartyOrderBySide` lists each side's party order: in a double
+battle, the two battlers' Pokémon first and then the rest. Against two
+trainers both opponents have party index 0 (each trainer uses their own
+half of the party), so only one slot was skipped and the loop wrote a
+seventh entry past its 6-byte stack array: harmless on the GBA, an abort
+from the host's stack protector (in the game too, e.g. when two trainers
+spot the player at once). The loop now stops at the end of the array; the
+entries it keeps are the same.
+
 ### Collecting a Day Care egg whose parents share a move
 Found by upstream's tests on the host (PLAN.md, Phase 19b-2; three tests in
 `test/daycare.c`); fixed by `platform/patches/daycare.c.patch`. When both
