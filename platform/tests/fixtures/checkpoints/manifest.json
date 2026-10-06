@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "upstream_commit": "dfb0f84374230f4d462191601179b742f9f077df",
+  "checkpoints": [
+    {
+      "id": "00-truck",
+      "archive": "00-truck.json",
+      "sha256": "802e31da9421dce79596087cf5d0d4ccbfe04bc8630ef95f6946615dd295be7c",
+      "expected": {
+        "map": {
+          "group": 25,
+          "number": 40,
+          "x": 2,
+          "y": 2
+        },
+        "money": 3000,
+        "party": [],
+        "save_counter": 1
+      },
+      "collection": "User-played normal menu save; collection build/clock not recorded"
+    },
+    {
+      "id": "01-bedroom",
+      "archive": "01-bedroom.json",
+      "sha256": "14597d3d5a1309b9005f74548fab1aec19dd3f1fcbe1638a9b02b58ba82bbf59",
+      "expected": {
+        "map": {
+          "group": 1,
+          "number": 3,
+          "x": 3,
+          "y": 2
+        },
+        "money": 3000,
+        "party": [],
+        "save_counter": 2
+      },
+      "collection": "User-played normal menu save; collection build/clock not recorded"
+    },
+    {
+      "id": "02-rival-house",
+      "archive": "02-rival-house.json",
+      "sha256": "7339b1f6bb7be6e6577b3abb7030636aa5a9cdc7ea8194a12c0ca7025b227f28",
+      "expected": {
+        "map": {
+          "group": 1,
+          "number": 1,
+          "x": 4,
+          "y": 4
+        },
+        "money": 3000,
+        "party": [],
+        "save_counter": 3
+      },
+      "collection": "User-played normal menu save; collection build/clock not recorded"
+    },
+    {
+      "id": "03-before-picking-starter",
+      "archive": "03-before-picking-starter.json",
+      "sha256": "72af36dc6875232e40b6bd7fed9c1b9a83fdf32245dc642f066c2d6dfa0e2132",
+      "expected": {
+        "map": {
+          "group": 0,
+          "number": 16,
+          "x": 8,
+          "y": 14
+        },
+        "money": 3000,
+        "party": [],
+        "save_counter": 4
+      },
+      "collection": "User-played normal menu save; collection build/clock not recorded"
+    },
+    {
+      "id": "04-after-picking-starter",
+      "archive": "04-after-picking-starter.json",
+      "sha256": "139ee0649df7f609300f23121893e31bada8b4ed76376ecb35558e27f12009cf",
+      "expected": {
+        "map": {
+          "group": 1,
+          "number": 4,
+          "x": 6,
+          "y": 5
+        },
+        "money": 3000,
+        "party": [
+          {
+            "bad_egg": false,
+            "hp": 19,
+            "level": 5,
+            "species": 255
+          }
+        ],
+        "save_counter": 5
+      },
+      "collection": "User-played normal menu save; collection build/clock not recorded"
+    },
+    {
+      "id": "05-odale-town-in-front-of-pc",
+      "archive": "05-odale-town-in-front-of-pc.json",
+      "sha256": "635b5f641de194185360f17c0e8465c5fa214b6998acf2105bbc77f8dc793841",
+      "expected": {
+        "map": {
+          "group": 2,
+          "number": 2,
+          "x": 10,
+          "y": 2
+        },
+        "money": 3000,
+        "party": [
+          {
+            "bad_egg": false,
+            "hp": 19,
+            "level": 5,
+            "species": 255
+          }
+        ],
+        "save_counter": 9
+      },
+      "collection": "User-played normal menu save; collection build/clock not recorded"
+    },
+    {
+      "id": "05-odale-town-pokecenter",
+      "archive": "05-odale-town-pokecenter.json",
+      "sha256": "014141f4a9c5a5fdcb1887d367d5a0376d15d72a1fa191127b73b1d4eeec23d4",
+      "expected": {
+        "map": {
+          "group": 0,
+          "number": 10,
+          "x": 6,
+          "y": 17
+        },
+        "money": 3000,
+        "party": [
+          {
+            "bad_egg": false,
+            "hp": 19,
+            "level": 5,
+            "species": 255
+          }
+        ],
+        "save_counter": 7
+      },
+      "collection": "User-played normal menu save; collection build/clock not recorded"
+    }
+  ]
+}

@@ -24,7 +24,8 @@ set the same environment variable before launching the Windows executable.
 If the menu is unavailable at a checkpoint, continue until it becomes available
 and record the actual location/events. Close or pause the game after SAVE finishes before copying
 `/tmp/pkm-checkpoint-playthrough/pkmemerald.sav` to a separately named checkpoint.
-Don't commit unreviewed saves. No checkpoints are bundled yet.
+Don't commit unreviewed saves. Reviewed full JSON checkpoints are bundled in
+`platform/tests/fixtures/checkpoints/`; local `.sav` files stay ignored.
 
 Inspect with the build matching the save's upstream version:
 

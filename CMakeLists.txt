@@ -540,6 +540,9 @@ if(WIN32 OR PKM_SANITIZE)
     list(FILTER PLATFORM_TEST_SOURCES EXCLUDE REGEX "/test_crash_handler\\.c$")
 endif()
 enable_testing()
+add_test(NAME checkpoint-setup-regression
+    COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tests/test_restore_checkpoints.py")
+
 add_test(NAME save_archive_roundtrip
     COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tests/test_save_archive.py")
 
@@ -588,6 +591,35 @@ target_link_libraries(pkmemerald PRIVATE
     -Wl,--whole-archive pkmemerald-core -Wl,--no-whole-archive
     m
 )
+
+# Reviewed user-played JSON archives reconstruct isolated, disposable saves.
+set(CHECKPOINT_MANIFEST "${PLATFORM_DIR}/tests/fixtures/checkpoints/manifest.json")
+set(CHECKPOINT_OUTPUT "${CMAKE_BINARY_DIR}/checkpoint-saves")
+add_test(NAME checkpoint-restore
+    COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tools/restore_checkpoints.py"
+            "${CHECKPOINT_MANIFEST}" "${CHECKPOINT_OUTPUT}")
+set_tests_properties(checkpoint-restore PROPERTIES FIXTURES_SETUP played-checkpoints)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CHECKPOINT_MANIFEST}")
+file(READ "${CHECKPOINT_MANIFEST}" _checkpoint_manifest)
+string(JSON _checkpoint_count LENGTH "${_checkpoint_manifest}" checkpoints)
+math(EXPR _checkpoint_last "${_checkpoint_count} - 1")
+foreach(_index RANGE ${_checkpoint_last})
+    string(JSON _checkpoint_id GET "${_checkpoint_manifest}" checkpoints ${_index} id)
+    add_test(NAME "checkpoint-load-${_checkpoint_id}"
+        COMMAND pkmemerald --inspect-save "${CHECKPOINT_OUTPUT}/${_checkpoint_id}/pkmemerald.sav")
+    set_tests_properties("checkpoint-load-${_checkpoint_id}" PROPERTIES
+        FIXTURES_REQUIRED played-checkpoints
+        PASS_REGULAR_EXPRESSION "\"loader_status\":1"
+        ENVIRONMENT "${HEADLESS_TEST_ENV};ASAN_OPTIONS=detect_leaks=0;UBSAN_OPTIONS=print_stacktrace=1")
+endforeach()
+if(NOT CMAKE_CROSSCOMPILING)
+    add_test(NAME checkpoint-reviewed-state
+        COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tests/test_checkpoint_states.py"
+                "${CHECKPOINT_MANIFEST}" "${CHECKPOINT_OUTPUT}" $<TARGET_FILE:pkmemerald>)
+    set_tests_properties(checkpoint-reviewed-state PROPERTIES
+        FIXTURES_REQUIRED played-checkpoints
+        ENVIRONMENT "${HEADLESS_TEST_ENV};ASAN_OPTIONS=detect_leaks=0;UBSAN_OPTIONS=print_stacktrace=1")
+endif()
 
 # Boots the platform and the game, runs 60 game frames, exits 0.
 add_test(NAME pkmemerald-boot COMMAND pkmemerald -f 60 -s "${CMAKE_BINARY_DIR}/test-saves")
