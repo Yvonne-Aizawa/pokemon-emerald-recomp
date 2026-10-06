@@ -15,7 +15,7 @@ The game is playable from boot to the overworld and battles, with graphics, inpu
 | 13    | Done (checked by ear and against mGBA) |
 | 14–15 | In progress: verified by playtesting so far, continuing as the game is played further |
 | 16    | Not started (optional) |
-| 17    | Not started: **next** |
+| 17    | Not started: **next** (platform builds, source only) |
 | 18    | Not started (64-bit build; needed for macOS) |
 
 
@@ -432,25 +432,29 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 
 ---
 
-## Phase 17 — Polish & distribution
+## Phase 17 — Polish & platform builds
 
-**Goal**: Ship a real PC game.
+**Goal**: Anyone with the source can build and play the game on Linux and Windows (and macOS after Phase 18), from one documented set of commands per platform.
+
+**Source only — no binary downloads.** The built game contains Nintendo's assets (graphics, music, text from `reference/`), so the project publishes source and build instructions only: no GitHub Releases, no download links, and CI uploads no build artifacts (artifacts on a public repo can be downloaded by any logged-in user). Packaging targets exist so a user can make a package of their own build for their own machines.
 
 **Edits**
-- Replace the default 720×480 window with a 1080p-friendly integer-scaled renderer (target 3× or 4× the GBA's 240×160).
-- Add a launch-time options screen (data dir, save dir, fullscreen, window size, language).
-- Steam-style achievements mapping onto in-game flags (optional).
-- macOS / Linux / Windows packaging: CMake `INSTALL` target, CPack, codesign on macOS, WiX on Windows.
-- CI: build matrix for Linux/Windows/macOS using GitHub Actions, caching `reference/`.
+- **Release builds**: fix `RelWithDebInfo`/`Release` (`NDEBUG` changes the `AGBPrintInit` macro that `host_hal.c` defines). Default to `RelWithDebInfo` for players.
+- **Linux** (x86, 32-bit for now): `cmake --install` lays out the binary and a data/save location; optional CPack target for a local `.tar.gz`/AppImage that bundles the 32-bit SDL2.
+- **Windows** (32-bit for now): build with MinGW-w64 i686, either natively under MSYS2 or cross-compiled from Linux with a CMake toolchain file (`cmake/mingw-i686.cmake`). The upstream host tools (`gbagfx`, `preproc`, `mid2agb`, …) and the asset preparation must still be built and run for the *build* machine, so the prepare step needs its own host compiler when cross-compiling. Needs:
+  - an interrupt timer to replace `irq_timer_posix.c` (SIGALRM): `platform/src/irq_timer_win32.c`;
+  - a crash handler to replace `crash_handler_linux.c`: `platform/src/crash_handler_win32.c` (`SetUnhandledExceptionFilter`, same report format);
+  - save-file writes that work on Windows (atomic replace with `MoveFileEx`/`ReplaceFile` instead of `rename`, no `fsync`);
+  - an install/zip target that puts `SDL2.dll` next to the `.exe`.
+- **macOS**: after Phase 18 (macOS runs only 64-bit programs). Needs its own interrupt timer and crash handler (the POSIX timer may carry over), and an app-bundle install target; ad-hoc signing is enough to run a build on your own Mac.
+- **Options**: a launch-time options screen or config file (save dir, fullscreen, window size, language), on top of the existing command-line flags.
+- **CI** (GitHub Actions): build and run `ctest` for Linux and Windows (and macOS after Phase 18), caching `reference/`. Build and test only; nothing is uploaded.
 - Re-enable `-Wall -Wextra -Werror` once warnings are addressed.
-- Documentation: `README.md` build instructions, a `CONTRIBUTING_PC.md` explaining what's safe to merge from upstream.
+- **Documentation**: `README.md` build instructions per platform, including that no binaries are provided and why; a `CONTRIBUTING_PC.md` explaining what's safe to merge from upstream.
 
-**Done when** a tester can download a `.zip`/`.dmg`/`.AppImage`, run it, save, quit, relaunch, and continue with all progress intact.
+**Done when** following `README.md` on a clean Linux and a clean Windows machine builds the game, which runs, saves, quits, relaunches and continues with all progress intact; and CI builds and tests both platforms.
 
-**Status: not started — next.** Already in place: integer-scaled window (`-x SCALE`, default 3×), saves that survive crashes and restarts, crash reports, `README.md` build instructions. Additional items found along the way:
-- `RelWithDebInfo`/`Release` builds fail (`NDEBUG` changes the `AGBPrintInit` macro that `host_hal.c` defines); fix before packaging.
-- Windows/macOS need their own interrupt timer (`irq_timer_posix.c` uses SIGALRM) and crash handler (`crash_handler_linux.c`).
-- The build is 32-bit only (the game assumes 32-bit pointers), so packages need 32-bit SDL2. Making it 64-bit is Phase 18.
+**Status: not started — next.** Already in place: integer-scaled window (`-x SCALE`, default 3×), saves that survive crashes and restarts, crash reports (Linux), `README.md` build instructions (Linux). The build is 32-bit only (the game assumes 32-bit pointers), so Linux and Windows builds need 32-bit SDL2; making it 64-bit is Phase 18.
 
 ---
 
@@ -515,7 +519,7 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 
 ## Risks & open questions
 
-1. **Asset legality.** `reference/data/` and the baseline ROM contain Nintendo's IP. Distributing a port that ships these assets is the same legal posture as the existing `pokeemerald-expansion` repo, but a *commercial* PC release isn't viable without original assets. Decide up front whether this is a public binary or a source-only fork.
+1. **Asset legality.** `reference/data/` and the baseline ROM contain Nintendo's IP. Distributing a port that ships these assets is the same legal posture as the existing `pokeemerald-expansion` repo, but a *commercial* PC release isn't viable without original assets. *Decided (2026-10-06): source only.* No binary downloads, releases or CI artifacts; users build the game themselves (Phase 17).
 2. **Voice groups and battle SFX.** *Resolved:* the game's own M4A engine runs (its assembly translated to C) on emulated sound hardware, so nothing is lost (Phase 13).
 3. **Battle animations & special effects.** Some use window blending, mosaic, and capture-effect tricks that don't map 1:1 to SDL2. The "blend" register in particular is non-trivial. Plan for one extra week of renderer polish during Phase 15.
 4. **Link protocol.** RFU is undocumented; we only have a decomp of it. The UDP-replacement will need a custom discovery layer. (See Phase 16.)
