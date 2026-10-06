@@ -1,0 +1,71 @@
+--- a/src/dma3_manager.c
++++ b/src/dma3_manager.c
+@@ -22,6 +22,48 @@
+ static vbool8 sDma3ManagerLocked;
+ static u8 sDma3RequestCursor;
+ 
++#ifdef HOST_BUILD
++// PC port: a heap block can be freed while a copy from it is still queued
++// here (e.g. CopyWindowToVram, then RemoveWindow, before the V-blank runs the
++// copy). On the GBA the copy still reads the freed bytes, which are intact
++// unless something reused them. So before a block is freed (malloc.c.patch),
++// pending copies from it are moved to a snapshot of those bytes in host
++// memory, and copy exactly what the GBA would. Found with PKM_ASAN_HEAP.
++void *Host_DmaSnapshot(const void *src, u32 size);  // platform/src/host_dma.c
++void Host_DmaSnapshotFree(void *snapshot);
++static void *sHostSnapshots[MAX_DMA_REQUESTS];
++
++void Dma3_DetachRequestsFrom(const void *start, u32 size)
++{
++    const u8 *lo = start, *hi = lo + size;
++    bool8 wasLocked = sDma3ManagerLocked;
++    int i;
++
++    sDma3ManagerLocked = TRUE;  // a V-blank mustn't run them meanwhile
++    for (i = 0; i < MAX_DMA_REQUESTS; i++)
++    {
++        struct Dma3Request *request = &sDma3Requests[i];
++
++        if (request->size != 0 && request->src != NULL
++         && request->src < hi && request->src + request->size > lo)
++        {
++            void *snapshot = Host_DmaSnapshot(request->src, request->size);
++
++            Host_DmaSnapshotFree(sHostSnapshots[i]);
++            sHostSnapshots[i] = snapshot;
++            request->src = snapshot;
++        }
++    }
++    sDma3ManagerLocked = wasLocked;
++}
++
++static void FreeHostSnapshot(int i)
++{
++    Host_DmaSnapshotFree(sHostSnapshots[i]);
++    sHostSnapshots[i] = NULL;
++}
++#endif
++
+ void ClearDma3Requests(void)
+ {
+     int i;
+@@ -34,6 +76,9 @@
+         sDma3Requests[i].size = 0;
+         sDma3Requests[i].src = NULL;
+         sDma3Requests[i].dest = NULL;
++#ifdef HOST_BUILD
++        FreeHostSnapshot(i);
++#endif
+     }
+ 
+     sDma3ManagerLocked = FALSE;
+@@ -83,6 +128,9 @@
+         }
+ 
+         // Free the request
++#ifdef HOST_BUILD
++        FreeHostSnapshot(sDma3RequestCursor);
++#endif
+         sDma3Requests[sDma3RequestCursor].src = NULL;
+         sDma3Requests[sDma3RequestCursor].dest = NULL;
+         sDma3Requests[sDma3RequestCursor].size = 0;

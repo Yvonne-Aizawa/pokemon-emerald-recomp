@@ -1,6 +1,25 @@
 --- a/src/decompress.c
 +++ b/src/decompress.c
-@@ -403,11 +403,30 @@
+@@ -207,7 +207,18 @@
+ 
+ u32 LoadCompressedSpriteSheet(const struct CompressedSpriteSheet *src)
+ {
++#ifdef HOST_BUILD
++    // PC port: some sheets declare more than their graphics decompress to
++    // (the wall clock's hands: 0x2000), and the whole declared size is
++    // loaded, which read past the buffer (found with PKM_ASAN_HEAP). The
++    // buffer now has the declared size; the rest is zero (transparent).
++    u32 decompressedSize = GetDecompressedDataSize(src->data);
++    void *buffer = AllocZeroed(max(decompressedSize, src->size));
++    if (buffer != NULL)
++        DecompressDataWithHeaderWram(src->data, buffer);
++#else
+     void *buffer = malloc_and_decompress(src->data, NULL);
++#endif
+     u32 ret = DoLoadCompressedSpriteSheet(src, buffer);
+     Free(buffer);
+ 
+@@ -403,11 +414,30 @@
  
  extern void FastUnsafeCopy32(void *, const void *, u32 size);
  
@@ -31,7 +50,7 @@
  
  // The reason for macros and unrolling the loops stems from the following:
  // currK can be max 6, meaning in the worst case scenario it takes minimum 4 loop iterations, where we don't need to check if bitIndex is >= 32, because it's mathematically impossible for it to be.
-@@ -436,7 +455,7 @@
+@@ -436,7 +466,7 @@
  //  Inner loop of tANS decoding for Lengths and Offset data for decompression instructions, uses u8 data sizes
  //  Basic process for decoding a tANS encoded value is to read the current symbol from the decoding table, then calculate the next state
  //  from the y and k values for the current state and add the value read from the next k bits in the bitstream
@@ -40,7 +59,7 @@
  {
      u32 currBits = *data++;
      u32 bitIndex = sBitIndex;
-@@ -527,7 +546,7 @@
+@@ -527,7 +557,7 @@
      u32 funcBuffer[FUNC_BUFFER_SIZE(DecodeLOtANSLoop, SwitchToArmCallLOtANS)];
  
      CopyFuncToIwram(funcBuffer, DecodeLOtANSLoop, SwitchToArmCallLOtANS);
@@ -49,7 +68,7 @@
  
      if (remainingCount)
      {
-@@ -603,7 +622,7 @@
+@@ -603,7 +633,7 @@
      u32 funcBuffer[FUNC_BUFFER_SIZE(DecodeLOtANSLoop, SwitchToArmCallLOtANS)];
      // CopyFuncToIwram(funcBuffer, DecodeSymtANSLoop, SwitchToArmCallDecodeSymtANS);
      CopyFuncToIwram(funcBuffer, DecodeLOtANSLoop, SwitchToArmCallLOtANS);
@@ -58,7 +77,7 @@
  }
  
  #define ANS_LOOP_MAIN(nibble)   \
-@@ -620,7 +639,7 @@
+@@ -620,7 +650,7 @@
  //  Inner loop of tANS decoding for delta encoded symbol data, uses u16 data size
  //  Basic process for decoding a tANS encoded value is to read the current symbol from the decoding table, then calculate the next state
  //  from the y and k values for the current state and add the value read from the next k bits in the bitstream
@@ -67,7 +86,7 @@
  {
      u32 currBits = *data++;
      u32 currSymbol = 0;
-@@ -772,7 +791,7 @@
+@@ -772,7 +802,7 @@
      return decodeFunction(data, ykTable, resultVec, resultVecEnd);
  }
  
@@ -76,7 +95,7 @@
  {
      BuildDecompressionTable(pFreqs, sWorkingYkTable);
  
-@@ -781,7 +800,7 @@
+@@ -781,7 +811,7 @@
  
      u32 funcBuffer[FUNC_BUFFER_SIZE(DecodeSymDeltatANSLoop, SwitchToArmCallSymDeltaANS)];
      CopyFuncToIwram(funcBuffer, DecodeSymDeltatANSLoop, SwitchToArmCallSymDeltaANS);
@@ -85,7 +104,7 @@
  
      if (remainingCount)
      {
-@@ -938,7 +957,7 @@
+@@ -938,7 +968,7 @@
      u32 funcBuffer[FUNC_BUFFER_SIZE(DecodeInstructions, SwitchToArmCallDecodeInstructions)];
  
      CopyFuncToIwram(funcBuffer, DecodeInstructions, SwitchToArmCallDecodeInstructions);
@@ -94,7 +113,7 @@
  }
  
  //  Entrance point for smol compressed data
-@@ -1094,7 +1113,7 @@
+@@ -1094,7 +1124,7 @@
      u32 funcBuffer[FUNC_BUFFER_SIZE(DeltaDecodeTileNumbers, SwitchToArmCallDecodeTileNumbers)];
  
      CopyFuncToIwram(funcBuffer, DeltaDecodeTileNumbers, SwitchToArmCallDecodeTileNumbers);
@@ -103,7 +122,7 @@
  }
  
  //  Helper functions for determining modes
-@@ -1398,8 +1417,14 @@
+@@ -1398,8 +1428,14 @@
  
  void FastLZ77UnCompWram(const u32 *src, void *dest)
  {

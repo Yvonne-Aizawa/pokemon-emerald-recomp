@@ -33,6 +33,24 @@ shouldn't and could crash with a different memory layout:
   word past the end of a compressed image when refilling their bit buffer;
   the bits are unused.
 
+### Heap misuse found by the sanitizers' heap checks (no crash seen)
+Found once the game's own heap marks its unused memory off-limits
+(`malloc.c.patch`). They behave the same on the GBA (the heap is a plain
+array on both), but read memory that may hold something else by then:
+- `dma3_manager.c.patch` + `malloc.c.patch`: heap blocks were freed while a
+  DMA3 copy from them was still queued (e.g. `CopyWindowToVram`, then the
+  window removed before the V-blank). Freeing a block now moves pending
+  copies from it to a snapshot of its bytes, so they copy exactly what the
+  GBA would. Test: `test_dma_free`.
+- `item_icon.c.patch`: item icon sprites kept pointing at their template in
+  a freed temporary buffer (upstream notes this in `FreeSpriteTiles`); each
+  now keeps a copy of its template.
+- `text.c.patch`: a glyph ending at a window's right edge on its last row
+  read and wrote back the 4 bytes past the window's buffer.
+- `decompress.c.patch`: `LoadCompressedSpriteSheet` loaded a sheet's declared
+  size even when its graphics decompress to less (the wall clock's hands);
+  the buffer now has the declared size, zero-filled.
+
 ### Opening the PC in a Pokémon Center
 Fixed by `platform/patches/pokemon_storage_system.c.patch`, three upstream
 reads/writes through bad pointers that the GBA tolerates:
