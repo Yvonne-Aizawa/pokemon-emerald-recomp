@@ -1,6 +1,6 @@
 --- a/test/test_runner.c
 +++ b/test/test_runner.c
-@@ -27,7 +27,20 @@
+@@ -27,7 +27,23 @@
      CURRENT_TEST_STATE_RUN,
  };
  
@@ -15,13 +15,16 @@
 +{
 +    sHostPersistentState = state;
 +}
++
++// platform/upstream_tests/host_known_failures.c
++const char *HostTest_KnownFailure(const char *name);
 +#else
  __attribute__((section(".persistent"))) struct PersistentTestRunnerState gPersistentTestRunnerState = {0};
 +#endif
  
  void TestRunner_Battle(const struct Test *);
  
-@@ -44,6 +57,11 @@
+@@ -44,6 +60,11 @@
      size_t n = strlen(pattern);
      if (n > 2 && pattern[n-2] == '.' && pattern[n-1] == 'c')
          return TEST_FILTER_MODE_FILENAME_EXACT;
@@ -33,7 +36,7 @@
      else if (pattern[0] == '*') // TODO: Support '*pattern*'.
          return TEST_FILTER_MODE_TEST_NAME_INFIX;
      else
-@@ -55,6 +73,12 @@
+@@ -55,6 +76,12 @@
      if (string == NULL)
          return TRUE;
  
@@ -46,7 +49,7 @@
      return strcmp(pattern, string) == 0;
  }
  
-@@ -82,6 +106,22 @@
+@@ -82,6 +109,22 @@
      return strstr(string, &pattern[1]) != NULL;
  }
  
@@ -69,7 +72,7 @@
  enum
  {
      STATE_INIT,
-@@ -145,6 +185,14 @@
+@@ -145,6 +188,14 @@
          const struct MemBlock *block = head;
          do
          {
@@ -84,7 +87,7 @@
              if (block->magic != MALLOC_SYSTEM_ID
               || !(EWRAM_START <= (uintptr_t)block->next && (uintptr_t)block->next < EWRAM_END)
               || (block->next <= block && block->next != head))
-@@ -228,6 +276,9 @@
+@@ -228,6 +279,9 @@
              gTestRunnerState.test = __start_tests;
              while ((uintptr_t)gTestRunnerState.test != gPersistentTestRunnerState.address)
              {
@@ -94,7 +97,26 @@
                  AssignCostToRunner();
                  gTestRunnerState.test++;
              }
-@@ -577,8 +628,16 @@
+@@ -306,6 +360,18 @@
+         Test_MgbaPrintf(":L%s:%d", gTestRunnerState.test->filename, SourceLine(0));
+         gTestRunnerState.result = TEST_RESULT_PASS;
+         gTestRunnerState.expectedResult = TEST_RESULT_PASS;
++#ifdef HOST_BUILD
++        // PC port: GBA/host differences (platform/upstream_tests/
++        // host_known_failures.c) fail as KNOWN_FAILING, with the reason.
++        {
++            const char *reason = HostTest_KnownFailure(gTestRunnerState.test->name);
++            if (reason != NULL)
++            {
++                Test_MgbaPrintf("Known GBA/host difference: %s", reason);
++                gTestRunnerState.expectedResult = TEST_RESULT_KNOWN_FAIL;
++            }
++        }
++#endif
+         gTestRunnerState.expectLeaks = FALSE;
+         gTestRunnerState.expectedFailLine = 0;
+         gTestRunnerState.expectedFailState = NO_EXPECT_FAIL;
+@@ -577,8 +643,16 @@
  {
      (void)data;
      TestInitConfigData();
@@ -111,7 +133,7 @@
      SeedRng(0);
  }
  
-@@ -701,6 +760,16 @@
+@@ -701,6 +775,16 @@
      .run = Assumptions_Run,
  };
  
@@ -128,7 +150,7 @@
  #define IRQ_LR (*(vu32 *)0x3007F9C)
  
  /* Returns to AgbMainLoop.
-@@ -719,6 +788,7 @@
+@@ -719,6 +803,7 @@
           bx r0\n\
           .pool");
  }
@@ -136,7 +158,7 @@
  
  static void ReinitCallbacks(void)
  {
-@@ -744,7 +814,13 @@
+@@ -744,7 +829,13 @@
              gTestRunnerState.result = TEST_RESULT_TIMEOUT;
              Test_MgbaPrintf("%s:%d: TIMEOUT", gTestRunnerState.test->filename, SourceLine(0));
              ReinitCallbacks();
@@ -150,7 +172,7 @@
          }
      }
  }
-@@ -802,9 +878,29 @@
+@@ -802,9 +893,29 @@
      JumpToAgbMainLoop();
  }
  
@@ -180,7 +202,7 @@
  
  static bool32 MgbaOpen_(void)
  {
-@@ -817,6 +913,7 @@
+@@ -817,6 +928,7 @@
      register u32 _exitCode asm("r0") = exitCode;
      asm("swi 0x3" :: "r" (_exitCode));
  }
@@ -188,7 +210,7 @@
  
  s32 Test_MgbaPrintf(const char *fmt, ...)
  {
-@@ -831,7 +928,7 @@
+@@ -831,7 +943,7 @@
      if (i == 255)
      {
          REG_DEBUG_STRING[i] = '\0';
@@ -197,7 +219,7 @@
          i = 0;
      }
      return i;
-@@ -1025,11 +1122,12 @@
+@@ -1025,11 +1137,12 @@
      }
      if (i != 0)
      {
@@ -211,7 +233,7 @@
  /* Entry point for the Debugging and Control System. Handles illegal
   * instructions, which are typically caused by branching to an invalid
   * address. */
-@@ -1055,6 +1153,7 @@
+@@ -1055,6 +1168,7 @@
      ReinitCallbacks();
      DACS_LR = ((uintptr_t)JumpToAgbMainLoop & ~1) + 4;
  }

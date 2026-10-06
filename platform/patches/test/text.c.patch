@@ -1,0 +1,23 @@
+--- a/test/text.c
++++ b/test/text.c
+@@ -575,6 +575,9 @@
+ }
+ 
+ 
++// PC port: for the NULL check below (defined in data/maps/groups.inc).
++extern const struct MapHeader *const *const gMapGroups[];
++
+ TEST("Map names fit in popup")
+ {
+     ASSUME(OW_POPUP_GENERATION == GEN_3);
+@@ -585,6 +588,10 @@
+     u8 mapName[MAP_POPUP_STRING_BUFFER_LENGTH - MAP_POPUP_PREFIX_BUFFER_LENGTH];
+     for (u32 i = 0; MAP_GROUP_COUNT[i] != 0; i++)
+     {
++        // PC port: FRLG's map groups are NULL in the Emerald build (read as
++        // BIOS memory on the GBA).
++        if (gMapGroups[i] == NULL)
++            continue;
+         for (u32 j = 0; j < MAP_GROUP_COUNT[i]; j++)
+         {
+             const struct MapHeader *mapHeader = Overworld_GetMapHeaderByGroupAndId(i, j);

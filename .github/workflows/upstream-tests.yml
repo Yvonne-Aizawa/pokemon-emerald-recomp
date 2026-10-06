@@ -71,11 +71,14 @@ jobs:
         if: steps.reference-restore.outputs.cache-hit == 'true'
         run: tools/ci_reference_cache.sh restore .ci-cache/reference-prepare.tgz
 
+      # The ARM toolchain: on a cache miss, preparing upstream's generated
+      # files runs its preprocessor (arm-none-eabi-cpp, e.g. for trainers.h).
       - name: Install dependencies
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake gcc g++ make python3 patch libpng-dev gcc-multilib libsdl2-dev:i386
+          sudo apt-get install -y --no-install-recommends cmake gcc g++ make python3 patch libpng-dev gcc-multilib libsdl2-dev:i386 \
+            gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi
 
       - name: Configure
         run: cmake -S . -B build -DPKM_WERROR=ON -DPKM_UPSTREAM_TESTS=ON
@@ -91,4 +94,4 @@ jobs:
       # reported, ...): once, not per part.
       - name: Test the runner
         if: matrix.part == 1
-        run: ctest --test-dir build --output-on-failure -R '^upstream-' -E '^upstream-battle-move-effect$'
+        run: ctest --test-dir build --output-on-failure -R '^upstream-runner-'

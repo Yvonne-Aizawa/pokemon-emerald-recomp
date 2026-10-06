@@ -66,7 +66,7 @@ Settings are in `pkmemerald.ini` in the save directory (below), created with com
 
 ### Saves and crash reports
 
-Saves go to `pkmemerald.sav` (a standard 128 KiB GBA flash save) in the save directory: `~/.local/share/pkmemerald/` on Linux, `%APPDATA%\pkmemerald\` on Windows, or `saves/` in the current directory if a save is already there (where saves went before). `-s DIR` uses another directory.
+Saves go to `pkmemerald.sav` (a 128 KiB flash image, as on the GBA, but with the PC build's own data layout: saves from a GBA emulator don't load, and the other way round) in the save directory: `~/.local/share/pkmemerald/` on Linux, `%APPDATA%\pkmemerald\` on Windows, or `saves/` in the current directory if a save is already there (where saves went before). `-s DIR` uses another directory.
 
 If the game crashes, it prints a report (signal or exception, crashing function, call stack, and the game's current callbacks, i.e. which screen it was on) and also writes it to `pkmemerald-crash.txt` in the save directory. Please include that file when reporting a crash.
 

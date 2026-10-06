@@ -29,7 +29,9 @@ concurrency:
 
 env:
   # Packages both jobs need: upstream's host tools (preproc, gbagfx, ...)
-  # and the ARM toolchain for the data-abi-matches-gba test.
+  # and the ARM toolchain: upstream's generated files use its preprocessor
+  # (arm-none-eabi-cpp, e.g. for trainers.h), and the data-abi-matches-gba
+  # test compares against it.
   COMMON_PACKAGES: >-
     cmake gcc g++ make python3 patch libpng-dev
     gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi

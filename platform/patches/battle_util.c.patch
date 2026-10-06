@@ -10,3 +10,15 @@
              basePower *= 2;
          break;
      case EFFECT_POWER_BASED_ON_TARGET_HP:
+@@ -8881,6 +8882,11 @@
+ 
+ struct Pokemon *GetIllusionMonPtr(enum BattlerId battler)
+ {
++    // PC port: battle strings can be expanded outside a battle (upstream's
++    // test/text.c does), with gBattleStruct NULL (BIOS memory on the GBA).
++    // No battle, no Illusion.
++    if (gBattleStruct == NULL)
++        return NULL;
+     if (gBattleStruct->illusion[battler].state == ILLUSION_NOT_SET)
+         SetIllusionMon(GetBattlerMon(battler), battler);
+     if (gBattleStruct->illusion[battler].state != ILLUSION_ON)

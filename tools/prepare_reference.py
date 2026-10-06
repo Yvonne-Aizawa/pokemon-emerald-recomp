@@ -28,8 +28,12 @@ All outputs land where upstream puts them (reference/build/ or next to their
 sources) and are covered by upstream's .gitignore, so the submodule stays
 clean in `git status`.
 
+  Upstream's tests (test/*.c; PLAN.md, Phase 19b) can INCBIN assets of their
+  own (test/compression/); their .d rules exist only with TEST=1, under
+  build/emerald-test/.
+
 Usage: prepare_reference.py REFERENCE_DIR SOURCE [SOURCE ...]
-       (sources relative to REFERENCE_DIR: src/*.c or data/*.s)
+       (sources relative to REFERENCE_DIR: src/*.c, data/*.s or test/*.c)
 """
 
 import glob
@@ -38,6 +42,7 @@ import subprocess
 import sys
 
 OBJ_DIR = "build/emerald"  # upstream's $(OBJ_DIR) for the default target
+TEST_OBJ_DIR = "build/emerald-test"  # ... and with TEST=1
 
 EXTRA_GENERATED = [
     "src/data/pokemon/teachable_learnsets.h",  # pokemon.c
@@ -87,8 +92,17 @@ def main():
     songs = [m[:-len(".mid")] + ".s" for m in sorted(glob.glob("sound/songs/midi/*.mid", root_dir=refdir))]
     make(refdir, *EXTRA_GENERATED, *maps, *songs)
 
-    dep_files = [f"{OBJ_DIR}/{os.path.splitext(s)[0]}.d" for s in sources]
-    make(refdir, *dep_files)
+    game = [s for s in sources if not s.startswith("test/")]
+    tests = [s for s in sources if s.startswith("test/")]
+    make_dependencies(refdir, OBJ_DIR, game)
+    if tests:
+        make_dependencies(refdir, TEST_OBJ_DIR, tests, "TEST=1")
+
+
+def make_dependencies(refdir, obj_dir, sources, *make_args):
+    """Steps 4 and 5 for SOURCES, with upstream's objects in OBJ_DIR."""
+    dep_files = [f"{obj_dir}/{os.path.splitext(s)[0]}.d" for s in sources]
+    make(refdir, *make_args, *dep_files)
 
     goals = set()
     for d in dep_files:
@@ -100,8 +114,7 @@ def main():
             goals.add(p)
 
     if goals:
-        make(refdir, *sorted(goals))
-
+        make(refdir, *make_args, *sorted(goals))
 
 if __name__ == "__main__":
     main()

@@ -163,6 +163,10 @@ set(TOOLS_DIR       "${CMAKE_SOURCE_DIR}/tools")
 # pointing at platform/include/gba. GCC uses the path it found a header
 # through (not its realpath) as "the including file's directory", so headers
 # reached via this tree see the host stubs.
+#
+# `test` (upstream's test framework, Phase 19b) is a directory of links, so
+# the host versions in platform/upstream_tests/include/test/ can replace
+# single headers.
 #-------------------------------------------------------------------------------
 set(HOST_INC "${CMAKE_BINARY_DIR}/host_include")
 file(REMOVE_RECURSE "${HOST_INC}")
@@ -171,6 +175,16 @@ file(GLOB _ref_inc_entries LIST_DIRECTORIES true RELATIVE "${REFERENCE_INC}" "${
 foreach(_entry ${_ref_inc_entries})
     if(_entry STREQUAL "gba")
         file(CREATE_LINK "${PLATFORM_INC}/gba" "${HOST_INC}/gba" SYMBOLIC)
+    elseif(_entry STREQUAL "test")
+        file(MAKE_DIRECTORY "${HOST_INC}/test")
+        file(GLOB _test_headers RELATIVE "${REFERENCE_INC}/test" "${REFERENCE_INC}/test/*")
+        foreach(_header ${_test_headers})
+            set(_target "${REFERENCE_INC}/test/${_header}")
+            if(EXISTS "${PLATFORM_DIR}/upstream_tests/include/test/${_header}")
+                set(_target "${PLATFORM_DIR}/upstream_tests/include/test/${_header}")
+            endif()
+            file(CREATE_LINK "${_target}" "${HOST_INC}/test/${_header}" SYMBOLIC)
+        endforeach()
     else()
         file(CREATE_LINK "${REFERENCE_INC}/${_entry}" "${HOST_INC}/${_entry}" SYMBOLIC)
     endif()
@@ -254,10 +268,38 @@ file(GLOB _ref_mid RELATIVE "${REFERENCE_DIR}" CONFIGURE_DEPENDS "${REFERENCE_DI
 # Runs once (stamp file). Re-run after changing upstream graphics/data with
 #     cmake --build build --target reference-prepare
 #-------------------------------------------------------------------------------
+# Upstream's test suite (Phase 19b; built further below): its tests can
+# INCBIN assets of their own (test/compression/), prepared with the rest.
+option(PKM_UPSTREAM_TESTS "Build upstream's test suite as pkmemerald-tests (Linux)" OFF)
+set(UPSTREAM_TEST_SOURCES)
+set(_prepare_variant "")
+if(PKM_UPSTREAM_TESTS)
+    if(WIN32)
+        message(FATAL_ERROR "PKM_UPSTREAM_TESTS: Linux only for now (PLAN.md, 19b-5)")
+    endif()
+    # The runner, and the tests run so far (19b-1; 19b-2: the non-battle
+    # tests, test/*.c and test/compression/; 19b-3: move effects).
+    file(GLOB _upstream_tests RELATIVE "${REFERENCE_DIR}" CONFIGURE_DEPENDS
+        "${REFERENCE_DIR}/test/*.c"
+        "${REFERENCE_DIR}/test/compression/*.c"
+        "${REFERENCE_DIR}/test/battle/move_effect/*.c")
+    # The runner itself, listed first; test_runner_args.c: see below.
+    list(REMOVE_ITEM _upstream_tests
+        test/test_runner.c test/test_runner_battle.c test/test_runner_args.c)
+    set(UPSTREAM_TEST_SOURCES
+        test/test_runner.c
+        test/test_runner_battle.c
+        ${_upstream_tests}
+    )
+    # Its own stamp, so turning the option on prepares the tests' assets.
+    set(_prepare_variant "-tests")
+endif()
+
 set(PREPARE_CMD
     ${Python3_EXECUTABLE} "${TOOLS_DIR}/prepare_reference.py" "${REFERENCE_DIR}" ${REFERENCE_SRC} ${REFERENCE_DATA_ASM}
+    ${UPSTREAM_TEST_SOURCES}
 )
-set(PREPARE_STAMP "${CMAKE_BINARY_DIR}/reference-prepare.stamp")
+set(PREPARE_STAMP "${CMAKE_BINARY_DIR}/reference-prepare${_prepare_variant}.stamp")
 add_custom_command(
     OUTPUT "${PREPARE_STAMP}"
     COMMAND ${PREPARE_CMD}
@@ -661,25 +703,12 @@ endforeach()
 #
 # A second build of the game with TESTING=1, plus upstream's test runner and
 # tests, as pkmemerald-tests (platform/upstream_tests/host_test_runner.c runs
-# it). Linux only for now.
+# it). Linux only for now. PKM_UPSTREAM_TESTS and the test list are near
+# the top (step 1 prepares the tests' assets).
 #   cmake -S . -B build -DPKM_UPSTREAM_TESTS=ON
 #   build/pkmemerald-tests [test/fpmath.c | name prefix | *infix]
 #-------------------------------------------------------------------------------
-option(PKM_UPSTREAM_TESTS "Build upstream's test suite as pkmemerald-tests (Linux)" OFF)
 if(PKM_UPSTREAM_TESTS)
-    if(WIN32)
-        message(FATAL_ERROR "PKM_UPSTREAM_TESTS: Linux only for now (PLAN.md, 19b-5)")
-    endif()
-    # The runner, and the tests run so far (19b-1; 19b-3: move effects).
-    file(GLOB _move_effect_tests RELATIVE "${REFERENCE_DIR}" CONFIGURE_DEPENDS
-        "${REFERENCE_DIR}/test/battle/move_effect/*.c")
-    set(UPSTREAM_TEST_SOURCES
-        test/test_runner.c
-        test/test_runner_battle.c
-        test/test_test_runner.c
-        test/fpmath.c
-        ${_move_effect_tests}
-    )
     # test/test_runner_args.c and src/test_runner_stub.c hold the runner's
     # settings, which host_test_args.c provides instead.
     set(_game_sources ${REFERENCE_SRC})
@@ -687,6 +716,27 @@ if(PKM_UPSTREAM_TESTS)
 
     pkm_preprocess(REFERENCE_TEST_PP "_test" 1 ${_game_sources} ${UPSTREAM_TEST_SOURCES})
     pkm_reference_objects(reference-test-objs ${REFERENCE_TEST_PP})
+    # Event script macros that tests .include from inline asm (host
+    # include/test/overworld_script.h), with host_assemble.sh's ARM-to-x86
+    # fixups; searched before anything else by the assembler.
+    set(HOST_TEST_ASM_DIR "${CMAKE_BINARY_DIR}/host_test_asm")
+    set(_test_asm_includes
+        constants/gba_constants.inc asm/macros/asm.inc asm/macros/event.inc
+        data/script_cmd_table.inc data/specials.inc)
+    set(_test_asm_outputs ${_test_asm_includes})
+    list(TRANSFORM _test_asm_outputs PREPEND "${HOST_TEST_ASM_DIR}/")
+    set(_test_asm_inputs ${_test_asm_includes})
+    list(TRANSFORM _test_asm_inputs PREPEND "${REFERENCE_DIR}/")
+    add_custom_command(
+        OUTPUT ${_test_asm_outputs}
+        COMMAND bash "${TOOLS_DIR}/host_assemble.sh" inc "${REFERENCE_DIR}" "${HOST_TEST_ASM_DIR}" ${_test_asm_includes}
+        DEPENDS ${_test_asm_inputs} "${TOOLS_DIR}/host_assemble.sh"
+        COMMENT "Preparing event script macros for the tests"
+        VERBATIM
+    )
+    add_custom_target(host-test-asm DEPENDS ${_test_asm_outputs})
+    add_dependencies(reference-test-objs host-test-asm)
+    target_compile_options(reference-test-objs PRIVATE "-Wa,-I${HOST_TEST_ASM_DIR}")
     pkm_core_library(pkmemerald-test-core reference-test-objs)
     target_compile_definitions(pkmemerald-test-core PUBLIC TESTING=1)
 
@@ -694,6 +744,7 @@ if(PKM_UPSTREAM_TESTS)
         "${PLATFORM_DIR}/upstream_tests/host_test_runner.c"
         "${PLATFORM_DIR}/upstream_tests/host_test_args.c"
         "${PLATFORM_DIR}/upstream_tests/host_runner_selftest.c"
+        "${PLATFORM_DIR}/upstream_tests/host_known_failures.c"
     )
     target_compile_options(pkmemerald-tests PRIVATE ${PLATFORM_WARNINGS})
     target_link_libraries(pkmemerald-tests PRIVATE
@@ -704,11 +755,20 @@ if(PKM_UPSTREAM_TESTS)
     set_property(TARGET pkmemerald-tests APPEND PROPERTY LINK_DEPENDS "${PLATFORM_DIR}/upstream_tests/tests.ld")
 
     # Without -j the runner starts a shard per CPU, while CTest counts a test
-    # as one; these few tests run as one shard.
-    # The tests that run so far, and the runner's own behaviour: a crashing
-    # test is reported and the run goes on (upstream's own runner tests), and
-    # a failing test fails the run with upstream's message.
-    add_test(NAME upstream-fpmath COMMAND pkmemerald-tests -j 1 test/fpmath.c)
+    # as one; these smaller tests run as one shard.
+    # The non-battle tests (19b-2): one entry per file, upstream-<file>.
+    set(_upstream_test_names)
+    foreach(_src ${UPSTREAM_TEST_SOURCES})
+        if(_src MATCHES "^test/(battle/|test_runner|test_test_runner)")
+            continue()
+        endif()
+        get_filename_component(_name "${_src}" NAME_WE)
+        add_test(NAME upstream-${_name} COMMAND pkmemerald-tests -j 1 "${_src}")
+        list(APPEND _upstream_test_names upstream-${_name})
+    endforeach()
+    # The runner's own behaviour: a crashing test is reported and the run
+    # goes on (upstream's own runner tests), and a failing test fails the run
+    # with upstream's message.
     add_test(NAME upstream-runner-crash COMMAND pkmemerald-tests -j 1 "Tests resume after CRASH")
     add_test(NAME upstream-runner-fatalf COMMAND pkmemerald-tests -j 1 "fatalf counts as CRASH")
     add_test(NAME upstream-runner-player-name COMMAND pkmemerald-tests -j 1 "Tests initialize a terminated player name")
@@ -723,7 +783,7 @@ if(PKM_UPSTREAM_TESTS)
     add_test(NAME upstream-battle-move-effect
         COMMAND pkmemerald-tests -j ${_test_cores} test/battle/move_effect/)
     set_tests_properties(upstream-battle-move-effect PROPERTIES PROCESSORS ${_test_cores})
-    set_tests_properties(upstream-fpmath upstream-runner-crash upstream-runner-fatalf
+    set_tests_properties(${_upstream_test_names} upstream-runner-crash upstream-runner-fatalf
                          upstream-runner-player-name upstream-runner-detects-failure
                          upstream-runner-battle upstream-battle-move-effect
         PROPERTIES ENVIRONMENT "${HEADLESS_TEST_ENV}")

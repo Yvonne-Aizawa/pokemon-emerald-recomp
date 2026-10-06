@@ -354,16 +354,22 @@ bool32 MgbaOpen(void)
 
 void MgbaClose(void) { }
 
+/* reference/src/mini_printf.c: the game's printf, as upstream's MgbaPrintf
+ * uses (PRETTY_PRINT_MINI_PRINTF). It knows the game's own formats, e.g. %S
+ * for a game-encoded string, which the C library takes for a wide string. */
+s32 mini_vsnprintf(char *buffer, u32 buffer_len, const char *fmt, va_list va);
+
 void MgbaPrintf(s32 level, const char *pBuf, ...)
 {
     static const char *names[] = { "FATAL", "ERROR", "WARN", "INFO", "DEBUG" };
     int idx = (level >= 0 && level <= 4) ? level : 4;
-    fprintf(stderr, "[mGBA %s] ", names[idx]);
+    char text[0x100];  /* mGBA's debug string (MGBA_REG_DEBUG_MAX) */
     va_list ap;
+
     va_start(ap, pBuf);
-    vfprintf(stderr, pBuf, ap);
+    mini_vsnprintf(text, sizeof(text), pBuf, ap);
     va_end(ap);
-    fputc('\n', stderr);
+    fprintf(stderr, "[mGBA %s] %s\n", names[idx], text);
 }
 
 void MgbaAssert(const char *pFile, s32 nLine, const char *pExpression, bool32 nStopProgram)
