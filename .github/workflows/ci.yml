@@ -4,15 +4,21 @@
 # workflow must never make it downloadable (PLAN.md, Phase 17):
 #   - no actions/upload-artifact, no releases, no deploy steps;
 #   - no caches of build output: a pull request from a fork can restore this
-#     repository's caches, so compiled game objects must not go into one.
-# Every run starts from a clean checkout and builds from source.
+#     repository's caches, so compiled game code must never go into one.
+# The one cache is what upstream's public sources generate in reference/
+# (its host tools, converted graphics and sound; tools/ci_reference_cache.sh,
+# which refuses to pack anything that looks like a build). The game itself is
+# compiled from scratch on every run.
 
 name: CI
 
+# Changes that only touch documentation don't need a build.
 on:
   push:
     branches: [main]
+    paths-ignore: ['**.md']
   pull_request:
+    paths-ignore: ['**.md']
 
 permissions:
   contents: read
@@ -39,6 +45,22 @@ jobs:
           submodules: true
           persist-credentials: false
 
+      # Same key for both jobs: the generated files don't depend on the target.
+      - name: Upstream asset cache key
+        id: reference-cache
+        run: echo "key=reference-prepare-v1-$(git rev-parse HEAD:reference)-${{ hashFiles('tools/prepare_reference.py', 'tools/ci_reference_cache.sh') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore upstream assets
+        id: reference-restore
+        uses: actions/cache/restore@v6
+        with:
+          path: .ci-cache/reference-prepare.tgz
+          key: ${{ steps.reference-cache.outputs.key }}
+
+      - name: Unpack upstream assets
+        if: steps.reference-restore.outputs.cache-hit == 'true'
+        run: tools/ci_reference_cache.sh restore .ci-cache/reference-prepare.tgz
+
       - name: Install dependencies
         run: |
           sudo dpkg --add-architecture i386
@@ -50,6 +72,17 @@ jobs:
 
       - name: Build
         run: cmake --build build -j"$(nproc)"
+
+      - name: Pack upstream assets
+        if: steps.reference-restore.outputs.cache-hit != 'true'
+        run: tools/ci_reference_cache.sh save .ci-cache/reference-prepare.tgz
+
+      - name: Save upstream assets
+        if: steps.reference-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .ci-cache/reference-prepare.tgz
+          key: ${{ steps.reference-cache.outputs.key }}
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
@@ -66,6 +99,22 @@ jobs:
           submodules: true
           persist-credentials: false
 
+      # Same key for both jobs: the generated files don't depend on the target.
+      - name: Upstream asset cache key
+        id: reference-cache
+        run: echo "key=reference-prepare-v1-$(git rev-parse HEAD:reference)-${{ hashFiles('tools/prepare_reference.py', 'tools/ci_reference_cache.sh') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore upstream assets
+        id: reference-restore
+        uses: actions/cache/restore@v6
+        with:
+          path: .ci-cache/reference-prepare.tgz
+          key: ${{ steps.reference-cache.outputs.key }}
+
+      - name: Unpack upstream assets
+        if: steps.reference-restore.outputs.cache-hit == 'true'
+        run: tools/ci_reference_cache.sh restore .ci-cache/reference-prepare.tgz
+
       - name: Install dependencies
         run: |
           sudo dpkg --add-architecture i386
@@ -80,6 +129,17 @@ jobs:
 
       - name: Build
         run: cmake --build build-win -j"$(nproc)"
+
+      - name: Pack upstream assets
+        if: steps.reference-restore.outputs.cache-hit != 'true'
+        run: tools/ci_reference_cache.sh save .ci-cache/reference-prepare.tgz
+
+      - name: Save upstream assets
+        if: steps.reference-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: .ci-cache/reference-prepare.tgz
+          key: ${{ steps.reference-cache.outputs.key }}
 
       - name: Set up Wine
         run: wineboot --init && wineserver --wait

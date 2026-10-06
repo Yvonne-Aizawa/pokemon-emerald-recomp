@@ -23,3 +23,6 @@ pkmemerald-crash.txt
 
 # Downloaded dependencies (tools/fetch_sdl2_mingw.sh)
 deps/
+
+# CI cache staging (tools/ci_reference_cache.sh)
+.ci-cache/
