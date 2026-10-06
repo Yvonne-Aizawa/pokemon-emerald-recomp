@@ -278,11 +278,14 @@ if(PKM_UPSTREAM_TESTS)
         message(FATAL_ERROR "PKM_UPSTREAM_TESTS: Linux only for now (PLAN.md, 19b-5)")
     endif()
     # The runner, and the tests run so far (19b-1; 19b-2: the non-battle
-    # tests, test/*.c and test/compression/; 19b-3: move effects).
+    # tests, test/*.c and test/compression/; 19b-3: move effects; 19b-4,
+    # first batch: abilities and hold effects).
     file(GLOB _upstream_tests RELATIVE "${REFERENCE_DIR}" CONFIGURE_DEPENDS
         "${REFERENCE_DIR}/test/*.c"
         "${REFERENCE_DIR}/test/compression/*.c"
-        "${REFERENCE_DIR}/test/battle/move_effect/*.c")
+        "${REFERENCE_DIR}/test/battle/move_effect/*.c"
+        "${REFERENCE_DIR}/test/battle/ability/*.c"
+        "${REFERENCE_DIR}/test/battle/hold_effect/*.c")
     # The runner itself, listed first; test_runner_args.c: see below.
     list(REMOVE_ITEM _upstream_tests
         test/test_runner.c test/test_runner_battle.c test/test_runner_args.c)
@@ -773,19 +776,20 @@ if(PKM_UPSTREAM_TESTS)
     add_test(NAME upstream-runner-fatalf COMMAND pkmemerald-tests -j 1 "fatalf counts as CRASH")
     add_test(NAME upstream-runner-player-name COMMAND pkmemerald-tests -j 1 "Tests initialize a terminated player name")
     add_test(NAME upstream-runner-detects-failure COMMAND pkmemerald-tests -j 1 "Host runner self-test")
-    # Battles (19b-3): the framework's own tests, and every move effect. The
-    # latter is split across all cores (-j), which CTest reserves for it.
+    # Battles (19b-3, 19b-4): the framework's own tests, and the battle tests
+    # built so far. The latter is split across all cores (-j), which CTest
+    # reserves for it.
     cmake_host_system_information(RESULT _test_cores QUERY NUMBER_OF_LOGICAL_CORES)
     if(_test_cores GREATER 32)
         set(_test_cores 32)
     endif()
     add_test(NAME upstream-runner-battle COMMAND pkmemerald-tests -j 1 test/test_test_runner.c)
-    add_test(NAME upstream-battle-move-effect
-        COMMAND pkmemerald-tests -j ${_test_cores} test/battle/move_effect/)
-    set_tests_properties(upstream-battle-move-effect PROPERTIES PROCESSORS ${_test_cores})
+    add_test(NAME upstream-battle
+        COMMAND pkmemerald-tests -j ${_test_cores} test/battle/)
+    set_tests_properties(upstream-battle PROPERTIES PROCESSORS ${_test_cores})
     set_tests_properties(${_upstream_test_names} upstream-runner-crash upstream-runner-fatalf
                          upstream-runner-player-name upstream-runner-detects-failure
-                         upstream-runner-battle upstream-battle-move-effect
+                         upstream-runner-battle upstream-battle
         PROPERTIES ENVIRONMENT "${HEADLESS_TEST_ENV}")
     set_tests_properties(upstream-runner-crash upstream-runner-fatalf PROPERTIES
         PASS_REGULAR_EXPRESSION "1 tests: 0 passed, 0 failed, 0 known failing, 1 expected failures")

@@ -17,7 +17,7 @@ The game is playable from boot to the overworld and battles, with graphics, inpu
 | 16    | Not started (optional) |
 | 17    | Done (Linux and Windows builds, source only); on real Windows still to check: sound, `--console`/log file |
 | 18    | Not started (64-bit build; needed for macOS) |
-| 19    | In progress: 19a done (sanitizers + monkey runs in CI, heap checks included); 19b-1, 19b-3 and the CI split done; 19b-2 in review (non-battle tests); GBA save compatibility dropped (see 19b, *save layout*); **next**: 19b-4, 19b-5, then 19c (every map); 19a-2's checkpoint monkey runs on hold |
+| 19    | In progress: 19a done (sanitizers + monkey runs in CI, heap checks included); 19b-1, 19b-3 and the CI split done; 19b-2 done (non-battle tests); 19b-4 in progress (abilities and hold effects done); GBA save compatibility dropped (see 19b, *save layout*); **next**: the rest of 19b-4, 19b-5, then 19c (every map); 19a-2's checkpoint monkey runs on hold |
 
 
 ## Source under analysis
@@ -604,7 +604,11 @@ Upstream runs them in mGBA (`make check`: a test ROM, `mgba-rom-test` and the pa
   - Upstream test bugs the GBA hides, fixed in test patches: a 12-byte buffer for a 13-byte nickname (`test/pokemon.c.patch`; the host's stack protector caught it), FRLG's NULL map groups read (`test/text.c.patch`).
   - Port bugs (`known_crashes.md`): Day Care eggs from parents sharing a move (an upstream loop advancing the wrong index), the Illusion lookup outside battle. Also: `MgbaPrintf` formats with the game's own `mini_vsnprintf`, as upstream does, so `%S` (a game string) no longer reads past the end as a wide string.
 - *Save layout (decided 2026-10-06: no GBA save compatibility):* `test/save.c` showed that the host's save blocks differ from the GBA's: SaveBlock1 15496 bytes (GBA: 15568), SaveBlock2 3848 (3884), SaveBlock3 1 (4); PokemonStorage matches. The GBA ABI (`-mabi=apcs-gnu`) rounds every struct's size up to a multiple of 4; x86 doesn't, so the padding inside and between structs differs. So GBA emulator saves don't load in the PC build, nor PC saves in an emulator. Matching the GBA layout would tie every saved struct to the GBA ABI and limit later changes, so the PC save format is its own: the same 128 KiB flash image, with the host's struct layout. Saves stay compatible between PC builds of the same upstream version (the played checkpoints); Phase 18's 64-bit build must keep that layout (its `u64` alignment note). The three `test/save.c` size tests stay on the known-differences list. *Later, maybe:* a converter between GBA and PC saves (it would decode each save block with one layout and re-encode it with the other).
-- Next: 19b-4 (the remaining battle and AI test directories; check the upstream workflow's time as they come in).
+- *19b-4 in progress, in batches (one pull request each):*
+  - *Batch 1 done: `test/battle/ability/` and `test/battle/hold_effect/`* (437 files, ~2,050 tests) in the test build, CTest (`upstream-battle`, now all of `test/battle/` that is built) and the upstream workflow. All pass (137 are upstream's TO_DO, 8 upstream's own KNOWN_FAILING). On 16 cores: abilities 8 min, hold effects 1 min.
+  - Port bug found (`known_crashes.md`): a double battle against two trainers overflowed a stack array in `BufferBattlePartyOrderBySide` (`party_menu.c.patch`); the host's stack protector aborted, in the game too.
+  - A first unpatched run over all of `test/battle/` also crashed in 1v2 tests in `ai/` (`ai_doubles.c`, `ai_multi.c`: Explosion with Risky, Revival Blessing) and `battle_message.c`; likely the same bug, to check with their batch.
+  - Next: the remaining directories (`ai/`, `move_effect_secondary/`, `move_flags/`, `form_change/`, `item_effect/`, `move_effects_combined/`, the small ones and the top-level files); check the upstream workflow's time as they come in.
 
 ### 19c — Visit every map (~1 day)
 
