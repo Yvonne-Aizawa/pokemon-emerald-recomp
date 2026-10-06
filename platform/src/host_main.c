@@ -422,7 +422,7 @@ int main(int argc, char **argv)
     uint64_t startNs;
     uint32_t framesRun;
     const char *inspectSave = NULL;
-    char crashReportPath[1024];
+    char crashReportDir[1024];
     int i;
 
     for (i = 1; i < argc; i++)
@@ -551,8 +551,9 @@ int main(int argc, char **argv)
         config.saveDir = DefaultSaveDir();
     HostFs_MakeDir(config.saveDir);
     Console_Setup(console, config.saveDir);
-    snprintf(crashReportPath, sizeof(crashReportPath), "%s/%s", config.saveDir, CRASH_REPORT_FILE);
-    Crash_Install(crashReportPath);
+    snprintf(crashReportDir, sizeof(crashReportDir), "%s/%s", config.saveDir, CRASH_REPORT_DIR);
+    HostFs_MakeDir(crashReportDir);
+    Crash_Install(crashReportDir);
     Crash_SetFrameCounter(Host_GetFrameCount);
     Host_RegisterCrashWatches();
 

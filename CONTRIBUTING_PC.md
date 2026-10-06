@@ -103,8 +103,9 @@ Useful for checking changes in the running game:
   runs unpaced. Together they give repeatable runs: comparing the frame or
   sound from two builds shows whether a change altered anything.
 - Use a copy of a save with `-s DIR`, so tests don't touch your own.
-- Crash reports go to `pkmemerald-crash.txt` in the save directory, with the
-  crashing function, call stack and current screen.
+- Crash reports go to `crashes/YYYY-MM-DD_HH-MM-SS_pkmemerald-crash.txt` in
+  the save directory (local time, one file per crash), with the crashing
+  function, call stack and current screen.
 
 ## Updating upstream
 
