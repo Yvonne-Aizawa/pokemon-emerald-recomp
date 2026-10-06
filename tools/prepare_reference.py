@@ -72,6 +72,11 @@ def main():
     sources = sys.argv[2:]
 
     make(refdir, "-f", "make_tools.mk")
+    # `mapjson groups` (the map_groups.h rule) rewrites src/data/heal_locations.json
+    # in place, while the heal_locations.h rules read it with jsonproc and don't
+    # depend on it. Under -j they race and jsonproc can see a truncated file, so
+    # settle the JSON first.
+    make(refdir, "SETUP_PREREQS=0", "include/constants/map_groups.h")
     make(refdir, "generated")
     # Generated files wired up by explicit Makefile rules, not by scaninc.
     maps = [
