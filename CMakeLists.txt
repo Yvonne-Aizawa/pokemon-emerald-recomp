@@ -278,9 +278,6 @@ add_custom_target(reference-prepare
 #-------------------------------------------------------------------------------
 set(PREPROC_TOOL "${REFERENCE_DIR}/tools/preproc/preproc")
 set(PATCH_DIR    "${PLATFORM_DIR}/patches")
-set(PATCHED_DIR  "${CMAKE_BINARY_DIR}/reference_patched")
-set(PP_DIR       "${CMAKE_BINARY_DIR}/reference_pp")
-file(MAKE_DIRECTORY "${PATCHED_DIR}/src" "${PP_DIR}")
 
 # Upstream's CPPFLAGS, plus HOST_BUILD and the host include tree. -iquote of
 # reference/src lets patched copies (which live elsewhere) still find
@@ -314,68 +311,103 @@ endif()
 find_program(PATCH_EXECUTABLE patch REQUIRED)
 # Which sources have a patch is decided at configure time; re-configure when
 # a patch is added or removed.
-file(GLOB _host_patches CONFIGURE_DEPENDS "${PATCH_DIR}/*.patch")
-# Which sources have a patch is decided at configure time; re-configure when
-# a patch is added or removed.
-file(GLOB _host_patches CONFIGURE_DEPENDS "${PATCH_DIR}/*.patch")
+file(GLOB_RECURSE _host_patches CONFIGURE_DEPENDS "${PATCH_DIR}/*.patch")
 
-set(REFERENCE_PP)
-foreach(_src ${REFERENCE_SRC})
-    get_filename_component(_name "${_src}" NAME_WE)
-    set(_input "${REFERENCE_DIR}/${_src}")
-    set(_patch "${PATCH_DIR}/${_name}.c.patch")
+# pkm_preprocess(OUT_VAR VARIANT TESTING SOURCE...): patch each upstream
+# source (when platform/patches/ has <path without "src/">.patch, e.g.
+# patches/x.c.patch for src/x.c, patches/test/x.c.patch for test/x.c) into a
+# copy, and preprocess it to a .i file with -DTESTING=<TESTING>. VARIANT is
+# appended to the output directories, so the game and the test build
+# (Phase 19b) don't share files.
+function(pkm_preprocess out_var variant testing)
+    set(_patched_dir "${CMAKE_BINARY_DIR}/reference_patched${variant}")
+    set(_pp_dir "${CMAKE_BINARY_DIR}/reference_pp${variant}")
+    file(MAKE_DIRECTORY "${_pp_dir}")
+    set(_flags ${REFERENCE_CPPFLAGS})
+    list(TRANSFORM _flags REPLACE "^-DTESTING=0$" "-DTESTING=${testing}")
+    # __FILE__ as upstream sees it ("src/x.c", "test/x.c"): the test runner
+    # matches test files by it, and messages stay short.
+    list(APPEND _flags "-fmacro-prefix-map=${REFERENCE_DIR}/=" "-fmacro-prefix-map=${_patched_dir}/=")
+    if(testing)
+        # As -iquote reference/src does for patched game files: test-relative
+        # includes ("battle/trainer_control.h") from patched test files.
+        list(APPEND _flags -iquote "${REFERENCE_DIR}/test")
+    endif()
+    set(_outputs)
+    foreach(_src ${ARGN})
+        string(REGEX REPLACE "^src/" "" _rel "${_src}")
+        set(_input "${REFERENCE_DIR}/${_src}")
+        set(_patch "${PATCH_DIR}/${_rel}.patch")
 
-    if(EXISTS "${_patch}")
-        set(_patched "${PATCHED_DIR}/${_src}")
+        if(EXISTS "${_patch}")
+            set(_patched "${_patched_dir}/${_src}")
+            get_filename_component(_patched_parent "${_patched}" DIRECTORY)
+            file(MAKE_DIRECTORY "${_patched_parent}")
+            add_custom_command(
+                OUTPUT "${_patched}"
+                COMMAND ${PATCH_EXECUTABLE} --quiet --force -o "${_patched}" "${_input}" "${_patch}"
+                DEPENDS "${_input}" "${_patch}"
+                COMMENT "Patching ${_src}"
+                VERBATIM
+            )
+            set(_input "${_patched}")
+        endif()
+
+        # src/x.c -> x.i; test/a/b.c -> test__a__b.i (test files may share a
+        # base name with game files).
+        string(REGEX REPLACE "\\.c$" ".i" _flat "${_rel}")
+        string(REPLACE "/" "__" _flat "${_flat}")
+        set(_out "${_pp_dir}/${_flat}")
         add_custom_command(
-            OUTPUT "${_patched}"
-            COMMAND ${PATCH_EXECUTABLE} --quiet --force -o "${_patched}" "${_input}" "${_patch}"
-            DEPENDS "${_input}" "${_patch}"
-            COMMENT "Patching ${_src}"
+            OUTPUT "${_out}"
+            COMMAND bash "${TOOLS_DIR}/host_preprocess.sh"
+                    "${REFERENCE_DIR}" "${PREPROC_TOOL}" "${_out}" "${_out}.d" "${_src}" "${_input}"
+                    -- ${CMAKE_C_COMPILER} ${_flags}
+            DEPENDS "${_input}" "${PREPARE_STAMP}" "${TOOLS_DIR}/host_preprocess.sh"
+            DEPFILE "${_out}.d"
+            COMMENT "Preprocessing ${_src}"
             VERBATIM
         )
-        set(_input "${_patched}")
-    endif()
+        list(APPEND _outputs "${_out}")
+    endforeach()
 
-    set(_out "${PP_DIR}/${_name}.i")
-    add_custom_command(
-        OUTPUT "${_out}"
-        COMMAND bash "${TOOLS_DIR}/host_preprocess.sh"
-                "${REFERENCE_DIR}" "${PREPROC_TOOL}" "${_out}" "${_out}.d" "${_src}" "${_input}"
-                -- ${CMAKE_C_COMPILER} ${REFERENCE_CPPFLAGS}
-        DEPENDS "${_input}" "${PREPARE_STAMP}" "${TOOLS_DIR}/host_preprocess.sh"
-        DEPFILE "${_out}.d"
-        COMMENT "Preprocessing ${_src}"
-        VERBATIM
-    )
-    list(APPEND REFERENCE_PP "${_out}")
-endforeach()
+    # GCC treats .i as already-preprocessed C; tell CMake it's C too.
+    set_source_files_properties(${_outputs} PROPERTIES LANGUAGE C GENERATED TRUE)
+    set(${out_var} ${_outputs} PARENT_SCOPE)
+endfunction()
 
-# GCC treats .i as already-preprocessed C; tell CMake it's C too.
-set_source_files_properties(${REFERENCE_PP} PROPERTIES LANGUAGE C GENERATED TRUE)
+pkm_preprocess(REFERENCE_PP "" 0 ${REFERENCE_SRC})
 
 #-------------------------------------------------------------------------------
 # Step 4: compile the game code
 #-------------------------------------------------------------------------------
-add_library(reference-objs OBJECT ${REFERENCE_PP})
 # Debug aid: report shifts by >= the type's width at run time. ARM gives 0
 # for those, x86 wraps the count, so each hit is a likely porting bug (see
 # platform/patches/text.c.patch). Use a separate build directory:
 #   cmake -S . -B build-ubsan -DPKM_SANITIZE_SHIFT=ON
 option(PKM_SANITIZE_SHIFT "Instrument game code with -fsanitize=shift-exponent" OFF)
 if(PKM_SANITIZE_SHIFT)
-    target_compile_options(reference-objs PRIVATE -fsanitize=shift-exponent)
     add_link_options(-fsanitize=shift-exponent)
 endif()
 
-target_compile_options(reference-objs PRIVATE
-    # CMake compiles the .i files with `-x c`; don't preprocess them again.
-    -fpreprocessed
-    # Upstream builds with -Wno-strict-aliasing and the code type-puns freely;
-    # GBA code also assumes two's-complement wraparound.
-    -fno-strict-aliasing
-    -fwrapv
-)
+# pkm_reference_objects(TARGET SOURCE...): the preprocessed game code,
+# compiled.
+function(pkm_reference_objects target)
+    add_library(${target} OBJECT ${ARGN})
+    if(PKM_SANITIZE_SHIFT)
+        target_compile_options(${target} PRIVATE -fsanitize=shift-exponent)
+    endif()
+    target_compile_options(${target} PRIVATE
+        # CMake compiles the .i files with `-x c`; don't preprocess them again.
+        -fpreprocessed
+        # Upstream builds with -Wno-strict-aliasing and the code type-puns
+        # freely; GBA code also assumes two's-complement wraparound.
+        -fno-strict-aliasing
+        -fwrapv
+    )
+endfunction()
+
+pkm_reference_objects(reference-objs ${REFERENCE_PP})
 
 #-------------------------------------------------------------------------------
 # Assembly data (data/*.s and songs)
@@ -441,17 +473,6 @@ set_source_files_properties(${REFERENCE_ASM_OBJS} PROPERTIES EXTERNAL_OBJECT TRU
 #-------------------------------------------------------------------------------
 # Target: pkmemerald-core (static lib)
 #-------------------------------------------------------------------------------
-add_library(pkmemerald-core STATIC
-    ${PLATFORM_SOURCES}
-    $<TARGET_OBJECTS:reference-objs>
-    ${REFERENCE_ASM_OBJS}
-)
-
-target_include_directories(pkmemerald-core
-    PUBLIC
-        ${PLATFORM_INC}
-)
-
 # Game headers are reached through the host include tree (see above). As an
 # -idirafter directory it is searched after the system headers, so
 # reference/include/strings.h can't shadow libc's <strings.h>, and its headers
@@ -462,28 +483,39 @@ target_include_directories(pkmemerald-core
 # compile, not misbehave). -fno-canonical-system-headers: GCC otherwise
 # resolves system headers' symlinks, which would bypass the host include
 # tree (global.h would pick up upstream's gba/ headers instead of ours).
-target_compile_options(pkmemerald-core
-    PUBLIC
-        -idirafter "${HOST_INC}"
-        -fno-canonical-system-headers
-    PRIVATE
-        ${PLATFORM_WARNINGS}
-)
-
+#
+# pkm_core_library(TARGET OBJECTS_TARGET): the platform layer, the compiled
+# game code (OBJECTS_TARGET) and the assembled game data.
 find_package(Threads REQUIRED)
-target_link_libraries(pkmemerald-core PUBLIC SDL2::SDL2 Threads::Threads)
-# Our main() is the entry point: SDL must not rename it to SDL_main (Windows).
-target_compile_definitions(pkmemerald-core PUBLIC SDL_MAIN_HANDLED)
+function(pkm_core_library target objects)
+    add_library(${target} STATIC
+        ${PLATFORM_SOURCES}
+        $<TARGET_OBJECTS:${objects}>
+        ${REFERENCE_ASM_OBJS}
+    )
+    target_include_directories(${target} PUBLIC ${PLATFORM_INC})
+    target_compile_options(${target}
+        PUBLIC
+            -idirafter "${HOST_INC}"
+            -fno-canonical-system-headers
+        PRIVATE
+            ${PLATFORM_WARNINGS}
+    )
+    target_link_libraries(${target} PUBLIC SDL2::SDL2 Threads::Threads)
+    target_compile_definitions(${target}
+        PUBLIC
+            # Our main() is the entry point: SDL must not rename it to
+            # SDL_main (Windows).
+            SDL_MAIN_HANDLED
+            MODERN=1
+            HOST_BUILD=1   # lets source files #ifdef-out GBA-specific code
+    )
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /utf-8)
+    endif()
+endfunction()
 
-target_compile_definitions(pkmemerald-core
-    PUBLIC
-        MODERN=1
-        HOST_BUILD=1   # lets source files #ifdef-out GBA-specific code
-)
-
-if(MSVC)
-    target_compile_options(pkmemerald-core PRIVATE /utf-8)
-endif()
+pkm_core_library(pkmemerald-core reference-objs)
 
 #-------------------------------------------------------------------------------
 # Test executables
@@ -558,6 +590,67 @@ foreach(_seed 1 2)
         FIXTURES_REQUIRED monkey-saves ENVIRONMENT "${_monkey_env}"
         PASS_REGULAR_EXPRESSION "ran ${MONKEY_FRAMES} frames")
 endforeach()
+
+#-------------------------------------------------------------------------------
+# Upstream's test suite (reference/test/; PLAN.md, Phase 19b)
+#
+# A second build of the game with TESTING=1, plus upstream's test runner and
+# tests, as pkmemerald-tests (platform/upstream_tests/host_test_runner.c runs
+# it). Linux only for now.
+#   cmake -S . -B build -DPKM_UPSTREAM_TESTS=ON
+#   build/pkmemerald-tests [test/fpmath.c | name prefix | *infix]
+#-------------------------------------------------------------------------------
+option(PKM_UPSTREAM_TESTS "Build upstream's test suite as pkmemerald-tests (Linux)" OFF)
+if(PKM_UPSTREAM_TESTS)
+    if(WIN32)
+        message(FATAL_ERROR "PKM_UPSTREAM_TESTS: Linux only for now (PLAN.md, 19b-5)")
+    endif()
+    # The runner, and the tests run so far (19b-1).
+    set(UPSTREAM_TEST_SOURCES
+        test/test_runner.c
+        test/test_runner_battle.c
+        test/test_test_runner.c
+        test/fpmath.c
+    )
+    # test/test_runner_args.c and src/test_runner_stub.c hold the runner's
+    # settings, which host_test_args.c provides instead.
+    set(_game_sources ${REFERENCE_SRC})
+    list(REMOVE_ITEM _game_sources src/test_runner_stub.c)
+
+    pkm_preprocess(REFERENCE_TEST_PP "_test" 1 ${_game_sources} ${UPSTREAM_TEST_SOURCES})
+    pkm_reference_objects(reference-test-objs ${REFERENCE_TEST_PP})
+    pkm_core_library(pkmemerald-test-core reference-test-objs)
+    target_compile_definitions(pkmemerald-test-core PUBLIC TESTING=1)
+
+    add_executable(pkmemerald-tests
+        "${PLATFORM_DIR}/upstream_tests/host_test_runner.c"
+        "${PLATFORM_DIR}/upstream_tests/host_test_args.c"
+        "${PLATFORM_DIR}/upstream_tests/host_runner_selftest.c"
+    )
+    target_compile_options(pkmemerald-tests PRIVATE ${PLATFORM_WARNINGS})
+    target_link_libraries(pkmemerald-tests PRIVATE
+        -Wl,--whole-archive pkmemerald-test-core -Wl,--no-whole-archive
+        m
+    )
+    target_link_options(pkmemerald-tests PRIVATE "-Wl,-T,${PLATFORM_DIR}/upstream_tests/tests.ld")
+    set_property(TARGET pkmemerald-tests APPEND PROPERTY LINK_DEPENDS "${PLATFORM_DIR}/upstream_tests/tests.ld")
+
+    # The tests that run so far, and the runner's own behaviour: a crashing
+    # test is reported and the run goes on (upstream's own runner tests), and
+    # a failing test fails the run with upstream's message.
+    add_test(NAME upstream-fpmath COMMAND pkmemerald-tests test/fpmath.c)
+    add_test(NAME upstream-runner-crash COMMAND pkmemerald-tests "Tests resume after CRASH")
+    add_test(NAME upstream-runner-fatalf COMMAND pkmemerald-tests "fatalf counts as CRASH")
+    add_test(NAME upstream-runner-player-name COMMAND pkmemerald-tests "Tests initialize a terminated player name")
+    add_test(NAME upstream-runner-detects-failure COMMAND pkmemerald-tests "Host runner self-test")
+    set_tests_properties(upstream-fpmath upstream-runner-crash upstream-runner-fatalf
+                         upstream-runner-player-name upstream-runner-detects-failure
+        PROPERTIES ENVIRONMENT "${HEADLESS_TEST_ENV}")
+    set_tests_properties(upstream-runner-crash upstream-runner-fatalf PROPERTIES
+        PASS_REGULAR_EXPRESSION "1 tests: 0 passed, 0 failed, 0 known failing, 1 expected failures")
+    set_tests_properties(upstream-runner-detects-failure PROPERTIES
+        PASS_REGULAR_EXPRESSION "a failing EXPECT_EQ fails: [^\n]*FAIL.*host_runner_selftest.c:[0-9]+: EXPECT_EQ\\(1, 2\\) failed.*1 tests: 0 passed, 1 failed")
+endif()
 
 # The host build must read upstream's assembled data exactly as the GBA does:
 # identical bytes and relocations, and identical struct layouts. Checked
