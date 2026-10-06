@@ -59,7 +59,7 @@ static void Usage(FILE *out, const char *argv0)
 {
     fprintf(out,
             "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [--config FILE] [-x SCALE] [--fullscreen | --windowed]\n"
-            "       [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT|@FILE] [--monkey SEED[@FRAME]] [--inspect-save FILE] [--fast] [--mute] [--smooth-sound] [--console]\n"
+            "       [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT|@FILE] [--monkey SEED[@FRAME]] [--inspect-save FILE] [--convert-save IN OUT] [--fast] [--mute] [--smooth-sound] [--console]\n"
             "Settings come from " HOST_CONFIG_FILE " in the save directory (created with the\n"
             "defaults on first start); the flags below override it for this run.\n"
             "  -d DATA_DIR  converted game data (default: assets)\n"
@@ -80,6 +80,8 @@ static void Usage(FILE *out, const char *argv0)
             "  --monkey SEED[@FRAME]  from FRAME on, press pseudo-random buttons (the same\n"
             "               for the same SEED), for testing\n"
             "  --inspect-save FILE  inspect a checkpoint without writing to it; exits\n"
+            "  --convert-save IN OUT  convert a save (JSON or a raw flash image): OUT is a\n"
+            "               raw image if it ends in .sav, otherwise JSON; exits\n"
             "  --fast       don't wait between frames (scripted test runs); implies --mute\n"
             "  --mute       no sound\n"
             "  --smooth-sound  interpolated, low-passed sound instead of the exact GBA output\n"
@@ -94,13 +96,21 @@ static void Usage(FILE *out, const char *argv0)
 
 static const char *DefaultSaveDir(void)
 {
-    FILE *legacy = fopen(LEGACY_SAVE_DIR "/" HOST_SAVE_FILE_NAME, "rb");
+    static const char *const files[] = {
+        LEGACY_SAVE_DIR "/" HOST_SAVE_FILE_NAME,
+        LEGACY_SAVE_DIR "/" HOST_LEGACY_SAVE_FILE_NAME,
+    };
     const char *userDir;
+    size_t i;
 
-    if (legacy != NULL)
+    for (i = 0; i < sizeof(files) / sizeof(files[0]); i++)
     {
-        fclose(legacy);
-        return LEGACY_SAVE_DIR;
+        FILE *legacy = fopen(files[i], "rb");
+        if (legacy != NULL)
+        {
+            fclose(legacy);
+            return LEGACY_SAVE_DIR;
+        }
     }
     userDir = Platform_GetUserDataDir();
     return userDir != NULL ? userDir : LEGACY_SAVE_DIR;
@@ -422,6 +432,7 @@ int main(int argc, char **argv)
     uint64_t startNs;
     uint32_t framesRun;
     const char *inspectSave = NULL;
+    const char *convertSave[2] = { NULL, NULL };
     char crashReportDir[1024];
     int i;
 
@@ -460,6 +471,12 @@ int main(int argc, char **argv)
         if (strcmp(arg, "--inspect-save") == 0 && i + 1 < argc)
         {
             inspectSave = argv[++i];
+            continue;
+        }
+        if (strcmp(arg, "--convert-save") == 0 && i + 2 < argc)
+        {
+            convertSave[0] = argv[++i];
+            convertSave[1] = argv[++i];
             continue;
         }
         if (strcmp(arg, "--monkey") == 0 && i + 1 < argc)
@@ -545,6 +562,11 @@ int main(int argc, char **argv)
     {
         Console_Setup(true, NULL);
         return Host_InspectSave(inspectSave);
+    }
+    if (convertSave[0] != NULL)
+    {
+        Console_Setup(true, NULL);
+        return Host_ConvertSave(convertSave[0], convertSave[1]);
     }
 
     if (config.saveDir == NULL)
