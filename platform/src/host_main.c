@@ -13,6 +13,7 @@
 #include "platform/console.h"
 #include "platform/crash_handler.h"
 #include "platform/host_audio.h"
+#include "platform/host_config.h"
 #include "platform/host_fs.h"
 #include "platform/host_game.h"
 #include "platform/host_input.h"
@@ -26,7 +27,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define DEFAULT_SCALE 3
 #define MAX_SCALE 16
 
 /* Scripted input (-i): long enough for the game to see a press and release. */
@@ -58,11 +58,17 @@ static const struct { const char *name; uint16_t button; } sButtonNames[] = {
 static void Usage(FILE *out, const char *argv0)
 {
     fprintf(out,
-            "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [-x SCALE] [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT] [--fast] [--mute] [--smooth-sound] [--console]\n"
+            "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [--config FILE] [-x SCALE] [--fullscreen | --windowed]\n"
+            "       [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT] [--fast] [--mute] [--smooth-sound] [--console]\n"
+            "Settings come from " HOST_CONFIG_FILE " in the save directory (created with the\n"
+            "defaults on first start); the flags below override it for this run.\n"
             "  -d DATA_DIR  converted game data (default: assets)\n"
-            "  -s SAVE_DIR  save files and crash reports (default: ./saves if it holds\n"
-            "               a save, otherwise the per-user data directory)\n"
-            "  -x SCALE     initial window size as a multiple of 240x160 (default: %d)\n"
+            "  -s SAVE_DIR  save files, settings and crash reports (default: ./saves if it\n"
+            "               holds a save, otherwise the per-user data directory)\n"
+            "  --config FILE  settings file to use instead of SAVE_DIR/" HOST_CONFIG_FILE "\n"
+            "  -x SCALE     initial window size as a multiple of 240x160 (1-%d)\n"
+            "  --fullscreen, --windowed  start in fullscreen or in a window (F11 or\n"
+            "               Alt+Enter switch while playing)\n"
             "  -f FRAMES    stop after FRAMES frames (default: run until the window is closed)\n"
             "  -o FILE      on exit, save the last frame to FILE (binary PPM)\n"
             "  -a FILE      write the sound to FILE (WAV, 48 kHz stereo); works with --fast\n"
@@ -75,7 +81,7 @@ static void Usage(FILE *out, const char *argv0)
             "  --smooth-sound  interpolated, low-passed sound instead of the exact GBA output\n"
             "  --console    Windows: show the game's messages in a console (otherwise, unless\n"
             "               redirected, they go to " CONSOLE_LOG_FILE " in the save directory)\n",
-            argv0, DEFAULT_SCALE, DEFAULT_HOLD_FRAMES);
+            argv0, MAX_SCALE, DEFAULT_HOLD_FRAMES);
 }
 
 /* Where saves went before the game had a per-user directory; still used when
@@ -270,10 +276,15 @@ int main(int argc, char **argv)
 {
     struct PlatformConfig config = {
         .dataDir = "assets",
-        .scale = DEFAULT_SCALE,
     };
+    static struct HostConfig settings;
+    char configPath[1024];
+    const char *configFile = NULL;
+    /* Command-line overrides of the settings file: 0 / -1 = not given. */
+    int scaleFlag = 0, fullscreenFlag = -1;
+    bool muteFlag = false, smoothSoundFlag = false;
     unsigned long maxFrames = 0;
-    bool sound = true;
+    bool sound;
     bool console = false;
     const char *framePath = NULL;
     const char *audioPath = NULL;
@@ -296,17 +307,27 @@ int main(int argc, char **argv)
         {
             Host_SetPacing(false);
             sIrqIntervalNs = STALL_INTERVAL_NS;
-            sound = false;
+            muteFlag = true;
             continue;
         }
         if (strcmp(arg, "--mute") == 0)
         {
-            sound = false;
+            muteFlag = true;
             continue;
         }
         if (strcmp(arg, "--smooth-sound") == 0)
         {
-            HostAudio_SetRawOutput(false);
+            smoothSoundFlag = true;
+            continue;
+        }
+        if (strcmp(arg, "--fullscreen") == 0 || strcmp(arg, "--windowed") == 0)
+        {
+            fullscreenFlag = strcmp(arg, "--fullscreen") == 0;
+            continue;
+        }
+        if (strcmp(arg, "--config") == 0 && i + 1 < argc)
+        {
+            configFile = argv[++i];
             continue;
         }
         if (strcmp(arg, "--console") == 0)
@@ -348,7 +369,7 @@ int main(int argc, char **argv)
                     fprintf(stderr, "%s: invalid scale '%s' (1-%d)\n", argv[0], value, MAX_SCALE);
                     return 2;
                 }
-                config.scale = (int)scale;
+                scaleFlag = (int)scale;
                 break;
             case 'f':
                 if (!ParseNumber(value, UINT32_MAX, &maxFrames))
@@ -375,6 +396,19 @@ int main(int argc, char **argv)
     Crash_Install(crashReportPath);
     Crash_SetFrameCounter(Host_GetFrameCount);
     Host_RegisterCrashWatches();
+
+    if (configFile == NULL)
+    {
+        snprintf(configPath, sizeof(configPath), "%s/%s", config.saveDir, HOST_CONFIG_FILE);
+        configFile = configPath;
+    }
+    HostConfig_Load(&settings, configFile);
+    config.scale = scaleFlag != 0 ? scaleFlag : settings.scale;
+    config.fullscreen = fullscreenFlag >= 0 ? fullscreenFlag : settings.fullscreen;
+    for (i = 0; i < PLATFORM_BUTTON_COUNT; i++)
+        config.keys[i] = settings.keys[i];
+    sound = settings.sound && !muteFlag;
+    HostAudio_SetRawOutput(!(settings.smoothSound || smoothSoundFlag));
 
     if (Platform_Init(&config) != 0)
     {
