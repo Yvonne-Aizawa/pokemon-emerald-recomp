@@ -1,0 +1,37 @@
+--- a/test/test_runner_battle.c
++++ b/test/test_runner_battle.c
+@@ -75,6 +75,26 @@
+ static void ClearAiLog(enum BattlerId battlerId);
+ static const char *BattlerIdentifier(enum BattlerId battlerId);
+ 
++#ifdef HOST_BUILD
++// PC port: the ARM helpers below run the test function on DATA.stack, as the
++// GBA's IWRAM stack is small; the host stack is big enough, so call it
++// directly.
++static void InvokeSingleTestFunctionWithStack(void *results, u32 i, struct BattlePokemon *player, struct BattlePokemon *opponent, SingleBattleTestFunction function, void *stack)
++{
++    function(results, i, player, opponent);
++}
++
++#define INVOKE_FOUR_BATTLERS(name, type) \
++static void name(void *results, u32 i, struct BattlePokemon *playerLeft, struct BattlePokemon *opponentLeft, struct BattlePokemon *playerRight, struct BattlePokemon *opponentRight, type function, void *stack) \
++{ \
++    function(results, i, playerLeft, opponentLeft, playerRight, opponentRight); \
++}
++INVOKE_FOUR_BATTLERS(InvokeDoubleTestFunctionWithStack, DoubleBattleTestFunction)
++INVOKE_FOUR_BATTLERS(InvokeMultiTestFunctionWithStack, MultiBattleTestFunction)
++INVOKE_FOUR_BATTLERS(InvokeTwoVsOneTestFunctionWithStack, TwoVsOneBattleTestFunction)
++INVOKE_FOUR_BATTLERS(InvokeOneVsTwoTestFunctionWithStack, OneVsTwoBattleTestFunction)
++#undef INVOKE_FOUR_BATTLERS
++#else
+ NAKED static void InvokeSingleTestFunctionWithStack(void *results, u32 i, struct BattlePokemon *player, struct BattlePokemon *opponent, SingleBattleTestFunction function, void *stack)
+ {
+     asm("push {r4-r6,lr}\n\
+@@ -190,6 +210,7 @@
+          bx r0\n\
+         .pool");
+ }
++#endif
+ 
+ // Calls test->function, but pointing its stack at DATA.stack so that
+ // local variables are live after the function returns (and so can be

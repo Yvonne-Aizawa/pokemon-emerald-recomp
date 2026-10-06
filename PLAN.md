@@ -571,7 +571,9 @@ Upstream runs them in mGBA (`make check`: a test ROM, `mgba-rom-test` and the pa
 | 19b-4 All battle + AI tests | The remaining ~5,000 (double, multi, wild, AI), split across CI cores; if too slow for every PR, a subset on PRs and all of it on `main`. | Same rule; CI runs them. |
 | 19b-5 Windows | The suite on the MinGW build under Wine: test registration via `.data$`-style markers, per-test processes by re-running the executable. Could move after 19c: the game logic is the same code on both platforms. | Runs in the Windows CI job. |
 
-**Status: in progress.** Next: 19b-1.
+**Status: in progress.**
+- *19b-1 done:* `-DPKM_UPSTREAM_TESTS=ON` (Linux) builds the game a second time with `TESTING=1` (`pkm_preprocess`/`pkm_core_library` in CMake), plus upstream's runner and tests, as `pkmemerald-tests [PATTERN]` (`platform/upstream_tests/`). Upstream's runner runs unchanged except for `test/test_runner.c.patch`: mGBA output and exit go to the host (printed and counted like Hydra), `JumpToAgbMainLoop` is a `siglongjmp` to the frame loop, the persistent state is in memory shared with a parent process that restarts a crashed child (the runner then reports CRASH and goes on, as after a GBA soft reset), timer 2 ticks every 60 frames, a stuck child is killed after 60 s. `__FILE__` is mapped to upstream's relative paths (`-fmacro-prefix-map`) so file filters work. Upstream NULL accesses the GBA tolerates, fixed: `MoveSaveBlocks_ResetHeap` copying from the unset `gSaveBlock1Ptr` at test boot (`load_save.c.patch`), `FunctionTest_SetUp` clearing the rigged-RNG list before allocating it. Passing: `test/fpmath.c`; the runner's own crash, `fatalf` and save-block tests; a deliberately failing test is reported with upstream's message (`host_runner_selftest.c`). The battle tests in `test_test_runner.c` crash (19b-3). `PKM_TESTS_NO_FORK=1` runs in one process for a debugger.
+- Next: 19b-2.
 
 ### 19c — Visit every map (~1 day)
 

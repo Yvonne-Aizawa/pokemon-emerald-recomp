@@ -83,6 +83,11 @@ crashes; the GBA tolerates those, so upstream has some (see
 them; CI does the same. The game's own heap is checked too (freed and unused
 heap memory is off-limits); `PKM_ASAN_HEAP=0` turns that part off.
 
+Upstream's own test suite (Linux, in progress, PLAN.md Phase 19b): configure
+with `-DPKM_UPSTREAM_TESTS=ON`, then `build/pkmemerald-tests [PATTERN]` runs
+it (a test file such as `test/fpmath.c`, a test name prefix, or `*infix`);
+`ctest` runs the parts that work so far.
+
 Useful for checking changes in the running game:
 
 - `--monkey SEED[@FRAME]` plays with pseudo-random input, the same for the
