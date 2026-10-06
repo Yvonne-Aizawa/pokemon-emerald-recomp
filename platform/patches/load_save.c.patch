@@ -1,0 +1,24 @@
+--- a/src/load_save.c
++++ b/src/load_save.c
+@@ -1,3 +1,8 @@
++// PC port: see MoveSaveBlocks_ResetHeap.
++#if PKM_ASAN
++#include <sanitizer/asan_interface.h>
++#endif
++
+ #include "global.h"
+ #include "malloc.h"
+ #include "berry_powder.h"
+@@ -106,6 +111,12 @@
+     gMain.hblankCallback = NULL;
+     gTrainerHillVBlankCounter = NULL;
+ 
++#if PKM_ASAN
++    // PC port: the heap is used as scratch space below, on purpose; with
++    // AddressSanitizer its unused memory is off-limits (malloc.c.patch).
++    // InitHeap marks it so again afterwards.
++    __asan_unpoison_memory_region(gHeap, HEAP_SIZE);
++#endif
+     saveBlock2Copy = (struct SaveBlock2 *)(gHeap);
+     saveBlock1Copy = (struct SaveBlock1 *)(gHeap + sizeof(struct SaveBlock2));
+     pokemonStorageCopy = (struct PokemonStorage *)(gHeap + sizeof(struct SaveBlock2) + sizeof(struct SaveBlock1));

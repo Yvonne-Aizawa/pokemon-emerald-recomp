@@ -1,0 +1,69 @@
+--- a/src/malloc.c
++++ b/src/malloc.c
+@@ -1,5 +1,29 @@
++#if PKM_ASAN
++#include <sanitizer/asan_interface.h>
++#endif
++
+ #include "global.h"
+ #include "malloc.h"
++
++// PC port: with AddressSanitizer and PKM_ASAN_HEAP=1 in the environment
++// (PLAN.md, Phase 19a), unused heap memory -- free blocks, and what an
++// allocation doesn't use -- is marked off-limits, so reads and writes into
++// it are reported; the heap is one big array to ASan otherwise. Block
++// headers stay accessible to the allocator. Off by default: it mostly finds
++// upstream reading freed heap memory, which behaves the same on the GBA and
++// the PC (the heap is a static array on both).
++// (ASan's functions, not its ASAN_POISON_MEMORY_REGION macros: those are
++// no-ops unless the preprocessor sees -fsanitize=address, and the game's
++// sources are preprocessed without it.)
++#if PKM_ASAN
++bool32 Host_AsanHeapChecks(void);  // platform/src/host_gba_misc.c
++#define HEAP_POISON(addr, size)   do { if (Host_AsanHeapChecks()) __asan_poison_memory_region(addr, size); } while (0)
++#define HEAP_UNPOISON(addr, size) __asan_unpoison_memory_region(addr, size)
++#else
++#define HEAP_POISON(addr, size)
++#define HEAP_UNPOISON(addr, size)
++#endif
++
+ #if TESTING
+ #include "test/test.h"
+ #endif
+@@ -66,6 +90,7 @@
+                     pos->allocated = TRUE;
+                     pos->size = size;
+ 
++                    HEAP_UNPOISON(splitBlock, sizeof(struct MemBlock));
+                     PutMemBlockHeader(splitBlock, pos, pos->next, foundBlockSize);
+ 
+                     pos->next = splitBlock;
+@@ -77,6 +102,7 @@
+                 pos->locationHi = ((uintptr_t)location) >> 14;
+                 pos->locationLo = (uintptr_t)location;
+ 
++                HEAP_UNPOISON(pos->data, size);
+                 return pos->data;
+             }
+         }
+@@ -127,8 +153,11 @@
+ 
+                 block->magic = 0;
+                 block->prev->size += sizeof(struct MemBlock) + block->size;
++                block = block->prev;
+             }
+         }
++
++        HEAP_POISON(block->data, block->size);
+     }
+ }
+ 
+@@ -151,6 +180,8 @@
+ {
+     sHeapStart = heapStart;
+     sHeapSize = heapSize;
++    HEAP_POISON(heapStart, heapSize);
++    HEAP_UNPOISON(heapStart, sizeof(struct MemBlock));
+     PutFirstMemBlockHeader(heapStart, heapSize);
+ }
+ 

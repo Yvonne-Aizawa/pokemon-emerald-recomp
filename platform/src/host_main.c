@@ -59,7 +59,7 @@ static void Usage(FILE *out, const char *argv0)
 {
     fprintf(out,
             "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [--config FILE] [-x SCALE] [--fullscreen | --windowed]\n"
-            "       [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT] [--fast] [--mute] [--smooth-sound] [--console]\n"
+            "       [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT] [--monkey SEED[@FRAME]] [--fast] [--mute] [--smooth-sound] [--console]\n"
             "Settings come from " HOST_CONFIG_FILE " in the save directory (created with the\n"
             "defaults on first start); the flags below override it for this run.\n"
             "  -d DATA_DIR  converted game data (default: assets)\n"
@@ -76,6 +76,8 @@ static void Usage(FILE *out, const char *argv0)
             "               FRAME[+HOLD]:BUTTON[|BUTTON...], e.g. 600:a,3700+10:select\n"
             "               (buttons: a b select start up down left right l r; HOLD\n"
             "               defaults to %d frames)\n"
+            "  --monkey SEED[@FRAME]  from FRAME on, press pseudo-random buttons (the same\n"
+            "               for the same SEED), for testing\n"
             "  --fast       don't wait between frames (scripted test runs); implies --mute\n"
             "  --mute       no sound\n"
             "  --smooth-sound  interpolated, low-passed sound instead of the exact GBA output\n"
@@ -188,6 +190,76 @@ static uint16_t ScriptedButtons(uint32_t frame)
     return buttons;
 }
 
+/* --monkey SEED[@FRAME]: from FRAME on, press pseudo-random buttons -- the
+ * same ones for the same seed -- for testing (PLAN.md, Phase 19a): walking
+ * in held stretches, talking and confirming with A, backing out with B,
+ * sometimes the menus. One button at a time, so never the soft-reset chord. */
+static bool sMonkey;
+static uint32_t sMonkeyState;
+static uint32_t sMonkeyStart;
+
+static uint32_t MonkeyRandom(void)
+{
+    /* xorshift32 */
+    sMonkeyState ^= sMonkeyState << 13;
+    sMonkeyState ^= sMonkeyState >> 17;
+    sMonkeyState ^= sMonkeyState << 5;
+    return sMonkeyState;
+}
+
+static uint16_t MonkeyButtons(uint32_t frame)
+{
+    static const uint16_t sDirections[] = {
+        PLATFORM_BUTTON_UP, PLATFORM_BUTTON_DOWN, PLATFORM_BUTTON_LEFT, PLATFORM_BUTTON_RIGHT,
+    };
+    static uint16_t sHeld;
+    static uint32_t sHoldUntil, sGapUntil;
+    uint32_t roll;
+
+    if (!sMonkey || frame < sMonkeyStart)
+        return 0;
+    if (frame < sHoldUntil)
+        return sHeld;
+    if (frame < sGapUntil)
+        return 0;
+
+    /* A new press: what, for how long, then a short release. */
+    roll = MonkeyRandom() % 100;
+    if (roll < 50)
+    {
+        sHeld = sDirections[MonkeyRandom() % 4];
+        sHoldUntil = frame + 8 + MonkeyRandom() % 48;
+    }
+    else
+    {
+        sHeld = roll < 78 ? PLATFORM_BUTTON_A
+              : roll < 92 ? PLATFORM_BUTTON_B
+              : roll < 96 ? PLATFORM_BUTTON_START
+              : roll < 98 ? PLATFORM_BUTTON_SELECT
+              : (MonkeyRandom() & 1) ? PLATFORM_BUTTON_L : PLATFORM_BUTTON_R;
+        sHoldUntil = frame + 3 + MonkeyRandom() % 4;
+    }
+    sGapUntil = sHoldUntil + 2 + MonkeyRandom() % 6;
+    return sHeld;
+}
+
+/* "SEED" or "SEED@FRAME". */
+static bool ParseMonkey(const char *text)
+{
+    unsigned long seed, start = 0;
+    char *end;
+
+    seed = strtoul(text, &end, 10);
+    if (end == text || (*end != '\0' && *end != '@'))
+        return false;
+    if (*end == '@' && !ParseNumber(end + 1, UINT32_MAX, &start))
+        return false;
+    sMonkey = true;
+    sMonkeyState = (uint32_t)seed * 2654435761u + 1;  /* never 0 */
+    sMonkeyStart = (uint32_t)start;
+    return true;
+}
+
 /* -a: a 48 kHz stereo 16-bit WAV file; the header is completed on close. */
 static void WriteWavHeader(FILE *f, uint32_t frames)
 {
@@ -234,7 +306,8 @@ static unsigned long sIrqIntervalNs = HOST_FRAME_NS;
 
 static void RunGameFrame(void)
 {
-    Host_SetKeypad(Platform_GetButtons() | ScriptedButtons(Host_GetFrameCount()));
+    Host_SetKeypad(Platform_GetButtons() | ScriptedButtons(Host_GetFrameCount())
+                   | MonkeyButtons(Host_GetFrameCount()));
 
     /* If the game's frame overruns (it busy-waits for something an
      * interrupt does, or is just slow), interrupts arrive mid-frame as on
@@ -323,6 +396,16 @@ int main(int argc, char **argv)
         if (strcmp(arg, "--fullscreen") == 0 || strcmp(arg, "--windowed") == 0)
         {
             fullscreenFlag = strcmp(arg, "--fullscreen") == 0;
+            continue;
+        }
+        if (strcmp(arg, "--monkey") == 0 && i + 1 < argc)
+        {
+            if (!ParseMonkey(argv[++i]))
+            {
+                Console_Setup(true, NULL);  /* Windows: so the message is seen */
+                fprintf(stderr, "%s: invalid --monkey '%s' (SEED or SEED@FRAME)\n", argv[0], argv[i]);
+                return 2;
+            }
             continue;
         }
         if (strcmp(arg, "--config") == 0 && i + 1 < argc)

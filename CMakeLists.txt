@@ -72,6 +72,30 @@ endforeach()
 # sections, as on the GBA; a position-independent executable would need text
 # relocations for them.
 add_link_options(-no-pie)
+
+# Sanitizers (PLAN.md, Phase 19a): e.g. -DPKM_SANITIZE=address,undefined
+# reports reads through NULL or past an array -- which the GBA tolerates
+# but a PC may not -- where they happen, even when nothing crashes. Linux
+# only (MinGW has no sanitizer runtime). The crash handler stays out of the
+# way in such builds (the sanitizer reports crashes itself).
+set(PKM_SANITIZE "" CACHE STRING "Sanitizers to build with, e.g. address,undefined (Linux only)")
+if(PKM_SANITIZE)
+    if(WIN32)
+        message(FATAL_ERROR "PKM_SANITIZE: MinGW has no sanitizer runtime; use the Linux build")
+    endif()
+    # Not shift-base: GCC defines signed left shifts into the sign bit (they
+    # wrap), and upstream's DMA macros do that on every call. Shifts by the
+    # width or more (shift-exponent) stay reported: those differ on x86.
+    add_compile_options(-fsanitize=${PKM_SANITIZE} -fno-sanitize=shift-base
+                        -fno-omit-frame-pointer -fno-sanitize-recover=all)
+    add_link_options(-fsanitize=${PKM_SANITIZE})
+    add_compile_definitions(PKM_SANITIZE=1)
+    # With AddressSanitizer, the game's own heap marks its unused memory as
+    # off-limits (malloc.c.patch, host_gba_misc.c).
+    if(PKM_SANITIZE MATCHES "address")
+        add_compile_definitions(PKM_ASAN=1)
+    endif()
+endif()
 if(WIN32)
     # The game tells code from data by address (host_gba_misc.c): code must
     # sit in the GBA's ROM window, 0x08000000-0x0A000000, like the Linux
@@ -278,6 +302,14 @@ if(WIN32)
     # POSIX headers MinGW lacks (alloca.h).
     list(APPEND REFERENCE_CPPFLAGS -isystem "${PLATFORM_DIR}/win32/include")
 endif()
+# The game sources are preprocessed apart from the compile step, so the
+# sanitizer defines (above) must be passed here too.
+if(PKM_SANITIZE)
+    list(APPEND REFERENCE_CPPFLAGS -DPKM_SANITIZE=1)
+    if(PKM_SANITIZE MATCHES "address")
+        list(APPEND REFERENCE_CPPFLAGS -DPKM_ASAN=1)
+    endif()
+endif()
 
 find_program(PATCH_EXECUTABLE patch REQUIRED)
 # Which sources have a patch is decided at configure time; re-configure when
@@ -462,8 +494,9 @@ endif()
 file(GLOB PLATFORM_TEST_SOURCES CONFIGURE_DEPENDS
     "${PLATFORM_DIR}/tests/*.c"
 )
-if(WIN32)
-    # Forks and checks POSIX signals.
+if(WIN32 OR PKM_SANITIZE)
+    # Forks and checks POSIX signals; sanitizer builds report crashes
+    # themselves (crash_handler_linux.c stays out of the way).
     list(FILTER PLATFORM_TEST_SOURCES EXCLUDE REGEX "/test_crash_handler\\.c$")
 endif()
 enable_testing()
@@ -499,6 +532,32 @@ set_tests_properties(pkmemerald-boot PROPERTIES
     PASS_REGULAR_EXPRESSION "boot ok\nsave: [^\n]*\ngame init ok\naudio: [^\n]*\nran 60 frames"
     ENVIRONMENT "${HEADLESS_TEST_ENV}"
 )
+
+# Monkey runs (PLAN.md, Phase 19a): the game played with pseudo-random input
+# (--monkey), from boot and after a quick start (Select on the title screen
+# starts a new game in the truck). They fail on a crash, or, in a sanitizer
+# build (PKM_SANITIZE), on any report. Each starts from an empty save
+# directory, so earlier runs' saves can't change where it goes.
+set(MONKEY_FRAMES 20000 CACHE STRING "Frames per monkey test run")
+set(MONKEY_SAVES "${CMAKE_BINARY_DIR}/monkey-saves")
+add_test(NAME monkey-clean-saves COMMAND ${CMAKE_COMMAND} -E rm -rf "${MONKEY_SAVES}")
+set_tests_properties(monkey-clean-saves PROPERTIES FIXTURES_SETUP monkey-saves)
+set(_monkey_env ${HEADLESS_TEST_ENV} "ASAN_OPTIONS=detect_leaks=0" "UBSAN_OPTIONS=print_stacktrace=1")
+foreach(_seed 101 104)
+    add_test(NAME monkey-boot-${_seed}
+        COMMAND pkmemerald --fast -f ${MONKEY_FRAMES} -s "${MONKEY_SAVES}/boot-${_seed}" --monkey ${_seed})
+    set_tests_properties(monkey-boot-${_seed} PROPERTIES
+        FIXTURES_REQUIRED monkey-saves ENVIRONMENT "${_monkey_env}"
+        PASS_REGULAR_EXPRESSION "ran ${MONKEY_FRAMES} frames")
+endforeach()
+foreach(_seed 1 2)
+    add_test(NAME monkey-quickstart-${_seed}
+        COMMAND pkmemerald --fast -f ${MONKEY_FRAMES} -s "${MONKEY_SAVES}/quickstart-${_seed}"
+                -i "600:a,1300+10:select" --monkey ${_seed}@1900)
+    set_tests_properties(monkey-quickstart-${_seed} PROPERTIES
+        FIXTURES_REQUIRED monkey-saves ENVIRONMENT "${_monkey_env}"
+        PASS_REGULAR_EXPRESSION "ran ${MONKEY_FRAMES} frames")
+endforeach()
 
 # The host build must read upstream's assembled data exactly as the GBA does:
 # identical bytes and relocations, and identical struct layouts. Checked

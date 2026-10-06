@@ -18,6 +18,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if PKM_ASAN
+#include <sanitizer/asan_interface.h>
+#endif
 
 #include "global.h"
 #include "libgcnmultiboot.h"
@@ -83,13 +86,40 @@ __attribute__((constructor)) static void SnapshotEwramInit(void)
         memcpy(sEwramInitImage, __start_ewram_init, size);
 }
 
+#if PKM_ASAN
+/* PKM_ASAN_HEAP=1 (environment): the game's heap marks its unused memory
+ * off-limits to AddressSanitizer (malloc.c.patch). Off by default: it mostly
+ * reports upstream reading freed heap memory, which behaves the same on the
+ * GBA and the PC. */
+bool32 Host_AsanHeapChecks(void)
+{
+    static int sEnabled = -1;
+
+    if (sEnabled < 0)
+    {
+        const char *value = getenv("PKM_ASAN_HEAP");
+
+        sEnabled = value != NULL && value[0] != '\0' && strcmp(value, "0") != 0;
+    }
+    return sEnabled;
+}
+#endif
+
 /* Called by RegisterRamReset(RESET_EWRAM) in host_hal.c. */
 void Host_ResetEwram(void)
 {
     size_t size;
 
     if ((size = SectionSize(__start_ewram_data, __stop_ewram_data)) != 0)
+    {
+#if PKM_ASAN
+        /* The game's heap (gHeap) lives here, with its unused memory marked
+         * off-limits (malloc.c.patch); the reset clears all of it, and the
+         * game sets the heap up again afterwards. */
+        __asan_unpoison_memory_region(__start_ewram_data, size);
+#endif
         memset(__start_ewram_data, 0, size);
+    }
     if ((size = SectionSize(__start_ewram_init, __stop_ewram_init)) != 0)
         memset(__start_ewram_init, 0, size);
 }

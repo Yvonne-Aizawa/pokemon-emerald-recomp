@@ -36,9 +36,21 @@ env:
 
 jobs:
   linux:
-    name: Linux (32-bit)
+    name: ${{ matrix.name }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux (32-bit)
+            cmake-flags: ""
+            packages: ""
+          # AddressSanitizer + UndefinedBehaviorSanitizer (PLAN.md, Phase
+          # 19a): the tests and the monkey runs fail on any report.
+          - name: Linux sanitizers (ASan + UBSan)
+            cmake-flags: -DPKM_SANITIZE=address,undefined
+            packages: lib32asan8 lib32ubsan1
     steps:
       - uses: actions/checkout@v5
         with:
@@ -65,10 +77,10 @@ jobs:
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends $COMMON_PACKAGES gcc-multilib libsdl2-dev:i386
+          sudo apt-get install -y --no-install-recommends $COMMON_PACKAGES gcc-multilib libsdl2-dev:i386 ${{ matrix.packages }}
 
       - name: Configure
-        run: cmake -S . -B build -DPKM_WERROR=ON
+        run: cmake -S . -B build -DPKM_WERROR=ON ${{ matrix.cmake-flags }}
 
       - name: Build
         run: cmake --build build -j"$(nproc)"
@@ -85,7 +97,7 @@ jobs:
           key: ${{ steps.reference-cache.outputs.key }}
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure -j"$(nproc)"
 
   windows:
     name: Windows (32-bit, MinGW, tests under Wine)
@@ -145,4 +157,4 @@ jobs:
         run: wineboot --init && wineserver --wait
 
       - name: Test
-        run: ctest --test-dir build-win --output-on-failure
+        run: ctest --test-dir build-win --output-on-failure -j"$(nproc)"

@@ -1,0 +1,15 @@
+--- a/src/trainer_card.c
++++ b/src/trainer_card.c
+@@ -332,6 +332,12 @@
+     LoadOam();
+     ProcessSpriteCopyRequests();
+     TransferPlttBuffer();
++    // PC port: CloseTrainerCard frees sData while this callback stays set
++    // until the next screen sets its own, so the V-blanks in between wrote
++    // through NULL (crashed on closing the trainer card; on the GBA the
++    // write hits read-only BIOS memory). Found by UBSan.
++    if (sData == NULL)
++        return;
+     BlinkTimeColon();
+     if (sData->allowDMACopy)
+         DmaCopy16(3, &gScanlineEffectRegBuffers[0], &gScanlineEffectRegBuffers[1], 0x140);

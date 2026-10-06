@@ -1,10 +1,17 @@
 --- a/src/decompress.c
 +++ b/src/decompress.c
-@@ -403,11 +403,22 @@
+@@ -403,11 +403,30 @@
  
  extern void FastUnsafeCopy32(void *, const void *, u32 size);
  
 +#ifdef HOST_BUILD
++// PC port: the tANS decoders below refill their bit buffer a word ahead, so
++// at the end of a compressed image they read up to 4 bytes past its array
++// (the bits are never used). On the GBA that reads the next ROM bytes; on PC
++// the next global. Not a bug, but AddressSanitizer reports it, so these
++// functions aren't checked.
++#define HOST_NO_ASAN __attribute__((no_sanitize_address))
++
 +// PC port: copying machine code into a buffer and jumping into it isn't
 +// possible (or needed) on the host. Leave the buffers unused and call the
 +// function that would have been copied directly.
@@ -19,11 +26,21 @@
      FastUnsafeCopy32(funcBuffer, funcStartAddress, funcEndAdress - funcStartAddress);
  }
 +#define IWRAM_FUNC(funcBuffer, func) ((void *)(funcBuffer))
++#define HOST_NO_ASAN
 +#endif
  
  // The reason for macros and unrolling the loops stems from the following:
  // currK can be max 6, meaning in the worst case scenario it takes minimum 4 loop iterations, where we don't need to check if bitIndex is >= 32, because it's mathematically impossible for it to be.
-@@ -527,7 +538,7 @@
+@@ -436,7 +455,7 @@
+ //  Inner loop of tANS decoding for Lengths and Offset data for decompression instructions, uses u8 data sizes
+ //  Basic process for decoding a tANS encoded value is to read the current symbol from the decoding table, then calculate the next state
+ //  from the y and k values for the current state and add the value read from the next k bits in the bitstream
+-ARM_FUNC __attribute__((flatten, noinline, no_reorder)) __attribute__((optimize("-O3"))) static void DecodeLOtANSLoop(const u32 *data, u32 *ykTable, u8 *resultVec, u8 *resultVecEnd)
++HOST_NO_ASAN ARM_FUNC __attribute__((flatten, noinline, no_reorder)) __attribute__((optimize("-O3"))) static void DecodeLOtANSLoop(const u32 *data, u32 *ykTable, u8 *resultVec, u8 *resultVecEnd)
+ {
+     u32 currBits = *data++;
+     u32 bitIndex = sBitIndex;
+@@ -527,7 +546,7 @@
      u32 funcBuffer[FUNC_BUFFER_SIZE(DecodeLOtANSLoop, SwitchToArmCallLOtANS)];
  
      CopyFuncToIwram(funcBuffer, DecodeLOtANSLoop, SwitchToArmCallLOtANS);
@@ -32,7 +49,7 @@
  
      if (remainingCount)
      {
-@@ -603,7 +614,7 @@
+@@ -603,7 +622,7 @@
      u32 funcBuffer[FUNC_BUFFER_SIZE(DecodeLOtANSLoop, SwitchToArmCallLOtANS)];
      // CopyFuncToIwram(funcBuffer, DecodeSymtANSLoop, SwitchToArmCallDecodeSymtANS);
      CopyFuncToIwram(funcBuffer, DecodeLOtANSLoop, SwitchToArmCallLOtANS);
@@ -41,7 +58,25 @@
  }
  
  #define ANS_LOOP_MAIN(nibble)   \
-@@ -781,7 +792,7 @@
+@@ -620,7 +639,7 @@
+ //  Inner loop of tANS decoding for delta encoded symbol data, uses u16 data size
+ //  Basic process for decoding a tANS encoded value is to read the current symbol from the decoding table, then calculate the next state
+ //  from the y and k values for the current state and add the value read from the next k bits in the bitstream
+-ARM_FUNC __attribute__((flatten, noinline, no_reorder)) __attribute__((optimize("-O3"))) u32 DecodeSymDeltatANSLoop(const u32 *data, u32 *ykTable, u16 *resultVec, u16 *resultVecEnd)
++HOST_NO_ASAN ARM_FUNC __attribute__((flatten, noinline, no_reorder)) __attribute__((optimize("-O3"))) u32 DecodeSymDeltatANSLoop(const u32 *data, u32 *ykTable, u16 *resultVec, u16 *resultVecEnd)
+ {
+     u32 currBits = *data++;
+     u32 currSymbol = 0;
+@@ -772,7 +791,7 @@
+     return decodeFunction(data, ykTable, resultVec, resultVecEnd);
+ }
+ 
+-static void DecodeSymDeltatANS(const u32 *data, const u32 *pFreqs, u16 *resultVec, u32 count)
++HOST_NO_ASAN static void DecodeSymDeltatANS(const u32 *data, const u32 *pFreqs, u16 *resultVec, u32 count)
+ {
+     BuildDecompressionTable(pFreqs, sWorkingYkTable);
+ 
+@@ -781,7 +800,7 @@
  
      u32 funcBuffer[FUNC_BUFFER_SIZE(DecodeSymDeltatANSLoop, SwitchToArmCallSymDeltaANS)];
      CopyFuncToIwram(funcBuffer, DecodeSymDeltatANSLoop, SwitchToArmCallSymDeltaANS);
@@ -50,7 +85,7 @@
  
      if (remainingCount)
      {
-@@ -938,7 +949,7 @@
+@@ -938,7 +957,7 @@
      u32 funcBuffer[FUNC_BUFFER_SIZE(DecodeInstructions, SwitchToArmCallDecodeInstructions)];
  
      CopyFuncToIwram(funcBuffer, DecodeInstructions, SwitchToArmCallDecodeInstructions);
@@ -59,7 +94,7 @@
  }
  
  //  Entrance point for smol compressed data
-@@ -1094,7 +1105,7 @@
+@@ -1094,7 +1113,7 @@
      u32 funcBuffer[FUNC_BUFFER_SIZE(DeltaDecodeTileNumbers, SwitchToArmCallDecodeTileNumbers)];
  
      CopyFuncToIwram(funcBuffer, DeltaDecodeTileNumbers, SwitchToArmCallDecodeTileNumbers);
@@ -68,7 +103,7 @@
  }
  
  //  Helper functions for determining modes
-@@ -1398,8 +1409,14 @@
+@@ -1398,8 +1417,14 @@
  
  void FastLZ77UnCompWram(const u32 *src, void *dest)
  {
