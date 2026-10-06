@@ -1,19 +1,25 @@
 --- a/src/main.c
 +++ b/src/main.c
-@@ -33,7 +33,12 @@
+@@ -33,7 +33,18 @@
  static void IntrDummy(void);
  
  // Defined in the linker script so that the test build can override it.
 +#ifdef HOST_BUILD
-+// PC port: no linker script; alias it the way ld_script_modern.ld does.
++// PC port: no linker script; alias it the way ld_script_modern.ld (and, for
++// the test build, ld_script_test.ld) does.
++#if TESTING
++void CB2_TestRunner(void);
++#define gInitialMainCB2 CB2_TestRunner
++#else
 +#define gInitialMainCB2 CB2_InitCopyrightScreenAfterBootup
++#endif
 +#else
  extern void gInitialMainCB2(void);
 +#endif
  extern void CB2_FlashNotDetectedScreen(void);
  
  const enum GameVersion gGameVersion = GAME_VERSION;
-@@ -76,6 +81,7 @@
+@@ -76,6 +87,7 @@
  
  //EWRAM_DATA void (**gFlashTimerIntrFunc)(void) = NULL;
  
@@ -21,7 +27,7 @@
  static void UpdateLinkAndCallCallbacks(void);
  static void InitMainCallbacks(void);
  static void CallCallbacks(void);
-@@ -127,14 +133,48 @@
+@@ -127,14 +139,48 @@
      AGBPrintInit();
  #endif
  #endif
@@ -70,7 +76,7 @@
          ReadKeys();
  
          if (gSoftResetDisabled == FALSE
-@@ -169,7 +209,6 @@
+@@ -169,7 +215,6 @@
  
          PlayTimeCounter_Update();
          MapMusicMain();
@@ -78,7 +84,7 @@
      }
  }
  
-@@ -317,7 +356,9 @@
+@@ -317,7 +362,9 @@
      for (i = 0; i < INTR_COUNT; i++)
          gIntrTable[i] = gIntrTableTemplate[i];
  

@@ -22,27 +22,32 @@
  
  u32 Random2_32(void)
  {
-@@ -159,16 +167,19 @@
+@@ -159,16 +167,24 @@
      LOOP_RANDOM_END;
  }
  
 -__attribute__((weak, alias("RandomUniformDefault")))
-+// PC port: not weak. The test runner overrides these, but it isn't built,
-+// and MinGW's linker doesn't resolve weak aliases defined in a static
-+// library.
-+__attribute__((alias("RandomUniformDefault")))
++// PC port: not weak in the game. The test runner overrides these, and
++// MinGW's linker doesn't resolve weak aliases defined in a static library;
++// the test build (TESTING, Linux) keeps them weak, as upstream.
++#if TESTING
++#define RANDOM_ALIAS(name) __attribute__((weak, alias(name)))
++#else
++#define RANDOM_ALIAS(name) __attribute__((alias(name)))
++#endif
++RANDOM_ALIAS("RandomUniformDefault")
  u32 RandomUniform(enum RandomTag tag, u32 lo, u32 hi);
  
 -__attribute__((weak, alias("RandomUniformExceptDefault")))
-+__attribute__((alias("RandomUniformExceptDefault")))
++RANDOM_ALIAS("RandomUniformExceptDefault")
  u32 RandomUniformExcept(enum RandomTag, u32 lo, u32 hi, bool32 (*reject)(u32));
  
 -__attribute__((weak, alias("RandomWeightedArrayDefault")))
-+__attribute__((alias("RandomWeightedArrayDefault")))
++RANDOM_ALIAS("RandomWeightedArrayDefault")
  u32 RandomWeightedArray(enum RandomTag tag, u32 sum, u32 n, const u16 *weights);
  
 -__attribute__((weak, alias("RandomElementArrayDefault")))
-+__attribute__((alias("RandomElementArrayDefault")))
++RANDOM_ALIAS("RandomElementArrayDefault")
  const void *RandomElementArray(enum RandomTag tag, const void *array, size_t size, size_t count);
  
  u32 RandomUniformDefault(enum RandomTag tag, u32 lo, u32 hi)

@@ -1,0 +1,163 @@
+--- a/test/test_runner.c
++++ b/test/test_runner.c
+@@ -27,7 +27,20 @@
+     CURRENT_TEST_STATE_RUN,
+ };
+ 
++#ifdef HOST_BUILD
++// PC port: in memory shared with the host runner's parent process
++// (platform/upstream_tests/host_test_runner.c), so it survives a test that
++// crashes the process, as .persistent IWRAM survives a soft reset on the GBA.
++static struct PersistentTestRunnerState *sHostPersistentState;
++#define gPersistentTestRunnerState (*sHostPersistentState)
++
++void HostTest_SetPersistentState(void *state)
++{
++    sHostPersistentState = state;
++}
++#else
+ __attribute__((section(".persistent"))) struct PersistentTestRunnerState gPersistentTestRunnerState = {0};
++#endif
+ 
+ void TestRunner_Battle(const struct Test *);
+ 
+@@ -145,6 +158,14 @@
+         const struct MemBlock *block = head;
+         do
+         {
++#ifdef HOST_BUILD
++// PC port: gHeap isn't inside the emulated EWRAM on the host; check that the
++// pointer stays inside gHeap itself, as the EWRAM check does on the GBA.
++#undef EWRAM_START
++#undef EWRAM_END
++#define EWRAM_START ((uintptr_t)gHeap)
++#define EWRAM_END ((uintptr_t)gHeap + HEAP_SIZE)
++#endif
+             if (block->magic != MALLOC_SYSTEM_ID
+              || !(EWRAM_START <= (uintptr_t)block->next && (uintptr_t)block->next < EWRAM_END)
+              || (block->next <= block && block->next != head))
+@@ -577,8 +598,16 @@
+ {
+     (void)data;
+     TestInitConfigData();
++#ifdef HOST_BUILD
++    // PC port: allocate the state before clearing it; ClearRiggedRng wrote
++    // through the previous test's freed pointer, or NULL for the first test
++    // (on the GBA into read-only BIOS memory).
++    gFunctionTestRunnerState = AllocZeroed(sizeof(*gFunctionTestRunnerState));
++    ClearRiggedRng();
++#else
+     ClearRiggedRng();
+     gFunctionTestRunnerState = AllocZeroed(sizeof(*gFunctionTestRunnerState));
++#endif
+     SeedRng(0);
+ }
+ 
+@@ -701,6 +730,16 @@
+     .run = Assumptions_Run,
+ };
+ 
++#ifdef HOST_BUILD
++// PC port: back to the host runner's frame loop (longjmp), which starts the
++// next main loop iteration, as the ARM code below does on the GBA.
++void HostTest_JumpToMainLoop(void) __attribute__((noreturn));
++
++static void JumpToAgbMainLoop(void)
++{
++    HostTest_JumpToMainLoop();
++}
++#else
+ #define IRQ_LR (*(vu32 *)0x3007F9C)
+ 
+ /* Returns to AgbMainLoop.
+@@ -719,6 +758,7 @@
+          bx r0\n\
+          .pool");
+ }
++#endif
+ 
+ static void ReinitCallbacks(void)
+ {
+@@ -744,7 +784,13 @@
+             gTestRunnerState.result = TEST_RESULT_TIMEOUT;
+             Test_MgbaPrintf("%s:%d: TIMEOUT", gTestRunnerState.test->filename, SourceLine(0));
+             ReinitCallbacks();
++#ifdef HOST_BUILD
++            // PC port: the host runner calls this from its frame loop, not
++            // from an interrupt.
++            JumpToAgbMainLoop();
++#else
+             IRQ_LR = ((uintptr_t)JumpToAgbMainLoop & ~1) + 4;
++#endif
+         }
+     }
+ }
+@@ -802,9 +848,29 @@
+     JumpToAgbMainLoop();
+ }
+ 
++#ifdef HOST_BUILD
++// PC port: mGBA's debug output and exit call go to the host runner, which
++// prints and counts the results as mgba-rom-test-hydra does.
++extern char gHostTestDebugString[0x100];
++void HostTest_DebugFlush(void);
++void HostTest_Exit(u8 exitCode) __attribute__((noreturn));
++#define REG_DEBUG_STRING gHostTestDebugString
++#define DEBUG_FLUSH() HostTest_DebugFlush()
++
++static bool32 MgbaOpen_(void)
++{
++    return TRUE;
++}
++
++static void MgbaExit_(u8 exitCode)
++{
++    HostTest_Exit(exitCode);
++}
++#else
+ #define REG_DEBUG_ENABLE (*(vu16 *)0x4FFF780)
+ #define REG_DEBUG_FLAGS  (*(vu16 *)0x4FFF700)
+ #define REG_DEBUG_STRING ((char *)0x4FFF600)
++#define DEBUG_FLUSH() (REG_DEBUG_FLAGS = MGBA_LOG_INFO | 0x100)
+ 
+ static bool32 MgbaOpen_(void)
+ {
+@@ -817,6 +883,7 @@
+     register u32 _exitCode asm("r0") = exitCode;
+     asm("swi 0x3" :: "r" (_exitCode));
+ }
++#endif
+ 
+ s32 Test_MgbaPrintf(const char *fmt, ...)
+ {
+@@ -831,7 +898,7 @@
+     if (i == 255)
+     {
+         REG_DEBUG_STRING[i] = '\0';
+-        REG_DEBUG_FLAGS = MGBA_LOG_INFO | 0x100;
++        DEBUG_FLUSH();
+         i = 0;
+     }
+     return i;
+@@ -1025,11 +1092,12 @@
+     }
+     if (i != 0)
+     {
+-        REG_DEBUG_FLAGS = MGBA_LOG_INFO | 0x100;
++        DEBUG_FLUSH();
+     }
+     return i;
+ }
+ 
++#ifndef HOST_BUILD // PC port: a crash ends the process; the host runner restarts it.
+ /* Entry point for the Debugging and Control System. Handles illegal
+  * instructions, which are typically caused by branching to an invalid
+  * address. */
+@@ -1055,6 +1123,7 @@
+     ReinitCallbacks();
+     DACS_LR = ((uintptr_t)JumpToAgbMainLoop & ~1) + 4;
+ }
++#endif
+ 
+ static const struct Test *GetTest(void)
+ {

@@ -9,7 +9,7 @@
  #include "global.h"
  #include "malloc.h"
  #include "berry_powder.h"
-@@ -106,6 +111,12 @@
+@@ -106,12 +111,26 @@
      gMain.hblankCallback = NULL;
      gTrainerHillVBlankCounter = NULL;
  
@@ -22,3 +22,17 @@
      saveBlock2Copy = (struct SaveBlock2 *)(gHeap);
      saveBlock1Copy = (struct SaveBlock1 *)(gHeap + sizeof(struct SaveBlock2));
      pokemonStorageCopy = (struct PokemonStorage *)(gHeap + sizeof(struct SaveBlock2) + sizeof(struct SaveBlock1));
+ 
+     // backup the saves.
+     *saveBlock2Copy = *gSaveBlock2Ptr;
++#ifdef HOST_BUILD
++    // PC port: the test runner calls this at boot, before gSaveBlock1Ptr is
++    // first set (the copyright screen does that); the GBA then copies BIOS
++    // memory from address 0, which the runner clears before each test.
++    if (gSaveBlock1Ptr == NULL)
++        CpuFill16(0, saveBlock1Copy, sizeof(*saveBlock1Copy));
++    else
++#endif
+     *saveBlock1Copy = *gSaveBlock1Ptr;
+     *pokemonStorageCopy = *gPokemonStoragePtr;
+ 
