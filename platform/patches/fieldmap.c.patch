@@ -1,0 +1,15 @@
+--- a/src/fieldmap.c
++++ b/src/fieldmap.c
+@@ -434,6 +434,12 @@
+ 
+ u32 MapGridGetMetatileAttributeAt(s16 x, s16 y, u8 attributeType)
+ {
++    // PC port: upstream's battle tests start battles with no map loaded, and
++    // the battle environment is looked up through the NULL layout (read as
++    // BIOS memory on the GBA). The tests set the environment they need.
++    if (gMapHeader.mapLayout == NULL)
++        return 0;
++
+     u16 metatileId = MapGridGetMetatileIdAt(x, y);
+     return GetAttributeByMetatileIdAndMapLayout(metatileId, attributeType, gMapHeader.mapLayout->isFrlg);
+ }

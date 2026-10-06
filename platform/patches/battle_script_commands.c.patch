@@ -1,0 +1,44 @@
+--- a/src/battle_script_commands.c
++++ b/src/battle_script_commands.c
+@@ -2755,6 +2755,12 @@
+     const u8 *jumpInstr = cmd->jumpInstr;
+ 
+     u8 i;
++    // PC port: an array always equals itself. BattleScript_DynamaxBegins
++    // passes constants (jumpifbyteequal B_SHOW_DYNAMAX_MESSAGE, FALSE), so
++    // both are NULL; the GBA compares BIOS memory with itself.
++    if (array1 == array2)
++        i = size;
++    else
+     for (i = 0; i < size; i++)
+     {
+         if (*array1 != *array2)
+@@ -3046,6 +3052,13 @@
+ 
+ static void PlayAnimation(enum BattlerId battler, u8 animId, const u16 *argPtr, const u8 *nextInstr)
+ {
++    // PC port: many scripts pass NULL for animations that take no argument
++    // (playanimation BS_ATTACKER, B_ANIM_ZMOVE_ACTIVATE, NULL); the GBA reads
++    // BIOS memory there and the animation ignores the value.
++    const u16 nullArg = 0;
++    if (argPtr == NULL)
++        argPtr = &nullArg;
++
+     if (B_TERRAIN_BG_CHANGE == FALSE && animId == B_ANIM_RESTORE_BG)
+     {
+         // workaround for .if not working
+@@ -8156,7 +8169,14 @@
+ 
+ static u32 ComputeBallShakeOdds(u32 odds)
+ {
++#ifdef HOST_BUILD
++    // PC port: odds is 0 when the ball can't catch at all (e.g. a Heavy Ball
++    // on a light Pokémon). The GBA's division (libgcc's __aeabi_uidiv) gives
++    // 0xFFFFFFFF for that instead of trapping.
++    odds = Sqrt(Sqrt(odds != 0 ? 16711680 / odds : 0xFFFFFFFF));
++#else
+     odds = Sqrt(Sqrt(16711680 / odds));
++#endif
+     odds = 1048560 / odds;
+     return odds;
+ }

@@ -330,8 +330,10 @@ function(pkm_preprocess out_var variant testing)
     list(APPEND _flags "-fmacro-prefix-map=${REFERENCE_DIR}/=" "-fmacro-prefix-map=${_patched_dir}/=")
     if(testing)
         # As -iquote reference/src does for patched game files: test-relative
-        # includes ("battle/trainer_control.h") from patched test files.
-        list(APPEND _flags -iquote "${REFERENCE_DIR}/test")
+        # includes ("battle/trainer_control.h") from patched test files; and
+        # host headers the test runner shares with them
+        # ("platform/host_test_ram.h").
+        list(APPEND _flags -iquote "${REFERENCE_DIR}/test" -iquote "${PLATFORM_DIR}/include")
     endif()
     set(_outputs)
     foreach(_src ${ARGN})
@@ -668,12 +670,15 @@ if(PKM_UPSTREAM_TESTS)
     if(WIN32)
         message(FATAL_ERROR "PKM_UPSTREAM_TESTS: Linux only for now (PLAN.md, 19b-5)")
     endif()
-    # The runner, and the tests run so far (19b-1).
+    # The runner, and the tests run so far (19b-1; 19b-3: move effects).
+    file(GLOB _move_effect_tests RELATIVE "${REFERENCE_DIR}" CONFIGURE_DEPENDS
+        "${REFERENCE_DIR}/test/battle/move_effect/*.c")
     set(UPSTREAM_TEST_SOURCES
         test/test_runner.c
         test/test_runner_battle.c
         test/test_test_runner.c
         test/fpmath.c
+        ${_move_effect_tests}
     )
     # test/test_runner_args.c and src/test_runner_stub.c hold the runner's
     # settings, which host_test_args.c provides instead.
@@ -698,16 +703,29 @@ if(PKM_UPSTREAM_TESTS)
     target_link_options(pkmemerald-tests PRIVATE "-Wl,-T,${PLATFORM_DIR}/upstream_tests/tests.ld")
     set_property(TARGET pkmemerald-tests APPEND PROPERTY LINK_DEPENDS "${PLATFORM_DIR}/upstream_tests/tests.ld")
 
+    # Without -j the runner starts a shard per CPU, while CTest counts a test
+    # as one; these few tests run as one shard.
     # The tests that run so far, and the runner's own behaviour: a crashing
     # test is reported and the run goes on (upstream's own runner tests), and
     # a failing test fails the run with upstream's message.
-    add_test(NAME upstream-fpmath COMMAND pkmemerald-tests test/fpmath.c)
-    add_test(NAME upstream-runner-crash COMMAND pkmemerald-tests "Tests resume after CRASH")
-    add_test(NAME upstream-runner-fatalf COMMAND pkmemerald-tests "fatalf counts as CRASH")
-    add_test(NAME upstream-runner-player-name COMMAND pkmemerald-tests "Tests initialize a terminated player name")
-    add_test(NAME upstream-runner-detects-failure COMMAND pkmemerald-tests "Host runner self-test")
+    add_test(NAME upstream-fpmath COMMAND pkmemerald-tests -j 1 test/fpmath.c)
+    add_test(NAME upstream-runner-crash COMMAND pkmemerald-tests -j 1 "Tests resume after CRASH")
+    add_test(NAME upstream-runner-fatalf COMMAND pkmemerald-tests -j 1 "fatalf counts as CRASH")
+    add_test(NAME upstream-runner-player-name COMMAND pkmemerald-tests -j 1 "Tests initialize a terminated player name")
+    add_test(NAME upstream-runner-detects-failure COMMAND pkmemerald-tests -j 1 "Host runner self-test")
+    # Battles (19b-3): the framework's own tests, and every move effect. The
+    # latter is split across all cores (-j), which CTest reserves for it.
+    cmake_host_system_information(RESULT _test_cores QUERY NUMBER_OF_LOGICAL_CORES)
+    if(_test_cores GREATER 32)
+        set(_test_cores 32)
+    endif()
+    add_test(NAME upstream-runner-battle COMMAND pkmemerald-tests -j 1 test/test_test_runner.c)
+    add_test(NAME upstream-battle-move-effect
+        COMMAND pkmemerald-tests -j ${_test_cores} test/battle/move_effect/)
+    set_tests_properties(upstream-battle-move-effect PROPERTIES PROCESSORS ${_test_cores})
     set_tests_properties(upstream-fpmath upstream-runner-crash upstream-runner-fatalf
                          upstream-runner-player-name upstream-runner-detects-failure
+                         upstream-runner-battle upstream-battle-move-effect
         PROPERTIES ENVIRONMENT "${HEADLESS_TEST_ENV}")
     set_tests_properties(upstream-runner-crash upstream-runner-fatalf PROPERTIES
         PASS_REGULAR_EXPRESSION "1 tests: 0 passed, 0 failed, 0 known failing, 1 expected failures")
