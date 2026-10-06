@@ -1,33 +1,124 @@
 --- a/test/test_runner_battle.c
 +++ b/test/test_runner_battle.c
-@@ -75,6 +75,26 @@
+@@ -64,6 +64,20 @@
+     #include "battle/partner_control.h"
+ };
+ 
++#ifdef HOST_BUILD
++// PC port: the framework keeps addresses of the tests' locals and results in
++// 27-bit fields, which the host's own data and stack don't fit. The runner's
++// state (here, in place of sBackupMapData) and the test functions' stack (see
++// InvokeSingleTestFunctionWithStack) go in memory the host runner maps low
++// (platform/host_test_ram.h).
++#include "platform/host_test_ram.h"
++
++#define HOST_TEST_STACK_SIZE (256 * 1024)
++#define sBackupMapData (*(u16 (*)[MAX_MAP_DATA_SIZE])HOST_TEST_RAM)
++#define sHostTestStack ((u8 *)HOST_TEST_RAM + sizeof(sBackupMapData))
++STATIC_ASSERT(sizeof(sBackupMapData) + HOST_TEST_STACK_SIZE <= HOST_TEST_RAM_SIZE, HostTestRamSize);
++#endif
++
+ // Alias sBackupMapData to avoid using heap.
+ struct BattleTestRunnerState *const gBattleTestRunnerState = (void *)sBackupMapData;
+ STATIC_ASSERT(sizeof(struct BattleTestRunnerState) <= sizeof(sBackupMapData), sBackupMapDataSpace);
+@@ -75,6 +89,96 @@
  static void ClearAiLog(enum BattlerId battlerId);
  static const char *BattlerIdentifier(enum BattlerId battlerId);
  
 +#ifdef HOST_BUILD
-+// PC port: the ARM helpers below run the test function on DATA.stack, as the
-+// GBA's IWRAM stack is small; the host stack is big enough, so call it
-+// directly.
-+static void InvokeSingleTestFunctionWithStack(void *results, u32 i, struct BattlePokemon *player, struct BattlePokemon *opponent, SingleBattleTestFunction function, void *stack)
++// PC port: the ARM helpers below run the test function on DATA.stack. That
++// matters beyond stack size: the function is called again for each phase
++// (GIVEN, WHEN, SCENE, THEN), and its locals must keep their addresses and
++// values between the calls, e.g. `damage` in HP_BAR(..., captureDamage:
++// &damage), written while the battle runs and read in THEN. On the host the
++// game's own calls would overwrite them on the normal stack, so the function
++// runs on a stack of its own (ucontext; at HOST_TEST_RAM, above), cleared
++// with DATA at the start of each test as DATA.stack is. DATA.stack's 1 KiB
++// is too small for host code.
++#include <ucontext.h>
++
++static ucontext_t sHostTestCaller, sHostTestContext;
++static void (*sHostTestThunk)(void);
++
++static void HostTest_ClearStack(void)
 +{
-+    function(results, i, player, opponent);
++    memset(sHostTestStack, 0, HOST_TEST_STACK_SIZE);
 +}
 +
-+#define INVOKE_FOUR_BATTLERS(name, type) \
++static void HostTest_RunThunk(void)
++{
++    sHostTestThunk();
++}
++
++// Runs thunk on sHostTestStack. A test that fails longjmps out of it to the
++// runner's frame loop; the next call starts the context afresh.
++static void HostTest_CallOnStack(void (*thunk)(void))
++{
++    sHostTestThunk = thunk;
++    getcontext(&sHostTestContext);
++    sHostTestContext.uc_stack.ss_sp = sHostTestStack;
++    sHostTestContext.uc_stack.ss_size = HOST_TEST_STACK_SIZE;
++    sHostTestContext.uc_link = &sHostTestCaller;
++    makecontext(&sHostTestContext, HostTest_RunThunk, 0);
++    swapcontext(&sHostTestCaller, &sHostTestContext);
++}
++
++static struct
++{
++    void *results;
++    u32 i;
++    struct BattlePokemon *battlers[4];
++    union
++    {
++        SingleBattleTestFunction singles;
++        DoubleBattleTestFunction doubles;
++        MultiBattleTestFunction multi;
++        TwoVsOneBattleTestFunction twoVsOne;
++        OneVsTwoBattleTestFunction oneVsTwo;
++    } function;
++} sHostTestCall;
++
++static void HostTest_CallSingle(void)
++{
++    sHostTestCall.function.singles(sHostTestCall.results, sHostTestCall.i, sHostTestCall.battlers[0], sHostTestCall.battlers[1]);
++}
++
++static void InvokeSingleTestFunctionWithStack(void *results, u32 i, struct BattlePokemon *player, struct BattlePokemon *opponent, SingleBattleTestFunction function, void *stack)
++{
++    sHostTestCall.results = results;
++    sHostTestCall.i = i;
++    sHostTestCall.battlers[0] = player;
++    sHostTestCall.battlers[1] = opponent;
++    sHostTestCall.function.singles = function;
++    HostTest_CallOnStack(HostTest_CallSingle);
++}
++
++#define INVOKE_FOUR_BATTLERS(name, type, member) \
++static void name##_Call(void) \
++{ \
++    sHostTestCall.function.member(sHostTestCall.results, sHostTestCall.i, sHostTestCall.battlers[0], sHostTestCall.battlers[1], sHostTestCall.battlers[2], sHostTestCall.battlers[3]); \
++} \
 +static void name(void *results, u32 i, struct BattlePokemon *playerLeft, struct BattlePokemon *opponentLeft, struct BattlePokemon *playerRight, struct BattlePokemon *opponentRight, type function, void *stack) \
 +{ \
-+    function(results, i, playerLeft, opponentLeft, playerRight, opponentRight); \
++    sHostTestCall.results = results; \
++    sHostTestCall.i = i; \
++    sHostTestCall.battlers[0] = playerLeft; \
++    sHostTestCall.battlers[1] = opponentLeft; \
++    sHostTestCall.battlers[2] = playerRight; \
++    sHostTestCall.battlers[3] = opponentRight; \
++    sHostTestCall.function.member = function; \
++    HostTest_CallOnStack(name##_Call); \
 +}
-+INVOKE_FOUR_BATTLERS(InvokeDoubleTestFunctionWithStack, DoubleBattleTestFunction)
-+INVOKE_FOUR_BATTLERS(InvokeMultiTestFunctionWithStack, MultiBattleTestFunction)
-+INVOKE_FOUR_BATTLERS(InvokeTwoVsOneTestFunctionWithStack, TwoVsOneBattleTestFunction)
-+INVOKE_FOUR_BATTLERS(InvokeOneVsTwoTestFunctionWithStack, OneVsTwoBattleTestFunction)
++INVOKE_FOUR_BATTLERS(InvokeDoubleTestFunctionWithStack, DoubleBattleTestFunction, doubles)
++INVOKE_FOUR_BATTLERS(InvokeMultiTestFunctionWithStack, MultiBattleTestFunction, multi)
++INVOKE_FOUR_BATTLERS(InvokeTwoVsOneTestFunctionWithStack, TwoVsOneBattleTestFunction, twoVsOne)
++INVOKE_FOUR_BATTLERS(InvokeOneVsTwoTestFunctionWithStack, OneVsTwoBattleTestFunction, oneVsTwo)
 +#undef INVOKE_FOUR_BATTLERS
 +#else
  NAKED static void InvokeSingleTestFunctionWithStack(void *results, u32 i, struct BattlePokemon *player, struct BattlePokemon *opponent, SingleBattleTestFunction function, void *stack)
  {
      asm("push {r4-r6,lr}\n\
-@@ -190,6 +210,7 @@
+@@ -190,6 +294,7 @@
           bx r0\n\
          .pool");
  }
@@ -35,3 +126,27 @@
  
  // Calls test->function, but pointing its stack at DATA.stack so that
  // local variables are live after the function returns (and so can be
+@@ -422,6 +527,9 @@
+     const struct BattleTest *test = data;
+ 
+     memset(&DATA, 0, sizeof(DATA));
++#ifdef HOST_BUILD
++    HostTest_ClearStack(); // PC port: see InvokeSingleTestFunctionWithStack
++#endif
+     InitTestBattlers(test);
+     TestInitConfigData();
+ 
+@@ -2461,6 +2569,13 @@
+     s32 i;
+     u32 data;
+     INVALID_IF(DATA.hasExplicitSpeeds && !(DATA.explicitSpeeds[DATA.battlerParty] & (1 << DATA.currentPartyIndex)), "Speed required");
++#ifdef HOST_BUILD
++    // PC port: a PLAYER()/OPPONENT() missing its `;` makes the next one its
++    // loop body, which closes the Pokémon first (beat_up.c, shed_tail.c). On
++    // the GBA the writes below then go through NULL to read-only BIOS memory.
++    if (DATA.currentMon == NULL)
++        return;
++#endif
+     for (i = 0; i < STATE->battlersCount; i++)
+     {
+         if (i == DATA.battlerParty

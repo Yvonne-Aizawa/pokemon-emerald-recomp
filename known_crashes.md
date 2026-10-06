@@ -4,6 +4,45 @@ None open.
 
 ## Fixed
 
+### Battle animations without an argument (Disguise, Shell Trap, Z-Moves, ...)
+Found by upstream's battle tests on the host (PLAN.md, Phase 19b-3; the
+Disguise test in `test/battle/move_effect/absorb.c`); fixed by
+`platform/patches/battle_script_commands.c.patch`. Several battle scripts
+play an animation with a `NULL` argument (`playanimation BS_ATTACKER,
+B_ANIM_ZMOVE_ACTIVATE, NULL`: Disguise, Shell Trap and Beak Blast setup,
+Salt Cure, Z-Moves, totem auras, held item effects, the Safari Zone
+Pokéblock throw), and `PlayAnimation` read the argument through that
+pointer (BIOS memory on the GBA; the animations ignore the value). It now
+passes 0 for a `NULL` argument.
+
+### Hex, Venoshock and similar moves against a statused target
+Found by upstream's battle tests on the host (Phase 19b-3; `test/battle/
+move_effect/double_power_on_arg_status.c`); fixed by
+`platform/patches/battle_util.c.patch`. When the target has the status that
+doubles the move's power, `CalcMoveBasePower` checks the move's first
+additional effect, but moves like Hex have none, and it read through their
+`NULL` effect list (BIOS memory on the GBA). It now checks the count first.
+
+### Dynamaxing
+Found by upstream's battle tests on the host (Phase 19b-3; the Dynamax
+tests in `test/battle/move_effect/`); fixed by
+`platform/patches/battle_script_commands.c.patch`. `BattleScript_DynamaxBegins`
+uses `jumpifbyteequal B_SHOW_DYNAMAX_MESSAGE, FALSE, ...`, which takes two
+addresses, with two constants, so `jumpifarrayequal` compared the bytes at
+address 0 (NULL) with each other. On the GBA they are the same BIOS byte, so
+it always jumps, skipping the extra message as the default config intends.
+An array now always equals itself without being read. (With
+`B_SHOW_DYNAMAX_MESSAGE` set to TRUE it would still read addresses 0 and 1;
+that's upstream's bug, unchanged.)
+
+### Throwing a ball that can't catch (capture odds 0)
+Found by upstream's battle tests on the host (Phase 19b-3; `test/battle/
+move_effect/autotomize.c`, a Heavy Ball on a light Pokémon); fixed by
+`platform/patches/battle_script_commands.c.patch`. `ComputeBallShakeOdds`
+divides by the capture odds, which can be 0 (SIGFPE on x86). The GBA's
+division (libgcc's `__aeabi_uidiv`) returns 0xFFFFFFFF there instead, and the
+patch gives that value.
+
 ### Closing the trainer card
 Found by the sanitizer monkey runs (PLAN.md, Phase 19a); fixed by
 `platform/patches/trainer_card.c.patch`. `CloseTrainerCard` frees `sData`,

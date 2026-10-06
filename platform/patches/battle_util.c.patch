@@ -1,0 +1,12 @@
+--- a/src/battle_util.c
++++ b/src/battle_util.c
+@@ -6271,7 +6271,8 @@
+     case EFFECT_DOUBLE_POWER_ON_ARG_STATUS:
+         // Comatose targets treated as if asleep
+         if ((gBattleMons[battlerDef].status1 | (STATUS1_SLEEP * (ctx->abilities[ctx->battlerDef] == ABILITY_COMATOSE))) & GetMoveEffectArg_Status(move)
+-         && !((GetMoveAdditionalEffectById(move, 0)->moveEffect == MOVE_EFFECT_REMOVE_STATUS) && DoesSubstituteBlockMove(battlerAtk, battlerDef, move)))
++         // PC port: Hex has no additional effects, and its NULL list was read (BIOS memory on the GBA).
++         && !(GetMoveAdditionalEffectCount(move) > 0 && (GetMoveAdditionalEffectById(move, 0)->moveEffect == MOVE_EFFECT_REMOVE_STATUS) && DoesSubstituteBlockMove(battlerAtk, battlerDef, move)))
+             basePower *= 2;
+         break;
+     case EFFECT_POWER_BASED_ON_TARGET_HP:

@@ -16,10 +16,16 @@
  *    reports it as CRASH and carries on -- as after a soft reset on the GBA.
  *    A child that stops making progress is killed and handled the same way.
  *  - Timer 2, which drives the per-test timeout, ticks every 60 frames.
+ *  - The tests are split across shards (-j), as Hydra splits them across
+ *    emulators: shard I of N runs the tests upstream's runner assigns to
+ *    process I (gTestRunnerI/gTestRunnerN), each with its own children and
+ *    restarts; the summary adds them up.
  *
- * Usage: pkmemerald-tests [PATTERN]
+ * Usage: pkmemerald-tests [-j N] [PATTERN]
+ *   -j N: shards to run in parallel (1-32; default: the number of CPUs).
  *   PATTERN as upstream's `make check TESTS=...`: a test file
- *   ("test/fpmath.c"), a test name prefix, or "*infix". Default: all.
+ *   ("test/fpmath.c"), a test name prefix, or "*infix"; or a directory
+ *   ("test/battle/move_effect/"). Default: all.
  * Exit status: 0 if every test passed (or failed as expected), else 1;
  * 2 if the runner itself failed.
  * PKM_TESTS_NO_FORK=1 runs the tests in this process, for a debugger (a
@@ -31,6 +37,7 @@
 #define _GNU_SOURCE
 
 #include <setjmp.h>
+#include <stdarg.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -48,11 +55,13 @@
 #include "platform/host_input.h"
 #include "platform/host_render.h"
 #include "platform/host_save.h"
+#include "platform/host_test_ram.h"
 #include "platform/irq_timer.h"
 #include "platform/main_loop.h"
 #include "platform/platform.h"
 
 /* host_test_args.c */
+extern uint8_t gTestRunnerN, gTestRunnerI;
 extern char gTestRunnerArgv[256];
 
 /* The game (reference/src/main.c). */
@@ -66,8 +75,10 @@ void HostTest_SetPersistentState(void *state);
 #define STALL_INTERVAL_NS 100000000ul
 #define PROGRESS_TIMEOUT_S 60       /* a child with no new frame for this long is stuck */
 #define MAX_RESTARTS 1000
+#define MAX_SHARDS 32               /* MAX_PROCESSES in include/test/test.h */
 
-/* Shared between the parent and its children (they come and go). */
+/* One per shard, shared between it and its children (they come and go),
+ * and read by the top process for the summary. */
 struct Shared
 {
     uint32_t persistent;            /* struct PersistentTestRunnerState */
@@ -83,7 +94,8 @@ struct Shared
     uint32_t failuresLength;
 };
 
-static struct Shared *sShared;
+static struct Shared *sShards;
+static struct Shared *sShared;      /* this shard's */
 static sigjmp_buf sMainLoop;
 
 /* --------------------------------------------------------------------- */
@@ -106,6 +118,23 @@ static void Append(char *buffer, uint32_t *length, size_t size, const char *text
     *length += (uint32_t)n;
     buffer[(*length)++] = '\n';
     buffer[*length] = '\0';
+}
+
+/* Prints with a single write(): shards share stdout. */
+static void Print(const char *format, ...)
+{
+    static char buffer[sizeof(((struct Shared *)0)->output) + 1024];
+    va_list args;
+    int length;
+
+    va_start(args, format);
+    length = vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    if (length > (int)sizeof(buffer) - 1)
+        length = sizeof(buffer) - 1;
+    fflush(stdout);
+    if (length > 0 && write(STDOUT_FILENO, buffer, (size_t)length) < 0)
+        return;
 }
 
 static void AddFailure(void)
@@ -146,11 +175,9 @@ static void HandleLine(const char *line)
             sShared->results++;
             if (listed)
                 AddFailure();
-            printf("%s: %s\n", sShared->name, line + 2);
-            if (sShared->outputLength != 0)
-                fputs(sShared->output, stdout);
-            if (sShared->outputTruncated)
-                printf("[Further test output was truncated.]\n");
+            /* One write per result, so shards' results don't interleave. */
+            Print("%s: %s\n%s%s", sShared->name, line + 2, sShared->output,
+                  sShared->outputTruncated ? "[Further test output was truncated.]\n" : "");
             sShared->outputLength = 0;
             sShared->output[0] = '\0';
             sShared->outputTruncated = false;
@@ -261,52 +288,60 @@ static int WaitForChild(pid_t pid)
         }
         else if (time(NULL) - lastProgress > PROGRESS_TIMEOUT_S)
         {
-            printf("%s: no progress for %d s; stopping it\n", sShared->name, PROGRESS_TIMEOUT_S);
+            Print("%s: no progress for %d s; stopping it\n", sShared->name, PROGRESS_TIMEOUT_S);
             kill(pid, SIGKILL);
         }
         nanosleep(&pause, NULL);
     }
 }
 
-static void PrintSummary(void)
+static void PrintSummary(int shards)
 {
+    struct Shared total = {0};
+    int i;
+
+    for (i = 0; i < shards; i++)
+    {
+        const struct Shared *shard = &sShards[i];
+
+        total.results += shard->results;
+        total.passes += shard->passes;
+        total.fails += shard->fails;
+        total.knownFails += shard->knownFails;
+        total.knownFailsPassing += shard->knownFailsPassing;
+        total.expectedFails += shard->expectedFails;
+        total.expectedFailsPassing += shard->expectedFailsPassing;
+        total.assumptionFails += shard->assumptionFails;
+        total.todos += shard->todos;
+    }
     printf("\n%u tests: %u passed, %u failed, %u known failing, %u expected failures,"
            " %u assumptions failed, %u to do\n",
-           sShared->results, sShared->passes, sShared->fails, sShared->knownFails,
-           sShared->expectedFails, sShared->assumptionFails, sShared->todos);
-    if (sShared->knownFailsPassing + sShared->expectedFailsPassing != 0)
+           total.results, total.passes, total.fails, total.knownFails,
+           total.expectedFails, total.assumptionFails, total.todos);
+    if (total.knownFailsPassing + total.expectedFailsPassing != 0)
         printf("%u known failing and %u expected-to-fail tests now pass\n",
-               sShared->knownFailsPassing, sShared->expectedFailsPassing);
-    if (sShared->failuresLength != 0)
-        printf("Not passing:\n%s", sShared->failures);
+               total.knownFailsPassing, total.expectedFailsPassing);
+    if (total.knownFailsPassing + total.expectedFailsPassing + total.assumptionFails + total.fails != 0)
+    {
+        printf("Not passing:\n");
+        for (i = 0; i < shards; i++)
+            fputs(sShards[i].failures, stdout);
+    }
 }
 
-int main(int argc, char **argv)
+/* Runs shard gTestRunnerI: its tests, each child restarted after a crash.
+ * Returns the exit status. */
+static int RunShard(void)
 {
     char saveDir[] = "/tmp/pkmemerald-tests-XXXXXX";
     int restarts;
 
-    if (argc > 2 || (argc == 2 && (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)))
-    {
-        fprintf(argc > 2 ? stderr : stdout,
-                "usage: %s [PATTERN]\n"
-                "  PATTERN: a test file (test/fpmath.c), a test name prefix, or *infix\n", argv[0]);
-        return argc > 2 ? 2 : 0;
-    }
-    if (argc == 2)
-        snprintf(gTestRunnerArgv, sizeof(gTestRunnerArgv), "%s", argv[1]);
-
-    setenv("SDL_VIDEODRIVER", "dummy", 0);
-    setenv("SDL_AUDIODRIVER", "dummy", 0);
-    sShared = mmap(NULL, sizeof(*sShared), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    if (sShared == MAP_FAILED || mkdtemp(saveDir) == NULL)
+    if (mkdtemp(saveDir) == NULL)
     {
         perror("pkmemerald-tests");
         return 2;
     }
-    memset(sShared, 0, sizeof(*sShared));
     snprintf(sShared->name, sizeof(sShared->name), "WAITING...");
-    fflush(stdout);
     if (getenv("PKM_TESTS_NO_FORK") != NULL)
         RunChild(saveDir);
 
@@ -318,6 +353,7 @@ int main(int argc, char **argv)
         if (pid < 0)
         {
             perror("pkmemerald-tests: fork");
+            rmdir(saveDir);
             return 2;
         }
         if (pid == 0)
@@ -326,7 +362,6 @@ int main(int argc, char **argv)
         status = WaitForChild(pid);
         if (WIFEXITED(status))
         {
-            PrintSummary();
             rmdir(saveDir);
             return WEXITSTATUS(status);
         }
@@ -340,10 +375,113 @@ int main(int argc, char **argv)
             rmdir(saveDir);
             return 2;
         }
-        printf("%s: the test process ended with signal %d; restarting after it\n",
-               sShared->name, WIFSIGNALED(status) ? WTERMSIG(status) : 0);
-        fflush(stdout);
+        Print("%s: the test process ended with signal %d; restarting after it\n",
+              sShared->name, WIFSIGNALED(status) ? WTERMSIG(status) : 0);
     }
     fprintf(stderr, "pkmemerald-tests: too many restarts\n");
+    rmdir(saveDir);
     return 2;
+}
+
+static void Usage(FILE *out, const char *argv0)
+{
+    fprintf(out,
+            "usage: %s [-j N] [PATTERN]\n"
+            "  -j N: shards to run in parallel (1-%d; default: the number of CPUs)\n"
+            "  PATTERN: a test file (test/fpmath.c), a directory (test/battle/), a test\n"
+            "           name prefix, or *infix\n", argv0, MAX_SHARDS);
+}
+
+int main(int argc, char **argv)
+{
+    long shards = sysconf(_SC_NPROCESSORS_ONLN);
+    int argi, i, result = 0;
+
+    for (argi = 1; argi < argc; argi++)
+    {
+        if (strcmp(argv[argi], "-h") == 0 || strcmp(argv[argi], "--help") == 0)
+        {
+            Usage(stdout, argv[0]);
+            return 0;
+        }
+        if (strcmp(argv[argi], "-j") == 0 && argi + 1 < argc)
+        {
+            char *end;
+
+            shards = strtol(argv[++argi], &end, 10);
+            if (*end != '\0' || shards < 1 || shards > MAX_SHARDS)
+            {
+                fprintf(stderr, "%s: invalid -j '%s' (1-%d)\n", argv[0], argv[argi], MAX_SHARDS);
+                return 2;
+            }
+            continue;
+        }
+        if (argv[argi][0] == '-' || gTestRunnerArgv[0] != '\0')
+        {
+            Usage(stderr, argv[0]);
+            return 2;
+        }
+        snprintf(gTestRunnerArgv, sizeof(gTestRunnerArgv), "%s", argv[argi]);
+    }
+    if (shards < 1)
+        shards = 1;
+    if (shards > MAX_SHARDS)
+        shards = MAX_SHARDS;
+    if (getenv("PKM_TESTS_NO_FORK") != NULL)
+        shards = 1;
+    gTestRunnerN = (uint8_t)shards;
+
+    setenv("SDL_VIDEODRIVER", "dummy", 0);
+    setenv("SDL_AUDIODRIVER", "dummy", 0);
+    sShards = mmap(NULL, sizeof(*sShards) * (size_t)shards, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    if (sShards == MAP_FAILED)
+    {
+        perror("pkmemerald-tests");
+        return 2;
+    }
+    if (mmap((void *)HOST_TEST_RAM, HOST_TEST_RAM_SIZE, PROT_READ | PROT_WRITE,
+             MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) != (void *)HOST_TEST_RAM)
+    {
+        fprintf(stderr, "pkmemerald-tests: could not map the test memory at %#x\n", HOST_TEST_RAM);
+        return 2;
+    }
+    memset(sShards, 0, sizeof(*sShards) * (size_t)shards);
+    fflush(stdout);
+
+    if (shards == 1)
+    {
+        sShared = &sShards[0];
+        result = RunShard();
+    }
+    else
+    {
+        for (i = 0; i < shards; i++)
+        {
+            pid_t pid = fork();
+
+            if (pid < 0)
+            {
+                perror("pkmemerald-tests: fork");
+                return 2;
+            }
+            if (pid == 0)
+            {
+                gTestRunnerI = (uint8_t)i;
+                sShared = &sShards[i];
+                _exit(RunShard());
+            }
+        }
+        for (i = 0; i < shards; i++)
+        {
+            int status, code;
+
+            if (wait(&status) < 0)
+                break;
+            code = WIFEXITED(status) ? WEXITSTATUS(status) : 2;
+            if (code > result)
+                result = code;
+        }
+    }
+    PrintSummary((int)shards);
+    return result;
 }
