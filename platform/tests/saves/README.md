@@ -24,7 +24,8 @@ set the same environment variable before launching the Windows executable.
 If the menu is unavailable at a checkpoint, continue until it becomes available
 and record the actual location/events. Close or pause the game after SAVE finishes before copying
 `/tmp/pkm-checkpoint-playthrough/pkmemerald.sav` to a separately named checkpoint.
-Don't commit unreviewed saves. No checkpoints are bundled yet.
+Don't commit unreviewed saves. Reviewed full JSON checkpoints are bundled in
+`platform/tests/fixtures/checkpoints/`; local `.sav` files stay ignored.
 
 Inspect with the build matching the save's upstream version:
 
@@ -68,3 +69,40 @@ unreported data are omitted, and JSON cannot be converted back into a game save.
 Use the original `.sav` as the regression fixture. The source hash associates
 its JSON report with that exact input. JSON reports are local outputs, not CI
 artifacts.
+
+## Lossless JSON flash archives
+
+`save_archive.py` is separate from the inspection-report exporter above. It
+preserves every byte of the 128 KiB flash image in 32 ordered Base64 sectors,
+including both save slots, Pokémon storage, Hall of Fame, special sectors,
+padding and erased space. It requires only Python's standard library; it can
+archive even a blank or corrupt flash image without claiming it is playable.
+
+```sh
+python3 platform/tools/save_archive.py export test-saves/00-truck.sav -o /tmp/truck-full.json
+python3 platform/tools/save_archive.py import /tmp/truck-full.json -o /tmp/truck-restored.sav
+# Optional readable state from a matching local game build:
+python3 platform/tools/save_archive.py export test-saves/00-truck.sav -o /tmp/truck-readable-full.json --binary build/pkmemerald
+```
+
+The output directory must exist. Existing files and symlinks are never
+overwritten. Original inputs are opened for reading only. The optional native
+inspector runs on a temporary snapshot of exactly the bytes archived.
+
+Format `pkmemerald-flash-archive`, schema version 1, contains source filename,
+size and SHA-256 plus geometry and all ordered flash sectors. Each sector has
+its own SHA-256. Import validates format/version, geometry, sector order,
+Base64, lengths and hashes before writing any output. Duplicate JSON keys are
+rejected; input archives are limited to 1 MiB. An unchanged archive restores a
+byte-for-byte identical `.sav`, preserving existing encryption, save counters
+and game checksums instead of recomputing them. No game assets are needed for
+raw export/import.
+
+Decoded inspection fields are a read-only projection. When included they have
+a separate hash, and modified projections are refused so changes cannot be
+silently discarded. This version supports archival round trips, not editing
+flags/party/items or repairing corrupted saves; hand-recomputing hashes does
+not establish game-state validity. The older inspection-only JSON format
+cannot be imported as a full save. Keep full archives local alongside the
+played checkpoints; `test-saves/` remains ignored and no archives are uploaded
+by CI.

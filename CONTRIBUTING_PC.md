@@ -6,11 +6,15 @@ and status are in [PLAN.md](PLAN.md).
 
 ## Ground rules
 
-- **Source only, never binaries.** The built game contains Nintendo's assets
+- **No completed game builds.** The built game contains Nintendo's assets
   (graphics, music and text from `reference/`). Nothing built is published
   anywhere: no GitHub Releases, no download links, no CI artifacts, and no CI
   cache that holds compiled game code (`.github/workflows/ci.yml` explains the
   one cache it has). Packages (`--target package`) are for your own machines.
+- **Reviewed played-save JSON fixtures are allowed** in `platform/tests/fixtures/`.
+  This is an explicit exception for test input data, containing all original save
+  bytes. Generated `.sav` files stay in build directories and must never be
+  uploaded as CI artifacts or cached. Local `test-saves/` remains ignored.
 - **`reference/` is never edited.** It is upstream
   ([pokeemerald-expansion](https://github.com/rh-hideout/pokeemerald-expansion))
   as a git submodule. Changes to upstream code go in `platform/patches/`
