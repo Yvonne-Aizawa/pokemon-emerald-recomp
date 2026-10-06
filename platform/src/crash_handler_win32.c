@@ -46,7 +46,8 @@ struct Watch
 static struct Symbol *sSymbols;
 static size_t sSymbolCount;
 static char *sSymbolNames;
-static char sReportPath[1024];
+static char sReportDir[1024];
+static char sReportPath[1024 + 64];
 static uint32_t (*sFrameCounter)(void);
 static struct Watch sWatches[MAX_WATCHES];
 static int sWatchCount;
@@ -290,6 +291,17 @@ static void PutCallStack(uintptr_t pc, uintptr_t fp)
     }
 }
 
+/* sReportPath = sReportDir\YYYY-MM-DD_HH-MM-SS<suffix>, in local time. */
+static void BuildReportPath(void)
+{
+    SYSTEMTIME now;
+
+    GetLocalTime(&now);
+    snprintf(sReportPath, sizeof(sReportPath), "%s\\%04u-%02u-%02u_%02u-%02u-%02u" CRASH_REPORT_SUFFIX,
+             sReportDir, (unsigned)now.wYear, (unsigned)now.wMonth, (unsigned)now.wDay,
+             (unsigned)now.wHour, (unsigned)now.wMinute, (unsigned)now.wSecond);
+}
+
 static void WriteReport(void)
 {
     HANDLE err = GetStdHandle(STD_ERROR_HANDLE);
@@ -298,6 +310,7 @@ static void WriteReport(void)
 
     if (err != NULL && err != INVALID_HANDLE_VALUE)
         WriteFile(err, sReport, (DWORD)sReportLen, &written, NULL);
+    BuildReportPath();
     file = CreateFileA(sReportPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (file != INVALID_HANDLE_VALUE)
     {
@@ -382,9 +395,9 @@ static void OnAbort(int sig)
 /* Public API                                                            */
 /* --------------------------------------------------------------------- */
 
-void Crash_Install(const char *reportPath)
+void Crash_Install(const char *reportDir)
 {
-    strncpy(sReportPath, reportPath, sizeof(sReportPath) - 1);
+    strncpy(sReportDir, reportDir, sizeof(sReportDir) - 1);
     LoadSymbols();
     SetUnhandledExceptionFilter(OnUnhandledException);
     signal(SIGABRT, OnAbort);

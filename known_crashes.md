@@ -18,6 +18,17 @@ from the host's stack protector (in the game too, e.g. when two trainers
 spot the player at once). The loop now stops at the end of the array; the
 entries it keeps are the same.
 
+### Time-of-day palette blending outdoors (shift by 32)
+Found by the sanitizer build's `monkey-boot-101` run (UBSan: "shift exponent
+32 is too large" at `field_weather.c:545`); fixed by
+`platform/patches/field_weather.c.patch`. `ApplyColorMap` builds the mask
+of palettes to time-blend as `(1 << numPalettes) - 1`, and the weather code
+calls it with all 32 palettes. Shifting a 32-bit value by 32 is undefined:
+the GBA's shifter gives 0, so the mask covers every palette, but x86 masks
+the count to 0, so the mask was empty and no palette was time-blended. The
+mask is now all ones for 32 palettes. Not a crash on its own, but the
+sanitizer build stops on it.
+
 ### Collecting a Day Care egg whose parents share a move
 Found by upstream's tests on the host (PLAN.md, Phase 19b-2; three tests in
 `test/daycare.c`); fixed by `platform/patches/daycare.c.patch`. When both

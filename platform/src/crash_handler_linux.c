@@ -7,8 +7,11 @@
  * symbol table is read from /proc/self/exe and sorted, backtrace() is called
  * once (its first call may load libgcc), and an alternate signal stack is set
  * up so stack overflows are reported too. The handler itself only uses
- * async-signal-safe calls (write, open, close, sigaction, raise) plus
- * backtrace() and its own formatting into a static buffer.
+ * async-signal-safe calls (write, open, close, clock_gettime, sigaction,
+ * raise) plus backtrace() and its own formatting into a static buffer.
+ *
+ * localtime() isn't async-signal-safe, so the report's file name is local
+ * time computed from clock_gettime() plus the UTC offset taken at install.
  */
 
 #define _GNU_SOURCE
@@ -23,6 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ucontext.h>
+#include <time.h>
 #include <unistd.h>
 
 #if UINTPTR_MAX == 0xFFFFFFFFu
@@ -56,7 +60,9 @@ struct Watch
 static struct Symbol *sSymbols;
 static size_t sSymbolCount;
 static char *sSymbolNames;
-static char sReportPath[1024];
+static char sReportDir[1024];
+static char sReportPath[1024 + 64];
+static long sUtcOffset;
 static uint32_t (*sFrameCounter)(void);
 static struct Watch sWatches[MAX_WATCHES];
 static int sWatchCount;
@@ -253,6 +259,62 @@ static void WriteAll(int fd, const char *buf, size_t len)
     }
 }
 
+/* Writes `value` at `out` as exactly `digits` decimal digits. */
+static char *PutDigits(char *out, uint32_t value, int digits)
+{
+    for (int i = digits - 1; i >= 0; i--, value /= 10)
+        out[i] = (char)('0' + value % 10);
+    return out + digits;
+}
+
+/* sReportPath = sReportDir/YYYY-MM-DD_HH-MM-SS<suffix>, in local time. */
+static void BuildReportPath(void)
+{
+    struct timespec now;
+    long long days, secs;
+    long long era, doe, yoe, doy, mp, year, month, day;
+    char *out = sReportPath;
+    size_t dirLen = strlen(sReportDir);
+
+    if (clock_gettime(CLOCK_REALTIME, &now) != 0)
+        now.tv_sec = 0;
+    secs = (long long)now.tv_sec + sUtcOffset;
+    days = secs / 86400;
+    secs %= 86400;
+    if (secs < 0)
+    {
+        secs += 86400;
+        days--;
+    }
+
+    /* Days since 1970-01-01 to a civil date (Howard Hinnant's algorithm). */
+    days += 719468;
+    era = (days >= 0 ? days : days - 146096) / 146097;
+    doe = days - era * 146097;
+    yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    mp = (5 * doy + 2) / 153;
+    day = doy - (153 * mp + 2) / 5 + 1;
+    month = mp < 10 ? mp + 3 : mp - 9;
+    year = yoe + era * 400 + (month <= 2);
+
+    memcpy(out, sReportDir, dirLen);
+    out += dirLen;
+    *out++ = '/';
+    out = PutDigits(out, (uint32_t)year, 4);
+    *out++ = '-';
+    out = PutDigits(out, (uint32_t)month, 2);
+    *out++ = '-';
+    out = PutDigits(out, (uint32_t)day, 2);
+    *out++ = '_';
+    out = PutDigits(out, (uint32_t)(secs / 3600), 2);
+    *out++ = '-';
+    out = PutDigits(out, (uint32_t)(secs / 60 % 60), 2);
+    *out++ = '-';
+    out = PutDigits(out, (uint32_t)(secs % 60), 2);
+    memcpy(out, CRASH_REPORT_SUFFIX, sizeof(CRASH_REPORT_SUFFIX));
+}
+
 static void OnFatalSignal(int sig, siginfo_t *info, void *context)
 {
     static volatile sig_atomic_t sInHandler;
@@ -305,6 +367,7 @@ static void OnFatalSignal(int sig, siginfo_t *info, void *context)
         Put("(frames above the crash location are the crash handler itself)\n");
 
         WriteAll(STDERR_FILENO, sReport, sReportLen);
+        BuildReportPath();
         fd = open(sReportPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd >= 0)
         {
@@ -328,21 +391,25 @@ static void OnFatalSignal(int sig, siginfo_t *info, void *context)
 /* Public API                                                            */
 /* --------------------------------------------------------------------- */
 
-void Crash_Install(const char *reportPath)
+void Crash_Install(const char *reportDir)
 {
 #if PKM_SANITIZE
     /* The sanitizer reports crashes itself, with more detail; taking over
      * its signals would hide that. */
-    (void)reportPath;
+    (void)reportDir;
     return;
 #endif
     static const int sSignals[] = { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT };
     void *warmup[1];
     stack_t altStack;
     struct sigaction sa;
+    struct tm local;
+    time_t now = time(NULL);
     size_t i;
 
-    strncpy(sReportPath, reportPath, sizeof(sReportPath) - 1);
+    strncpy(sReportDir, reportDir, sizeof(sReportDir) - 1);
+    if (localtime_r(&now, &local) != NULL)
+        sUtcOffset = local.tm_gmtoff;
     LoadSymbols();
     backtrace(warmup, 1);
 

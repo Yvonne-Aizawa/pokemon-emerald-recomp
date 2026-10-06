@@ -1,0 +1,13 @@
+--- a/src/field_weather.c
++++ b/src/field_weather.c
+@@ -542,7 +542,9 @@
+         if (MapHasNaturalLight(gMapHeader.mapType))
+         {
+             // Time-blend
+-            u32 palettes = ((1 << numPalettes) - 1) << startPalIndex;
++            // PC port: 1 << 32 is undefined in C; ARM gives 0 (so all 32
++            // palettes), x86 gives 1 (so none). Spell out the GBA result.
++            u32 palettes = (numPalettes >= 32 ? 0xFFFFFFFFu : (1u << numPalettes) - 1) << startPalIndex;
+             UpdateAltBgPalettes(palettes & PALETTES_BG);
+             UpdatePalettesWithTime(palettes);
+         }
