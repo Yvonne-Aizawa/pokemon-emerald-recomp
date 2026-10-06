@@ -1,0 +1,88 @@
+# Build and test the Linux and Windows versions.
+#
+# Build and test ONLY. The built game contains Nintendo's assets, so this
+# workflow must never make it downloadable (PLAN.md, Phase 17):
+#   - no actions/upload-artifact, no releases, no deploy steps;
+#   - no caches of build output: a pull request from a fork can restore this
+#     repository's caches, so compiled game objects must not go into one.
+# Every run starts from a clean checkout and builds from source.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Packages both jobs need: upstream's host tools (preproc, gbagfx, ...)
+  # and the ARM toolchain for the data-abi-matches-gba test.
+  COMMON_PACKAGES: >-
+    cmake gcc g++ make python3 patch libpng-dev
+    gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi
+
+jobs:
+  linux:
+    name: Linux (32-bit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $COMMON_PACKAGES gcc-multilib libsdl2-dev:i386
+
+      - name: Configure
+        run: cmake -S . -B build
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  windows:
+    name: Windows (32-bit, MinGW, tests under Wine)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      WINEDEBUG: -all
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $COMMON_PACKAGES gcc-mingw-w64-i686 wine wine32:i386 wine64
+
+      - name: Fetch SDL2 for MinGW
+        run: tools/fetch_sdl2_mingw.sh
+
+      - name: Configure
+        run: cmake -S . -B build-win --toolchain cmake/mingw-i686.cmake
+
+      - name: Build
+        run: cmake --build build-win -j"$(nproc)"
+
+      - name: Set up Wine
+        run: wineboot --init && wineserver --wait
+
+      - name: Test
+        run: ctest --test-dir build-win --output-on-failure
