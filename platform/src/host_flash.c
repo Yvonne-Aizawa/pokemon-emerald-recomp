@@ -11,20 +11,16 @@
  * hardware, which the game's two-slot save scheme (save.c) recovers from.
  */
 
-#define _POSIX_C_SOURCE 200809L
-
 /* libc first: global.h defines function-like macros that clash with it. */
 #include <errno.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <unistd.h>
 
 #include "global.h"
 #include "gba/flash_internal.h"
 #include "agb_flash.h"
 
+#include "platform/host_fs.h"
 #include "platform/host_save.h"
 
 #define HOST_FLASH_SECTOR_SIZE  0x1000u
@@ -116,7 +112,7 @@ bool Host_SaveOpen(const char *saveDir)
     memset(sFlash, 0xFF, sizeof(sFlash));
     sFlashInitialized = TRUE;
 
-    if (mkdir(saveDir, 0755) != 0 && errno != EEXIST)
+    if (!HostFs_MakeDir(saveDir))
     {
         fprintf(stderr, "save: cannot create directory '%s': %s; saving disabled\n", saveDir, strerror(errno));
         return false;
@@ -159,38 +155,14 @@ bool Host_SaveOpen(const char *saveDir)
 
 bool Host_SaveFlush(void)
 {
-    char tmpPath[sizeof(sSavePath) + 8];
-    int fd;
-    size_t done = 0;
+    char error[sizeof(sSavePath) + 256];
 
     if (!sSaveEnabled || !sDirty)
         return true;
 
-    snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", sSavePath);
-    fd = open(tmpPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd < 0)
+    if (!HostFs_WriteFileAtomic(sSavePath, sFlash, sizeof(sFlash), error, sizeof(error)))
     {
-        fprintf(stderr, "save: cannot write '%s': %s\n", tmpPath, strerror(errno));
-        return false;
-    }
-    while (done < sizeof(sFlash))
-    {
-        ssize_t n = write(fd, sFlash + done, sizeof(sFlash) - done);
-        if (n < 0 && errno == EINTR)
-            continue;
-        if (n <= 0)
-        {
-            fprintf(stderr, "save: write to '%s' failed: %s\n", tmpPath, strerror(errno));
-            close(fd);
-            unlink(tmpPath);
-            return false;
-        }
-        done += (size_t)n;
-    }
-    if (fsync(fd) != 0 || close(fd) != 0 || rename(tmpPath, sSavePath) != 0)
-    {
-        fprintf(stderr, "save: could not commit '%s': %s\n", sSavePath, strerror(errno));
-        unlink(tmpPath);
+        fprintf(stderr, "save: %s\n", error);
         return false;
     }
     sDirty = FALSE;

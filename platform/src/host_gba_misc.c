@@ -35,18 +35,31 @@
 /* initial values back from ROM. We keep that copy ourselves, taken      */
 /* before main() runs. The symbols are weak so programs that link no      */
 /* EWRAM variables still link.                                           */
+/*                                                                       */
+/* Windows (PE) has no __start_/__stop_ symbols: the variables are in     */
+/* .data$<section>_m, and the linker sorts .data$* by name, so empty      */
+/* markers in _a and _z sections bracket them.                           */
 /* --------------------------------------------------------------------- */
 
+#ifdef _WIN32
+#define SECTION_MARKERS(name)                                                         \
+    __attribute__((used, section(".data$" #name "_a"))) static char __start_##name[0]; \
+    __attribute__((used, section(".data$" #name "_z"))) static char __stop_##name[0];
+SECTION_MARKERS(ewram_data)
+SECTION_MARKERS(ewram_init)
+#else
 extern char __start_ewram_data[] __attribute__((weak));
 extern char __stop_ewram_data[] __attribute__((weak));
 extern char __start_ewram_init[] __attribute__((weak));
 extern char __stop_ewram_init[] __attribute__((weak));
+#endif
 
 static unsigned char *sEwramInitImage;
 
+/* Integer arithmetic: the bounds are distinct objects to the compiler. */
 static size_t SectionSize(const char *start, const char *stop)
 {
-    return (start != NULL && stop != NULL) ? (size_t)(stop - start) : 0;
+    return (start != NULL && stop != NULL) ? (size_t)((uintptr_t)stop - (uintptr_t)start) : 0;
 }
 
 __attribute__((constructor)) static void SnapshotEwramInit(void)
@@ -86,11 +99,31 @@ void ReInitializeEWRAM(void)
 /*    the GBA's ROM mirror at 0x0A000000 to still be callable (patched   */
 /*    in script.c/scrcmd.c to strip the tag), and recognised by          */
 /*    (address & 0xE000000) == 0xA000000.                                */
-/* The executable is non-PIE at 0x08048000, so code lands inside the     */
+/* The executable is non-PIE at 0x08048000 (Linux) or has the fixed base   */
+/* 0x08000000 (Windows, see CMakeLists.txt), so code lands inside the     */
 /* GBA's ROM window like on hardware; CheckMemoryMap makes sure it stays  */
 /* there.                                                                 */
 /* --------------------------------------------------------------------- */
 
+#ifdef _WIN32
+/* MinGW's linker script symbols, named directly (asm labels skip the     */
+/* i386 C name prefix `_`). .data holds the EWRAM sections too; upstream  */
+/* scripts are in their own "script_data" output section, outside both.  */
+extern char __executable_start[] __asm__("__image_base__");
+extern char etext[] __asm__("etext");
+extern char sDataStart[] __asm__("__data_start__");
+extern char sDataEnd[] __asm__("__data_end__");
+extern char sBssStart[] __asm__("__bss_start__");
+extern char sBssEnd[] __asm__("__bss_end__");
+
+bool32 Host_IsGbaRamPointer(const void *ptr)
+{
+    uintptr_t p = (uintptr_t)ptr;
+
+    return (p >= (uintptr_t)sDataStart && p < (uintptr_t)sDataEnd)
+        || (p >= (uintptr_t)sBssStart && p < (uintptr_t)sBssEnd);
+}
+#else
 extern char __executable_start[];
 extern char etext[];
 extern char __data_start[];  /* glibc: start of .data */
@@ -111,6 +144,7 @@ bool32 Host_IsGbaRamPointer(const void *ptr)
         return FALSE;
     return TRUE;
 }
+#endif
 
 __attribute__((constructor)) static void CheckMemoryMap(void)
 {
@@ -118,7 +152,7 @@ __attribute__((constructor)) static void CheckMemoryMap(void)
     {
         fprintf(stderr, "pkmemerald: code at %p-%p is outside the GBA ROM window "
                         "0x08000000-0x0A000000; tagged script pointers would break. "
-                        "Link non-PIE at the default i386 address.\n",
+                        "Link at a fixed address in that window (see CMakeLists.txt).\n",
                 (void *)__executable_start, (void *)etext);
         abort();
     }

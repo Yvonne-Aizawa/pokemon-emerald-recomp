@@ -43,8 +43,15 @@
  * and ReInitializeEWRAM (host_gba_misc.c) can reset them as on hardware:
  * EWRAM_DATA is zero-initialised (upstream: .sbss), EWRAM_INIT keeps its
  * initial values (upstream: .ewram, restored from ROM). */
+#ifdef _WIN32
+/* PE: inside .data, between the markers in host_gba_misc.c (the linker sorts
+ * .data$* sections by name). */
+#define EWRAM_DATA   __attribute__((section(".data$ewram_data_m")))
+#define EWRAM_INIT   __attribute__((section(".data$ewram_init_m")))
+#else
 #define EWRAM_DATA   __attribute__((section("ewram_data")))
 #define EWRAM_INIT   __attribute__((section("ewram_init")))
+#endif
 #define UNUSED          __attribute__((unused))
 #define USED            __attribute__((used))
 #define KEEP_SECTION    __attribute__((section(".text.consts")))

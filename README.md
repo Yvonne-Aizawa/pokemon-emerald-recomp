@@ -16,6 +16,8 @@ Work in progress. See [PLAN.md](PLAN.md) for the phased port plan and current st
 
 ## Building
 
+### Linux
+
 Requirements (Debian/Ubuntu names):
 
 - `cmake` (3.20+), `gcc`, `g++`, `make`, `python3`, `patch`
@@ -45,9 +47,26 @@ cmake --install build --prefix ~/.local
 
 This installs `~/.local/bin/pkmemerald` and a desktop launcher. `cmake --build build --target package` makes the same as a `.tar.gz`, for copying to your own machines.
 
-Saves go to `pkmemerald.sav` (a standard 128 KiB GBA flash save) in the save directory: `~/.local/share/pkmemerald/`, or `saves/` in the current directory if a save is already there (where saves went before). `-s DIR` uses another directory.
+### Windows
 
-If the game crashes, it prints a report (signal, crashing function, call stack, and the game's current callbacks, i.e. which screen it was on) and also writes it to `pkmemerald-crash.txt` in the save directory. Please include that file when reporting a crash.
+The Windows version (32-bit, like the Linux one) is cross-compiled on Linux with MinGW-w64; upstream's tools still run on the Linux machine. Besides the Linux requirements above (except the 32-bit SDL2), install `gcc-mingw-w64-i686`. Then:
+
+```sh
+tools/fetch_sdl2_mingw.sh                                   # SDL2 for MinGW, into deps/
+cmake -S . -B build-win --toolchain cmake/mingw-i686.cmake
+cmake --build build-win -j
+cmake --build build-win --target package                    # pkmemerald-*-win32.zip
+```
+
+The zip holds `pkmemerald.exe` and `SDL2.dll`; unpack it anywhere on the Windows machine and run the `.exe`. With Wine installed, `ctest --test-dir build-win` runs the tests under it (and `wine build-win/pkmemerald.exe` runs the game).
+
+### Saves and crash reports
+
+Saves go to `pkmemerald.sav` (a standard 128 KiB GBA flash save) in the save directory: `~/.local/share/pkmemerald/` on Linux, `%APPDATA%\pkmemerald\` on Windows, or `saves/` in the current directory if a save is already there (where saves went before). `-s DIR` uses another directory.
+
+If the game crashes, it prints a report (signal or exception, crashing function, call stack, and the game's current callbacks, i.e. which screen it was on) and also writes it to `pkmemerald-crash.txt` in the save directory. Please include that file when reporting a crash.
+
+### Running
 
 `./build/pkmemerald` runs the game in a window (`-h` for options). It is playable, with sound, but early: expect bugs. `--mute` turns the sound off; `-a FILE` records it to a WAV file instead; the sound is the GBA's exact output; `--smooth-sound` interpolates and low-passes it instead. Like on the GBA, the game starts in mono: switch "Sound" to Stereo in the in-game Options. Controls: arrows, Z = A, X = B, Enter = Start, Backspace = Select, Shift = L, Ctrl = R, or a gamepad. Run the tests with:
 

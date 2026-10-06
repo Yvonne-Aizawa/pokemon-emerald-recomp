@@ -22,3 +22,27 @@
  
  u32 Random2_32(void)
  {
+@@ -159,16 +167,19 @@
+     LOOP_RANDOM_END;
+ }
+ 
+-__attribute__((weak, alias("RandomUniformDefault")))
++// PC port: not weak. The test runner overrides these, but it isn't built,
++// and MinGW's linker doesn't resolve weak aliases defined in a static
++// library.
++__attribute__((alias("RandomUniformDefault")))
+ u32 RandomUniform(enum RandomTag tag, u32 lo, u32 hi);
+ 
+-__attribute__((weak, alias("RandomUniformExceptDefault")))
++__attribute__((alias("RandomUniformExceptDefault")))
+ u32 RandomUniformExcept(enum RandomTag, u32 lo, u32 hi, bool32 (*reject)(u32));
+ 
+-__attribute__((weak, alias("RandomWeightedArrayDefault")))
++__attribute__((alias("RandomWeightedArrayDefault")))
+ u32 RandomWeightedArray(enum RandomTag tag, u32 sum, u32 n, const u16 *weights);
+ 
+-__attribute__((weak, alias("RandomElementArrayDefault")))
++__attribute__((alias("RandomElementArrayDefault")))
+ const void *RandomElementArray(enum RandomTag tag, const void *array, size_t size, size_t count);
+ 
+ u32 RandomUniformDefault(enum RandomTag tag, u32 lo, u32 hi)

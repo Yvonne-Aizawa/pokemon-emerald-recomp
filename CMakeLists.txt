@@ -72,6 +72,15 @@ endforeach()
 # sections, as on the GBA; a position-independent executable would need text
 # relocations for them.
 add_link_options(-no-pie)
+if(WIN32)
+    # The game tells code from data by address (host_gba_misc.c): code must
+    # sit in the GBA's ROM window, 0x08000000-0x0A000000, like the Linux
+    # non-PIE default. A fixed base without ASLR keeps it there.
+    add_link_options(-Wl,--image-base,0x08000000 -Wl,--disable-dynamicbase)
+    # The crash handler walks the stack through frame pointers
+    # (crash_handler_win32.c).
+    add_compile_options(-fno-omit-frame-pointer)
+endif()
 
 # The codebase was written for `-Wall -Wextra` under arm-none-eabi-gcc. We
 # follow suit on the host, but suppress the warning floods that come from
@@ -139,6 +148,22 @@ file(GLOB PLATFORM_SOURCES CONFIGURE_DEPENDS
 # The entry point belongs to the executable, not the library.
 set(HOST_MAIN_SOURCE "${PLATFORM_DIR}/src/host_main.c")
 list(REMOVE_ITEM PLATFORM_SOURCES "${HOST_MAIN_SOURCE}")
+# OS-specific pieces (interrupt timer, crash handler): *_posix.c/*_linux.c or
+# *_win32.c.
+if(WIN32)
+    list(FILTER PLATFORM_SOURCES EXCLUDE REGEX "_(posix|linux)\\.c$")
+else()
+    list(FILTER PLATFORM_SOURCES EXCLUDE REGEX "_win32\\.c$")
+endif()
+
+# MinGW lays out bitfields the Microsoft way by default, which changes the
+# game's struct sizes (its own static asserts catch it). Use GCC's layout
+# everywhere except the files that share structs with Windows or SDL.
+if(WIN32)
+    add_compile_options(-mno-ms-bitfields)
+    file(GLOB _os_api_sources "${PLATFORM_DIR}/src/*_sdl2.c" "${PLATFORM_DIR}/src/*_win32.c")
+    set_source_files_properties(${_os_api_sources} PROPERTIES COMPILE_OPTIONS -mms-bitfields)
+endif()
 
 #-------------------------------------------------------------------------------
 # reference/src/ sources
@@ -230,6 +255,10 @@ set(REFERENCE_CPPFLAGS
 if(PKM_HOST_32BIT)
     list(APPEND REFERENCE_CPPFLAGS -m32)
 endif()
+if(WIN32)
+    # POSIX headers MinGW lacks (alloca.h).
+    list(APPEND REFERENCE_CPPFLAGS -isystem "${PLATFORM_DIR}/win32/include")
+endif()
 
 find_program(PATCH_EXECUTABLE patch REQUIRED)
 # Which sources have a patch is decided at configure time; re-configure when
@@ -312,7 +341,10 @@ set(REFERENCE_ASM_CPPFLAGS
     -DEMERALD
     -std=gnu17
 )
-set(HOST_ASFLAGS -Wa,--noexecstack)
+set(HOST_ASFLAGS)
+if(NOT WIN32)
+    list(APPEND HOST_ASFLAGS -Wa,--noexecstack)   # ELF only
+endif()
 if(PKM_HOST_32BIT)
     list(APPEND REFERENCE_ASM_CPPFLAGS -m32)
     list(APPEND HOST_ASFLAGS -m32)
@@ -324,7 +356,8 @@ foreach(_src ${REFERENCE_DATA_ASM})
     set(_out "${ASM_DIR}/data/${_name}.o")
     add_custom_command(
         OUTPUT "${_out}"
-        COMMAND bash "${TOOLS_DIR}/host_assemble.sh" data
+        COMMAND ${CMAKE_COMMAND} -E env HOST_NM=${CMAKE_NM} HOST_OBJCOPY=${CMAKE_OBJCOPY}
+                bash "${TOOLS_DIR}/host_assemble.sh" data
                 "${REFERENCE_DIR}" "${PREPROC_TOOL}" "${_out}" "${_out}.d" "${_src}"
                 -- ${CMAKE_C_COMPILER} ${REFERENCE_ASM_CPPFLAGS}
                 -- ${CMAKE_C_COMPILER} ${HOST_ASFLAGS}
@@ -341,7 +374,8 @@ foreach(_mid ${_ref_mid})
     set(_out "${ASM_DIR}/songs/${_name}.o")
     add_custom_command(
         OUTPUT "${_out}"
-        COMMAND bash "${TOOLS_DIR}/host_assemble.sh" song
+        COMMAND ${CMAKE_COMMAND} -E env HOST_NM=${CMAKE_NM} HOST_OBJCOPY=${CMAKE_OBJCOPY}
+                bash "${TOOLS_DIR}/host_assemble.sh" song
                 "${REFERENCE_DIR}" "${ASM_DIR}/sound" "${_out}" "sound/songs/midi/${_name}.s"
                 -- ${CMAKE_C_COMPILER} ${HOST_ASFLAGS}
         DEPENDS "${REFERENCE_DIR}/${_mid}" "${REFERENCE_DIR}/sound/MPlayDef.s" "${PREPARE_STAMP}" "${TOOLS_DIR}/host_assemble.sh"
@@ -377,6 +411,8 @@ target_compile_options(pkmemerald-core
 
 find_package(Threads REQUIRED)
 target_link_libraries(pkmemerald-core PUBLIC SDL2::SDL2 Threads::Threads)
+# Our main() is the entry point: SDL must not rename it to SDL_main (Windows).
+target_compile_definitions(pkmemerald-core PUBLIC SDL_MAIN_HANDLED)
 
 target_compile_definitions(pkmemerald-core
     PUBLIC
@@ -397,6 +433,10 @@ endif()
 file(GLOB PLATFORM_TEST_SOURCES CONFIGURE_DEPENDS
     "${PLATFORM_DIR}/tests/*.c"
 )
+if(WIN32)
+    # Forks and checks POSIX signals.
+    list(FILTER PLATFORM_TEST_SOURCES EXCLUDE REGEX "/test_crash_handler\\.c$")
+endif()
 enable_testing()
 set(HEADLESS_TEST_ENV "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
 foreach(TEST_SRC ${PLATFORM_TEST_SOURCES})
@@ -430,18 +470,22 @@ set_tests_properties(pkmemerald-boot PROPERTIES
 # identical bytes and relocations, and identical struct layouts. Checked
 # against upstream's own ARM toolchain when it's installed.
 find_program(ARM_NONE_EABI_GCC arm-none-eabi-gcc)
-find_program(GDB_EXECUTABLE gdb)
-if(ARM_NONE_EABI_GCC AND GDB_EXECUTABLE)
+if(ARM_NONE_EABI_GCC)
+    # The flags that decide struct layout, as the game is compiled with.
     set(_abi_flags)
     if(PKM_HOST_32BIT)
         set(_abi_flags -m32)
     endif()
+    if(WIN32)
+        list(APPEND _abi_flags -mno-ms-bitfields)
+    endif()
     add_test(NAME data-abi-matches-gba
-        COMMAND ${Python3_EXECUTABLE} "${TOOLS_DIR}/verify_data_abi.py"
+        COMMAND ${CMAKE_COMMAND} -E env HOST_OBJDUMP=${CMAKE_OBJDUMP} HOST_OBJCOPY=${CMAKE_OBJCOPY}
+                ${Python3_EXECUTABLE} "${TOOLS_DIR}/verify_data_abi.py"
                 "${REFERENCE_DIR}" "${CMAKE_BINARY_DIR}" ${CMAKE_C_COMPILER} ${_abi_flags}
     )
 else()
-    message(STATUS "arm-none-eabi-gcc or gdb not found: skipping the data-abi-matches-gba test")
+    message(STATUS "arm-none-eabi-gcc not found: skipping the data-abi-matches-gba test")
 endif()
 
 #-------------------------------------------------------------------------------
@@ -454,10 +498,20 @@ endif()
 # Phase 17).
 #
 #   cmake --install build --prefix ~/.local
-#   cmake --build build --target package     # local .tar.gz
+#   cmake --build build --target package     # local .tar.gz (.zip on Windows)
 #-------------------------------------------------------------------------------
 include(GNUInstallDirs)
 install(TARGETS pkmemerald RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+if(WIN32)
+    # SDL2.dll goes next to the .exe, in the build tree (for running it and
+    # the tests) and in the install/zip.
+    add_custom_command(TARGET pkmemerald POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:SDL2::SDL2>" "$<TARGET_FILE_DIR:pkmemerald>"
+        VERBATIM
+    )
+    install(FILES "$<TARGET_FILE:SDL2::SDL2>" DESTINATION "${CMAKE_INSTALL_BINDIR}")
+endif()
 if(UNIX AND NOT APPLE)
     install(FILES "${PLATFORM_DIR}/linux/pkmemerald.desktop"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
@@ -465,7 +519,11 @@ endif()
 
 set(CPACK_PACKAGE_NAME "pkmemerald")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-set(CPACK_GENERATOR "TGZ")
+if(WIN32)
+    set(CPACK_GENERATOR "ZIP")
+else()
+    set(CPACK_GENERATOR "TGZ")
+endif()
 set(CPACK_SOURCE_GENERATOR "")
 include(CPack)
 

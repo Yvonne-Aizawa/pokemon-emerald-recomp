@@ -7,11 +7,14 @@
 typedef uint8_t   u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
-typedef uint64_t u64;
+/* 4-byte aligned, as on the GBA (and i386 Linux): the 32-bit Windows ABI
+ * aligns 64-bit integers to 8 in structs, which would change the layout of
+ * save structs (recorded_battle.c, save.c assert their sizes). */
+typedef uint64_t u64 __attribute__((aligned(4)));
 typedef int8_t    s8;
 typedef int16_t  s16;
 typedef int32_t  s32;
-typedef int64_t  s64;
+typedef int64_t  s64 __attribute__((aligned(4)));
 
 typedef volatile u8   vu8;
 typedef volatile u16 vu16;

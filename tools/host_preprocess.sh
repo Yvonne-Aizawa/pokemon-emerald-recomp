@@ -14,7 +14,12 @@
 # One x86 fixup is applied to preproc's output: COMPOUND_STRING emits
 #     section(".rodata.compound_string.N,\"aM\",%progbits,SIZE @")
 # relying on `@` being the ARM assembler's comment character to swallow the
-# flags GCC appends. On x86 the comment character is `#`.
+# flags GCC appends. On x86 the comment character is `#`. Windows objects
+# (PE/COFF) take no ELF section flags, and every distinct section would become
+# a 4 KiB-aligned section of the executable (thousands, more than Windows
+# loads), so there all of them go into .rdata$compound_string, which the
+# linker merges into .rdata. Identical strings are then not merged; nothing
+# depends on that.
 #
 # Usage:
 #   host_preprocess.sh REFDIR PREPROC OUT_I DEPFILE SRC_NAME INPUT -- CC CPPFLAGS...
@@ -35,9 +40,17 @@ shift 6
 
 cd "$refdir"
 
+# (Not `| grep -q`: grep exiting early can kill cc with SIGPIPE, which
+# pipefail turns into a false result.)
+if [[ $("$@" -dM -E -x c /dev/null) == *"#define _WIN32 "* ]]; then
+    section_fixup='s/section\("\.rodata\.compound_string\.[^",\\]*,\\"aM\\",%progbits,[0-9]+ @"/section(".rdata$compound_string"/g'
+else
+    section_fixup='s/(\\"aM\\",%progbits,[0-9]+) @"/\1 #"/g'
+fi
+
 "$@" -E -MD -MF "$depfile" -MT "$out" "$input" \
     | "$preproc" -i -g build/assets "$src_name" charmap.txt \
-    | sed -E 's/(\\"aM\\",%progbits,[0-9]+) @"/\1 #"/g' \
+    | sed -E "$section_fixup" \
     > "$out.tmp.$$"
 
 # Per-process temp name: two builds racing in one build tree can't clobber

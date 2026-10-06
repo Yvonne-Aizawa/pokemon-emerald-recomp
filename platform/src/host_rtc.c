@@ -31,7 +31,11 @@ static void ReadLocalTime(struct SiiRtcInfo *rtc)
     time_t now = time(NULL);
     struct tm tm;
 
+#ifdef _WIN32
+    localtime_s(&tm, &now);
+#else
     localtime_r(&now, &tm);
+#endif
     rtc->year = ToBcd((tm.tm_year + 1900 - 2000) % 100);
     rtc->month = ToBcd(tm.tm_mon + 1);
     rtc->day = ToBcd(tm.tm_mday);

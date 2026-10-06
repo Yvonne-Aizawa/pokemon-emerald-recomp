@@ -13,6 +13,10 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#ifdef _WIN32
+#include <direct.h>
+#include <process.h>
+#endif
 
 #include "global.h"
 #include "gba/flash_internal.h"
@@ -35,9 +39,31 @@ static long FileSize(const char *path)
     return stat(path, &st) == 0 ? (long)st.st_size : -1;
 }
 
+#ifdef _WIN32
+/* MinGW has no mkdtemp. (Process IDs repeat, under Wine especially, so
+ * count up until a name is free.) */
+static char *mkdtemp(char *template)
+{
+    const char *temp = getenv("TEMP");
+    char path[256];
+    int i;
+
+    for (i = 0; i < 1000; i++)
+    {
+        snprintf(path, sizeof(path), "%s\\pkmemerald-test-save-%d-%d", temp != NULL ? temp : ".", _getpid(), i);
+        if (_mkdir(path) == 0)
+        {
+            strcpy(template, path);
+            return template;
+        }
+    }
+    return NULL;
+}
+#endif
+
 int main(void)
 {
-    char dir[] = "/tmp/pkmemerald-test-save-XXXXXX";
+    char dir[256] = "/tmp/pkmemerald-test-save-XXXXXX";
     char path[256], tmpPath[256];
     static u8 sector[0x1000], readBack[0x1000];
     FILE *f;

@@ -20,3 +20,6 @@ __pycache__/
 .DS_Store
 crash.txt
 pkmemerald-crash.txt
+
+# Downloaded dependencies (tools/fetch_sdl2_mingw.sh)
+deps/
