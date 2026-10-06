@@ -22,7 +22,7 @@ The game is playable from boot to the overworld and battles, with graphics, inpu
 
 ## Source under analysis
 
-- `reference/` is a git submodule of [`rh-hideout/pokeemerald-expansion`](https://github.com/rh-hideout/pokeemerald-expansion) (a GBA ROM hack base, not a standalone game).
+- `reference/` is a git submodule of [`Yvonne-Aizawa/pokeemerald-expansion`](https://github.com/Yvonne-Aizawa/pokeemerald-expansion), a fork of [`rh-hideout/pokeemerald-expansion`](https://github.com/rh-hideout/pokeemerald-expansion) (a GBA ROM hack base, not a standalone game).
 - 390+ C source files, 314+ headers, ~76 graphics subdirs, custom audio engine, ARM assembly.
 - Targets devkitARM / `arm-none-eabi-gcc`, links a 32 MB ROM with a custom linker script (`ld_script_modern.ld`).
 - Requires a Pokémon Emerald baseline ROM (sha1 `f3ae088181bf583e55daf962a92bb46f4f1d07b7`) to extract data from.

@@ -10,7 +10,7 @@ Work in progress. See [PLAN.md](PLAN.md) for the phased port plan and current st
 
 | Path        | What it is |
 |-------------|------------|
-| `reference/` | Upstream pokeemerald-expansion (git submodule). **Not edited**: host changes go in `platform/`. |
+| `reference/` | Upstream pokeemerald-expansion, from [our fork](https://github.com/Yvonne-Aizawa/pokeemerald-expansion) (git submodule). **Not edited**: host changes go in `platform/`. |
 | `platform/` | The PC port: GBA hardware stubs (`include/gba/`), host implementations (`src/`), build-time patches to upstream sources (`patches/`), and smoke tests (`tests/`). |
 | `tools/`    | Host build helpers that drive upstream's tools (preproc, gbagfx, mapjson, ...). |
 
