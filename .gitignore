@@ -26,3 +26,11 @@ deps/
 
 # CI cache staging (tools/ci_reference_cache.sh)
 .ci-cache/
+
+# Keep checkpoint instructions; save binaries remain ignored until reviewed.
+!platform/tests/saves/
+platform/tests/saves/*
+!platform/tests/saves/README.md
+
+# Locally collected checkpoints and inspection reports.
+/test-saves/

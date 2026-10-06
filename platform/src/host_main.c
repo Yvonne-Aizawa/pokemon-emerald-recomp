@@ -31,7 +31,7 @@
 
 /* Scripted input (-i): long enough for the game to see a press and release. */
 #define DEFAULT_HOLD_FRAMES 5
-#define MAX_SCRIPT_STEPS 256
+#define MAX_SCRIPT_STEPS 4096
 
 struct ScriptStep
 {
@@ -59,7 +59,7 @@ static void Usage(FILE *out, const char *argv0)
 {
     fprintf(out,
             "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [--config FILE] [-x SCALE] [--fullscreen | --windowed]\n"
-            "       [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT] [--monkey SEED[@FRAME]] [--fast] [--mute] [--smooth-sound] [--console]\n"
+            "       [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT|@FILE] [--monkey SEED[@FRAME]] [--inspect-save FILE] [--fast] [--mute] [--smooth-sound] [--console]\n"
             "Settings come from " HOST_CONFIG_FILE " in the save directory (created with the\n"
             "defaults on first start); the flags below override it for this run.\n"
             "  -d DATA_DIR  converted game data (default: assets)\n"
@@ -76,8 +76,10 @@ static void Usage(FILE *out, const char *argv0)
             "               FRAME[+HOLD]:BUTTON[|BUTTON...], e.g. 600:a,3700+10:select\n"
             "               (buttons: a b select start up down left right l r; HOLD\n"
             "               defaults to %d frames)\n"
+            "               (-i @FILE: the script in a file; \"#\" starts a comment)\n"
             "  --monkey SEED[@FRAME]  from FRAME on, press pseudo-random buttons (the same\n"
             "               for the same SEED), for testing\n"
+            "  --inspect-save FILE  inspect a checkpoint without writing to it; exits\n"
             "  --fast       don't wait between frames (scripted test runs); implies --mute\n"
             "  --mute       no sound\n"
             "  --smooth-sound  interpolated, low-passed sound instead of the exact GBA output\n"
@@ -132,12 +134,11 @@ static bool SaveFrame(const char *path, const uint32_t *framebuffer)
 /* Parses "FRAME[+HOLD]:BUTTON[|BUTTON...],..." into sScript. */
 static bool ParseScript(const char *text)
 {
-    char buffer[4096];
+    char *buffer = strdup(text);
     char *step, *saveStep;
 
-    if (strlen(text) >= sizeof(buffer))
+    if (buffer == NULL)
         return false;
-    strcpy(buffer, text);
     for (step = strtok_r(buffer, ",", &saveStep); step != NULL; step = strtok_r(NULL, ",", &saveStep))
     {
         struct ScriptStep *out;
@@ -145,7 +146,7 @@ static bool ParseScript(const char *text)
         char *plus, *name, *saveName, *end;
 
         if (colon == NULL || sScriptLength == MAX_SCRIPT_STEPS)
-            return false;
+            goto fail;
         *colon = '\0';
         out = &sScript[sScriptLength++];
         out->hold = DEFAULT_HOLD_FRAMES;
@@ -154,11 +155,11 @@ static bool ParseScript(const char *text)
             *plus = '\0';
             out->hold = strtoul(plus + 1, &end, 10);
             if (plus[1] == '\0' || *end != '\0')
-                return false;
+                goto fail;
         }
         out->frame = strtoul(step, &end, 10);
         if (*step == '\0' || *end != '\0')
-            return false;
+            goto fail;
         out->buttons = 0;
         for (name = strtok_r(colon + 1, "|", &saveName); name != NULL; name = strtok_r(NULL, "|", &saveName))
         {
@@ -170,11 +171,68 @@ static bool ParseScript(const char *text)
                     break;
             }
             if (i == sizeof(sButtonNames) / sizeof(sButtonNames[0]))
-                return false;
+                goto fail;
             out->buttons |= sButtonNames[i].button;
         }
     }
+    free(buffer);
     return true;
+
+fail:
+    free(buffer);
+    return false;
+}
+
+/* -i @FILE: the script in a file, one or more steps per line, "#" starting
+ * a comment; for reproducible regression scripts. */
+static char *ReadScriptFile(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    char *text = NULL, line[512];
+    size_t length = 0;
+    bool comment = false;
+
+    if (f == NULL)
+        return NULL;
+    while (fgets(line, sizeof(line), f) != NULL)
+    {
+        char *p;
+        size_t n;
+        char *grown;
+
+        for (p = line; *p != '\0'; p++)
+        {
+            if (*p == '#')
+                comment = true;
+            if (comment)
+            {
+                if (*p == '\n')
+                    comment = false;
+                *p = ',';
+            }
+            if (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
+                *p = ',';
+        }
+        n = strlen(line);
+        if ((grown = realloc(text, length + n + 1)) == NULL)
+        {
+            free(text);
+            fclose(f);
+            return NULL;
+        }
+        text = grown;
+        memcpy(text + length, line, n);
+        length += n;
+        text[length] = '\0';
+    }
+    if (ferror(f))
+    {
+        free(text);
+        fclose(f);
+        return NULL;
+    }
+    fclose(f);
+    return text != NULL ? text : strdup("");
 }
 
 static uint16_t ScriptedButtons(uint32_t frame)
@@ -363,6 +421,7 @@ int main(int argc, char **argv)
     const char *audioPath = NULL;
     uint64_t startNs;
     uint32_t framesRun;
+    const char *inspectSave = NULL;
     char crashReportPath[1024];
     int i;
 
@@ -396,6 +455,11 @@ int main(int argc, char **argv)
         if (strcmp(arg, "--fullscreen") == 0 || strcmp(arg, "--windowed") == 0)
         {
             fullscreenFlag = strcmp(arg, "--fullscreen") == 0;
+            continue;
+        }
+        if (strcmp(arg, "--inspect-save") == 0 && i + 1 < argc)
+        {
+            inspectSave = argv[++i];
             continue;
         }
         if (strcmp(arg, "--monkey") == 0 && i + 1 < argc)
@@ -438,13 +502,19 @@ int main(int argc, char **argv)
                 audioPath = value;
                 break;
             case 'i':
-                if (!ParseScript(value))
+            {
+                char *fileText = value[0] == '@' ? ReadScriptFile(value + 1) : NULL;
+                bool parsed = value[0] == '@' ? (fileText != NULL && ParseScript(fileText)) : ParseScript(value);
+
+                free(fileText);
+                if (!parsed)
                 {
                     Console_Setup(true, NULL);  /* Windows: so the message is seen */
                     fprintf(stderr, "%s: invalid input script '%s'\n", argv[0], value);
                     return 2;
                 }
                 break;
+            }
             case 'x':
                 if (!ParseNumber(value, MAX_SCALE, &scale) || scale == 0)
                 {
@@ -469,6 +539,12 @@ int main(int argc, char **argv)
         fprintf(stderr, "%s: unknown or incomplete argument '%s'\n", argv[0], arg);
         Usage(stderr, argv[0]);
         return 2;
+    }
+
+    if (inspectSave != NULL)
+    {
+        Console_Setup(true, NULL);
+        return Host_InspectSave(inspectSave);
     }
 
     if (config.saveDir == NULL)

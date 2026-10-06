@@ -30,6 +30,13 @@ bool Host_SaveOpen(const char *saveDir);
  * once per frame and at exit. Returns false if writing failed. */
 bool Host_SaveFlush(void);
 
+/* Load a raw flash image with persistence disabled. Never creates directories
+ * or attaches the file for writing. */
+bool Host_SaveOpenReadOnly(const char *path);
+
+/* Print a JSON checkpoint report using the game's save loader. */
+int Host_InspectSave(const char *path);
+
 #ifdef __cplusplus
 }
 #endif

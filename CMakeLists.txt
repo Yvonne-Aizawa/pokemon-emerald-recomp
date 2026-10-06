@@ -473,6 +473,13 @@ set_source_files_properties(${REFERENCE_ASM_OBJS} PROPERTIES EXTERNAL_OBJECT TRU
 #-------------------------------------------------------------------------------
 # Target: pkmemerald-core (static lib)
 #-------------------------------------------------------------------------------
+file(GLOB SAVE_SYMBOL_HEADERS CONFIGURE_DEPENDS "${REFERENCE_INC}/constants/flags*.h" "${REFERENCE_INC}/constants/vars*.h")
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/save_symbols.inc"
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_SOURCE_DIR}/platform/tools/save_symbols.py"
+            "${REFERENCE_DIR}" "${CMAKE_BINARY_DIR}/save_symbols.inc"
+    DEPENDS "${CMAKE_SOURCE_DIR}/platform/tools/save_symbols.py" ${SAVE_SYMBOL_HEADERS}
+    VERBATIM)
+
 # Game headers are reached through the host include tree (see above). As an
 # -idirafter directory it is searched after the system headers, so
 # reference/include/strings.h can't shadow libc's <strings.h>, and its headers
@@ -490,10 +497,11 @@ find_package(Threads REQUIRED)
 function(pkm_core_library target objects)
     add_library(${target} STATIC
         ${PLATFORM_SOURCES}
+        "${CMAKE_BINARY_DIR}/save_symbols.inc"
         $<TARGET_OBJECTS:${objects}>
         ${REFERENCE_ASM_OBJS}
     )
-    target_include_directories(${target} PUBLIC ${PLATFORM_INC})
+    target_include_directories(${target} PUBLIC ${PLATFORM_INC} PRIVATE "${CMAKE_BINARY_DIR}")
     target_compile_options(${target}
         PUBLIC
             -idirafter "${HOST_INC}"
@@ -532,6 +540,9 @@ if(WIN32 OR PKM_SANITIZE)
     list(FILTER PLATFORM_TEST_SOURCES EXCLUDE REGEX "/test_crash_handler\\.c$")
 endif()
 enable_testing()
+add_test(NAME save_json_export
+    COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tests/test_save_json.py")
+
 set(HEADLESS_TEST_ENV "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
 foreach(TEST_SRC ${PLATFORM_TEST_SOURCES})
     get_filename_component(TEST_NAME "${TEST_SRC}" NAME_WE)
@@ -542,10 +553,27 @@ foreach(TEST_SRC ${PLATFORM_TEST_SOURCES})
     set_tests_properties(${TEST_NAME} PROPERTIES ENVIRONMENT "${HEADLESS_TEST_ENV}")
 endforeach()
 
+foreach(_invalid_time IN ITEMS
+    "2026-02-30 12:00:00" "2026-02-29 12:00:00" "2024-02-29 12:34:56junk"
+    "2024-02-29 24:00:00" "2024-02-29 12:60:00" "2024-02-29 12:34:60"
+    "2024-00-29 12:34:56" "2024-13-29 12:34:56" "2024-02-00 12:34:56"
+    "2024-04-31 12:34:56" "1999-12-31 12:34:56" "2100-01-01 12:34:56"
+    "2024-2-29 12:34:56" "999999999999-02-29 12:34:56")
+    string(MAKE_C_IDENTIFIER "${_invalid_time}" _time_id)
+    add_test(NAME "rtc-invalid-${_time_id}" COMMAND test_rtc "${_invalid_time}" --invalid)
+endforeach()
+
 #-------------------------------------------------------------------------------
 # Target: pkmemerald (executable)
 #-------------------------------------------------------------------------------
 add_executable(pkmemerald "${HOST_MAIN_SOURCE}")
+if(NOT CMAKE_CROSSCOMPILING)
+    add_test(NAME script_file_long_lines
+        COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tests/test_script_file.py" $<TARGET_FILE:pkmemerald>)
+    add_test(NAME save_inspector_rejects_invalid
+        COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tests/test_save_inspector.py" $<TARGET_FILE:pkmemerald>)
+endif()
+
 target_compile_options(pkmemerald PRIVATE ${PLATFORM_WARNINGS})
 # Windows: a windowed program, so no console window opens beside the game;
 # --console shows one (console_win32.c).
