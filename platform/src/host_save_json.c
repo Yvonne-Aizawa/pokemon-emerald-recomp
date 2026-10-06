@@ -1073,7 +1073,8 @@ static bool ReadFieldValue(struct Reader *r, const struct HostJsonValue *v, cons
         s64 max = f->kind == HOST_SAVE_SINT ? ((s64)1 << (bits - 1)) - 1 : (s64)(((u64)1 << bits) - 1);
         int64_t value;
         if (!HostJson_GetInt(v, min, max, &value))
-            return Error(r, "%s must be a whole number from %lld to %lld", path, (long long)min, (long long)max);
+            /* As doubles (exact here): MinGW's printf checks reject %lld. */
+            return Error(r, "%s must be a whole number from %.0f to %.0f", path, (double)min, (double)max);
         WriteScalar(f, p, value);
         return true;
     }
