@@ -20,12 +20,23 @@ extern "C" {
 #define PLATFORM_SCREEN_WIDTH  240
 #define PLATFORM_SCREEN_HEIGHT 160
 
+/* GBA buttons: 10 of them, see PLATFORM_BUTTON_* below. */
+#define PLATFORM_BUTTON_COUNT 10
+
 struct PlatformConfig
 {
     const char *dataDir;    /* converted game data (assets/) */
     const char *saveDir;    /* save files (saves/) */
     int scale;              /* initial window size, in multiples of 240x160 */
+    bool fullscreen;        /* start in (borderless desktop) fullscreen */
+    /* Keyboard keys per button, indexed by button bit (PLATFORM_BUTTON_A is
+     * bit 0): comma-separated SDL key names, e.g. "Left Shift, Right Shift".
+     * NULL: the built-in default for that button. */
+    const char *keys[PLATFORM_BUTTON_COUNT];
 };
+
+/* The built-in keyboard layout, in the form of PlatformConfig.keys. */
+extern const char *const gPlatformDefaultKeys[PLATFORM_BUTTON_COUNT];
 
 /* Lifecycle. Platform_Init returns 0 on success. */
 int  Platform_Init(const struct PlatformConfig *config);

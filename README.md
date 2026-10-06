@@ -60,6 +60,10 @@ cmake --build build-win --target package                    # pkmemerald-*-win32
 
 The zip holds `pkmemerald.exe` and `SDL2.dll`; unpack it anywhere on the Windows machine and run the `.exe`. It opens no console window: its messages go to `pkmemerald-log.txt` in the save directory, or, with `pkmemerald.exe --console`, to the console it was started from (or a new one). With Wine installed, `ctest --test-dir build-win` runs the tests under it (and `wine build-win/pkmemerald.exe` runs the game).
 
+### Settings
+
+Settings are in `pkmemerald.ini` in the save directory (below), created with comments and the defaults the first time the game starts: window scale, fullscreen, sound on/off, exact or smoothed sound, and the keyboard layout (keys for each GBA button). The game never rewrites it, so edits stay; mistakes are reported in the log and that setting keeps its default. Command-line flags override it for one run (`pkmemerald --help`); delete the file to get the defaults back. F11 or Alt+Enter switch between the window and fullscreen while playing.
+
 ### Saves and crash reports
 
 Saves go to `pkmemerald.sav` (a standard 128 KiB GBA flash save) in the save directory: `~/.local/share/pkmemerald/` on Linux, `%APPDATA%\pkmemerald\` on Windows, or `saves/` in the current directory if a save is already there (where saves went before). `-s DIR` uses another directory.
@@ -68,7 +72,7 @@ If the game crashes, it prints a report (signal or exception, crashing function,
 
 ### Running
 
-`./build/pkmemerald` runs the game in a window (`-h` for options). It is playable, with sound, but early: expect bugs. `--mute` turns the sound off; `-a FILE` records it to a WAV file instead; the sound is the GBA's exact output; `--smooth-sound` interpolates and low-passes it instead. Like on the GBA, the game starts in mono: switch "Sound" to Stereo in the in-game Options. Controls: arrows, Z = A, X = B, Enter = Start, Backspace = Select, Shift = L, Ctrl = R, or a gamepad. Run the tests with:
+`./build/pkmemerald` runs the game in a window (`-h` for options). It is playable, with sound, but early: expect bugs. `--mute` turns the sound off; `-a FILE` records it to a WAV file instead; the sound is the GBA's exact output; `--smooth-sound` interpolates and low-passes it instead. Like on the GBA, the game starts in mono: switch "Sound" to Stereo in the in-game Options. Default controls: arrows, Z = A, X = B, Enter = Start, Backspace = Select, Shift = L, Ctrl = R (change them in `pkmemerald.ini`), or a gamepad. Run the tests with:
 
 ```sh
 ctest --test-dir build

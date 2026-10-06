@@ -3,7 +3,8 @@
  *
  * SDL2 implementation of platform.h: a window showing the 240x160
  * framebuffer at an integer scale, the OS event loop, input (via
- * input_sdl2.c), and timing.
+ * input_sdl2.c), and timing. F11 or Alt+Enter switch between the window and
+ * borderless fullscreen (the desktop's resolution, letterboxed).
  *
  * Runs without a display under SDL_VIDEODRIVER=dummy (the tests do this).
  */
@@ -48,9 +49,11 @@ int Platform_Init(const struct PlatformConfig *config)
         return -1;
     }
 
+    /* The window size also applies when leaving fullscreen. */
     sWindow = SDL_CreateWindow(WINDOW_TITLE, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                PLATFORM_SCREEN_WIDTH * scale, PLATFORM_SCREEN_HEIGHT * scale,
-                               SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+                               SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI
+                               | (sConfig.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
     if (sWindow == NULL)
     {
         fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
@@ -84,7 +87,7 @@ int Platform_Init(const struct PlatformConfig *config)
         return -1;
     }
 
-    Input_Init();
+    Input_Init(sConfig.keys);
 
     /* The GBA powers on to a white screen. */
     memset(sFramebuffer, 0xFF, sizeof(sFramebuffer));
@@ -153,6 +156,25 @@ void Platform_FrameEnd(void)
     SDL_RenderPresent(sRenderer);
 }
 
+static void ToggleFullscreen(void)
+{
+    bool fullscreen = (SDL_GetWindowFlags(sWindow) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
+
+    if (SDL_SetWindowFullscreen(sWindow, fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
+        fprintf(stderr, "video: could not switch fullscreen: %s\n", SDL_GetError());
+}
+
+/* F11 or Alt+Enter; these key presses don't reach the game. */
+static bool IsFullscreenToggle(const SDL_Event *event)
+{
+    const SDL_Keysym *key = &event->key.keysym;
+
+    if (event->type != SDL_KEYDOWN)
+        return false;
+    return key->scancode == SDL_SCANCODE_F11
+        || ((key->mod & KMOD_ALT) && (key->scancode == SDL_SCANCODE_RETURN || key->scancode == SDL_SCANCODE_KP_ENTER));
+}
+
 void Platform_PollEvents(void)
 {
     SDL_Event event;
@@ -161,6 +183,12 @@ void Platform_PollEvents(void)
     {
         if (event.type == SDL_QUIT)
             sQuitRequested = true;
+        if (IsFullscreenToggle(&event))
+        {
+            if (!event.key.repeat)
+                ToggleFullscreen();
+            continue;
+        }
         Input_HandleEvent(&event);
     }
 }

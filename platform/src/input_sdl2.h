@@ -11,7 +11,11 @@
 #include <SDL.h>
 #include <stdint.h>
 
-void Input_Init(void);
+#include "platform/platform.h"
+
+/* `keys`: comma-separated SDL key names per button, indexed by button bit;
+ * NULL (or a NULL entry) for the defaults. See PlatformConfig.keys. */
+void Input_Init(const char *const keys[PLATFORM_BUTTON_COUNT]);
 void Input_Shutdown(void);
 
 /* Feed every SDL event through here. */

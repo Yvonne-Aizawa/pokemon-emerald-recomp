@@ -3,7 +3,8 @@
  *
  * Input path, end to end: synthetic SDL key events -> Platform_GetButtons
  * -> REG_KEYINPUT -> the game's own ReadKeys. The last check presses A
- * during the intro and expects the game to skip to the title screen.
+ * during the intro and expects the game to skip to the title screen. Then
+ * a custom keyboard layout (settings file) and the fullscreen hotkey.
  */
 
 #include <SDL.h>
@@ -106,6 +107,47 @@ int main(void)
         reachedTitle = (gMain.callback2 == CB2_InitTitleScreen);
     }
     Check(reachedTitle, "pressing A skips the intro to the title screen");
+    Platform_Shutdown();
+
+    /* Custom layout: A on Space, a typo for B (keeps its default, X), and L
+     * deliberately on no key. */
+    config.keys[0] = "Space";
+    config.keys[1] = "Nonsense Key";
+    config.keys[9] = "";
+    if (Platform_Init(&config) != 0)
+    {
+        Check(0, "Platform_Init with custom keys");
+        return 1;
+    }
+    SendKey(SDL_SCANCODE_SPACE, true);
+    Check(Platform_GetButtons() == PLATFORM_BUTTON_A, "custom key: Space = A");
+    SendKey(SDL_SCANCODE_SPACE, false);
+    SendKey(SDL_SCANCODE_Z, true);
+    Check(Platform_GetButtons() == 0, "custom key: Z no longer A");
+    SendKey(SDL_SCANCODE_Z, false);
+    SendKey(SDL_SCANCODE_X, true);
+    Check(Platform_GetButtons() == PLATFORM_BUTTON_B, "unknown key name: B keeps its default (X)");
+    SendKey(SDL_SCANCODE_X, false);
+    SendKey(SDL_SCANCODE_LSHIFT, true);
+    Check(Platform_GetButtons() == 0, "empty key list: L on no key");
+    SendKey(SDL_SCANCODE_LSHIFT, false);
+    SendKey(SDL_SCANCODE_RETURN, true);
+    Check(Platform_GetButtons() == PLATFORM_BUTTON_START, "unchanged buttons keep their keys (Enter = Start)");
+    SendKey(SDL_SCANCODE_RETURN, false);
+
+    /* Alt+Enter switches fullscreen and doesn't reach the game as Start. */
+    {
+        SDL_Event altEnter = {0};
+
+        altEnter.type = SDL_KEYDOWN;
+        altEnter.key.state = SDL_PRESSED;
+        altEnter.key.keysym.scancode = SDL_SCANCODE_RETURN;
+        altEnter.key.keysym.mod = KMOD_LALT;
+        SDL_PushEvent(&altEnter);
+        Platform_PollEvents();
+        Check(Platform_GetButtons() == 0, "Alt+Enter doesn't press Start");
+        SendKey(SDL_SCANCODE_RETURN, false);
+    }
 
     Platform_Shutdown();
     printf(sFailures ? "input: %d FAILED\n" : "input: all tests passed\n", sFailures);
