@@ -31,3 +31,6 @@ deps/
 !platform/tests/saves/
 platform/tests/saves/*
 !platform/tests/saves/README.md
+
+# Locally collected checkpoints and inspection reports.
+/test-saves/
