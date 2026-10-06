@@ -17,6 +17,7 @@ The game is playable from boot to the overworld and battles, with graphics, inpu
 | 16    | Not started (optional) |
 | 17    | Done (Linux and Windows builds, source only); on real Windows still to check: sound, `--console`/log file |
 | 18    | Not started (64-bit build; needed for macOS) |
+| 19    | Not started: **next** (automated bug finding: sanitizers, upstream's tests, every map) |
 
 
 ## Source under analysis
@@ -507,6 +508,65 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 
 ---
 
+## Phase 19 — Automated bug finding
+
+**Goal**: Find the port's bugs automatically, on every pull request, instead of mostly by playtesting. Playtesting stays for what tools can't judge (graphics glitches, sound, feel); crashes, memory errors and logic differences from the GBA build should be caught by CI.
+
+Three parts, in this order (quickest win first, biggest coverage second):
+
+### 19a — Sanitizers on scripted runs (~1 day)
+
+Nearly every crash in [known_crashes.md](known_crashes.md) was a read through NULL or past an array that the GBA tolerates. AddressSanitizer and UndefinedBehaviorSanitizer report exactly that, where it happens, even when the game doesn't crash. Both work for the 32-bit Linux build (checked: `gcc -m32 -fsanitize=address,undefined`; Debian/Ubuntu `lib32asan8`, `lib32ubsan1`).
+
+**Edits**
+- CMake option `PKM_SANITIZE` (`address,undefined`), for the game and the tests.
+- Scripted playthroughs (`-i` input scripts with `--fast`, from a fixed save) as tests: boot and intro; continue, walk across maps, a wild battle, catching, the start menu (Pokédex, party, bag, summary), the Pokémon Center PC, saving. Kept as files under `platform/tests/scripts/`.
+- A CI job: Linux build with `PKM_SANITIZE`, running the tests and the scripted runs; any report fails it.
+
+**Things to sort out**
+- The game's own heap (`gHeap`, upstream's `malloc.c`) is one big array to ASan, so overruns inside it go unseen. Mark freed and unallocated blocks with ASan's poisoning interface (`ASAN_POISON_MEMORY_REGION`) in a sanitizer build (a patch to `malloc.c` or a host wrapper).
+- Signal handlers: the crash handler and the SIGALRM interrupt timer must coexist with ASan's (crash handler off in sanitizer builds; `ASAN_OPTIONS` for the alternate stack).
+- Upstream code that the GBA build relies on but is undefined in C (shifts ≥ 32, signed overflow; `-fwrapv` is already on): report, then decide per case between a patch and a suppression list.
+
+**Done when** the CI sanitizer job runs the scripted playthroughs clean, and a deliberately reintroduced known crash (e.g. reverting part of `pokedex.c.patch`) is reported with its file and line.
+
+### 19b — Upstream's test suite on the host (~2–4 days)
+
+`reference/test/` holds ~6,000 tests in 967 files: ~4,540 battle tests (single, double, multi, wild), ~600 battle AI tests, ~920 others (Pokémon data, bag, party menu, day care, overworld movement, compression, ...). They pass on upstream's GBA build, so any failure on the host is a port bug.
+
+Upstream runs them in mGBA (`make check`: a test ROM, `mgba-rom-test` and the parallel `mgba-rom-test-hydra`). The tests and the battle test framework (`test/test_runner_battle.c`, `include/test/`) are plain C over the game and can be reused as they are; the runner (`test/test_runner.c`, ~1,200 lines) is GBA-specific and needs a host version:
+
+| GBA runner | Host runner |
+|---|---|
+| prints through mGBA's debug registers (`0x4FFF600`) | stdout |
+| soft-resets between tests; state in a `.persistent` section that survives the reset | one fresh game state per test: a child process per test (fork on Linux; on Windows, re-run the executable with the test's index) |
+| timeouts from GBA timer 2 | the interrupt-timer approach (`irq_timer_*`) or the parent process killing the child |
+| ARM assembly to unwind a failed test | `setjmp`/`longjmp` |
+| tests spread over several emulator processes (Hydra) | split by index across processes, and across CI cores |
+| test list from `__start_tests`/`__stop_tests` | the same on Linux; `.data$`-style markers on Windows, as for EWRAM |
+
+**Things to sort out**
+- A separate test build (`TESTING=1`) of the game sources, beside the normal one.
+- The test framework overrides `RandomUniform` and friends; the PC build made them non-weak (`random.c.patch`, for MinGW). The test build needs them overridable again (weak on Linux; on Windows, e.g. the test runner's definitions linked ahead of `random.c`'s).
+- Tests that depend on GBA timing or hardware: expect some; mark them known-failing with a reason rather than letting them hide new failures.
+- Run time: thousands of battles; split across CI cores and keep an eye on the CI budget (maybe the full suite on `main` and a subset on pull requests).
+
+**Done when** the suite builds and runs on Linux and Windows (under Wine), CI runs it, and every failure is either fixed or listed as a known GBA/host difference with a reason.
+
+### 19c — Visit every map (~1 day)
+
+There are 939 maps (`reference/data/maps/`). A headless run that warps to each one in turn (through the game's own warp code: `SetWarpDestination` + the map loading callbacks), runs a few frames, and moves on, catching crashes in map loading, map scripts, and tileset/event data that playtesting would take weeks to reach. Under the sanitizers of 19a it also catches the silent memory errors.
+
+**Edits**
+- A test executable (or a `--visit-maps` debug flag) that steps through every map group and number, with a timeout per map.
+- In CI, with the sanitizer build.
+
+**Done when** every map loads and runs its first frames without a crash or sanitizer report, or is listed with a reason (maps that are unreachable in normal play may need special setup).
+
+**Status: not started — next.** Order: 19a, then 19b, then 19c. Each is its own pull request.
+
+---
+
 ## Effort estimate (single experienced C dev)
 
 | Phase | Effort | Risk |
@@ -526,6 +586,7 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 | 16    | 1–2 weeks | medium (optional) |
 | 17    | 1–2 weeks | low |
 | 18    | 3–5 weeks (1 week for the Linux/Windows shortcut) | medium — layout mismatches are silent unless the build-time checks are in place |
+| 19    | 4–6 days (19a ~1 day, 19b 2–4 days, 19c ~1 day) | medium — the upstream test runner depends on GBA specifics; some tests may need GBA-only behaviour |
 
 **Realistic total**: 3–5 months to a single-player build of the full Hoenn region. With multiplayer, plan on 4–6 months. The first playable milestone (walk around one map) is reachable in **~4–6 weeks** with focused work.
 
