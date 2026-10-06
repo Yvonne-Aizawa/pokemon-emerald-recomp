@@ -46,7 +46,30 @@
      return strcmp(pattern, string) == 0;
  }
  
-@@ -145,6 +169,14 @@
+@@ -82,6 +106,22 @@
+     return strstr(string, &pattern[1]) != NULL;
+ }
+ 
++#ifdef HOST_BUILD
++// PC port: whether STATE_ASSIGN_TEST skips the test (the filter). Replaying
++// the cost assignment after a crash must skip the same tests, or with a
++// filter the processes' costs drift apart and they run some tests twice and
++// others not at all (as on the GBA, with Hydra).
++static bool32 FilteredOut(const struct Test *test)
++{
++    if (gTestRunnerState.filterMode == TEST_FILTER_MODE_FILENAME_EXACT)
++        return !ExactMatch(gTestRunnerArgv, test->filename);
++    if (test->runner == &gAssumptionsRunner)
++        return FALSE;
++    return (gTestRunnerState.filterMode == TEST_FILTER_MODE_TEST_NAME_PREFIX && !PrefixMatch(gTestRunnerArgv, test->name))
++        || (gTestRunnerState.filterMode == TEST_FILTER_MODE_TEST_NAME_INFIX && !InfixMatch(gTestRunnerArgv, test->name));
++}
++#endif
++
+ enum
+ {
+     STATE_INIT,
+@@ -145,6 +185,14 @@
          const struct MemBlock *block = head;
          do
          {
@@ -61,7 +84,17 @@
              if (block->magic != MALLOC_SYSTEM_ID
               || !(EWRAM_START <= (uintptr_t)block->next && (uintptr_t)block->next < EWRAM_END)
               || (block->next <= block && block->next != head))
-@@ -577,8 +609,16 @@
+@@ -228,6 +276,9 @@
+             gTestRunnerState.test = __start_tests;
+             while ((uintptr_t)gTestRunnerState.test != gPersistentTestRunnerState.address)
+             {
++#ifdef HOST_BUILD
++                if (!FilteredOut(gTestRunnerState.test))
++#endif
+                 AssignCostToRunner();
+                 gTestRunnerState.test++;
+             }
+@@ -577,8 +628,16 @@
  {
      (void)data;
      TestInitConfigData();
@@ -78,7 +111,7 @@
      SeedRng(0);
  }
  
-@@ -701,6 +741,16 @@
+@@ -701,6 +760,16 @@
      .run = Assumptions_Run,
  };
  
@@ -95,7 +128,7 @@
  #define IRQ_LR (*(vu32 *)0x3007F9C)
  
  /* Returns to AgbMainLoop.
-@@ -719,6 +769,7 @@
+@@ -719,6 +788,7 @@
           bx r0\n\
           .pool");
  }
@@ -103,7 +136,7 @@
  
  static void ReinitCallbacks(void)
  {
-@@ -744,7 +795,13 @@
+@@ -744,7 +814,13 @@
              gTestRunnerState.result = TEST_RESULT_TIMEOUT;
              Test_MgbaPrintf("%s:%d: TIMEOUT", gTestRunnerState.test->filename, SourceLine(0));
              ReinitCallbacks();
@@ -117,7 +150,7 @@
          }
      }
  }
-@@ -802,9 +859,29 @@
+@@ -802,9 +878,29 @@
      JumpToAgbMainLoop();
  }
  
@@ -147,7 +180,7 @@
  
  static bool32 MgbaOpen_(void)
  {
-@@ -817,6 +894,7 @@
+@@ -817,6 +913,7 @@
      register u32 _exitCode asm("r0") = exitCode;
      asm("swi 0x3" :: "r" (_exitCode));
  }
@@ -155,7 +188,7 @@
  
  s32 Test_MgbaPrintf(const char *fmt, ...)
  {
-@@ -831,7 +909,7 @@
+@@ -831,7 +928,7 @@
      if (i == 255)
      {
          REG_DEBUG_STRING[i] = '\0';
@@ -164,7 +197,7 @@
          i = 0;
      }
      return i;
-@@ -1025,11 +1103,12 @@
+@@ -1025,11 +1122,12 @@
      }
      if (i != 0)
      {
@@ -178,7 +211,7 @@
  /* Entry point for the Debugging and Control System. Handles illegal
   * instructions, which are typically caused by branching to an invalid
   * address. */
-@@ -1055,6 +1134,7 @@
+@@ -1055,6 +1153,7 @@
      ReinitCallbacks();
      DACS_LR = ((uintptr_t)JumpToAgbMainLoop & ~1) + 4;
  }

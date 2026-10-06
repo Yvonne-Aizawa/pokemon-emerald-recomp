@@ -17,7 +17,7 @@ The game is playable from boot to the overworld and battles, with graphics, inpu
 | 16    | Not started (optional) |
 | 17    | Done (Linux and Windows builds, source only); on real Windows still to check: sound, `--console`/log file |
 | 18    | Not started (64-bit build; needed for macOS) |
-| 19    | In progress: 19a done (sanitizers + monkey runs in CI, heap checks included); 19b-1 done; 19b-3 in review (battle framework, all move-effect tests, sharded); **next**: 19b-2 (non-battle tests), 19b-4, 19b-5, then 19c (every map); 19a-2's checkpoint monkey runs on hold (upstream's battle tests cover battles faster) |
+| 19    | In progress: 19a done (sanitizers + monkey runs in CI, heap checks included); 19b-1 done; 19b-3 done (battle framework, all move-effect tests, sharded); CI split for upstream tests in review; **next**: 19b-2 (non-battle tests), 19b-4, 19b-5, then 19c (every map); 19a-2's checkpoint monkey runs on hold (upstream's battle tests cover battles faster) |
 
 
 ## Source under analysis
@@ -591,12 +591,13 @@ Upstream runs them in mGBA (`make check`: a test ROM, `mgba-rom-test` and the pa
   - A `PLAYER(...)` missing its `;` upstream (Beat Up, Shed Tail) closes a Pokémon twice; the second close is skipped, as its writes go to BIOS memory on the GBA.
   - Port bugs found, which crash the game too (`known_crashes.md`): battle animations played with a `NULL` argument (Disguise, Z-Moves, Shell Trap, ...), Hex/Venoshock against a statused target, Dynamaxing, a ball with capture odds 0 (division by zero).
   - `RandomUniform` and friends were already weak in the test build (`random.c.patch`).
-- *Sharding:* `pkmemerald-tests -j N` (default: the number of CPUs, at most 32) splits the tests as Hydra does, through upstream's own `gTestRunnerN`/`gTestRunnerI` cost balancing: N shards, each with its own child processes and restarts; one summary. All move-effect tests: 33 min on one core, under 5 min on 16. A pattern ending in `/` selects a directory (`test/battle/move_effect/`). CI's Linux job builds and runs them (`-DPKM_UPSTREAM_TESTS=ON`).
-- *CI time:* with the move-effect tests, the Linux (32-bit) job takes ~18 min (the Windows and sanitizer jobs ~5); the tests give no output until they finish. At the same rate, 19b-4's ~5,000 more tests would take that job to ~45–60 min, its timeout. So before adding them, in this order:
-  1. *A job of its own, split over machines:* an upstream-tests job with a matrix of e.g. 4 machines, each building `pkmemerald-tests` and running its share (`pkmemerald-tests --shard I/N`, to add: global shard I of N, its local `-j` shards within it; upstream allows 32 in all). Each machine builds its own copy: no artifacts or caches of build output (Phase 17). Run directly rather than through CTest, so the log shows results as they come; the Linux job's CTest step leaves them out.
-  2. *A path filter:* that job runs only when `reference/`, `platform/`, `CMakeLists.txt`, `cmake/`, `tools/` or the workflow change.
+- *Sharding:* `pkmemerald-tests -j N` (default: the number of CPUs, at most 32) splits the tests as Hydra does, through upstream's own `gTestRunnerN`/`gTestRunnerI` cost balancing: N shards, each with its own child processes and restarts; one summary. All move-effect tests: 33 min on one core, under 5 min on 16. A pattern ending in `/` selects a directory (`test/battle/move_effect/`). CI runs them in a workflow of its own (see *CI time*).
+- *CI time:* with the move-effect tests in it, the Linux (32-bit) job took ~18 min (the Windows and sanitizer jobs ~5), with no output until the tests finished; 19b-4's ~5,000 more tests would have taken it to its 60-minute timeout. So, before 19b-4:
+  1. *Done: a workflow of its own, split over machines* (`.github/workflows/upstream-tests.yml`): 4 machines, each building `pkmemerald-tests` and running its part of everything under `test/` with `pkmemerald-tests -j 4 --shard I/4` (machine I runs shards (I-1)·4 … I·4-1 of 16; every machine must use the same `-j`, and upstream allows 32 shards in all). Each machine builds its own copy: no artifacts or caches of build output (Phase 17). Run directly rather than through CTest, so the log shows results as they come; machine 1 also runs the runner's own CTest checks. The Linux job in `ci.yml` is back to the game alone. Locally, the 4 parts at once on 16 cores: under 5 min.
+  2. *Done: a path filter:* that workflow runs only when `reference`, `platform/`, `tools/`, `cmake/`, `CMakeLists.txt` or the workflow itself change.
   3. *Only if still too slow:* a subset on pull requests and the full suite on `main` (or nightly).
-- Next: 19b-2 (non-battle tests), then 19b-4 (the CI split above first, then the remaining battle and AI test directories).
+  - Found on the way, an upstream runner bug: after a crash, the restarted runner replays the cost assignment over every earlier test, ignoring the filter, so with a filter the shards' costs drift apart and some tests run twice, others not at all (also on the GBA with Hydra; here 149 tests ran twice). `test/test_runner.c.patch` replays it over the filtered tests only.
+- Next: 19b-2 (non-battle tests), then 19b-4 (the remaining battle and AI test directories; check the upstream workflow's time as they come in).
 
 ### 19c — Visit every map (~1 day)
 

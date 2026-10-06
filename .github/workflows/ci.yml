@@ -43,10 +43,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Also upstream's test suite (PLAN.md, Phase 19b): a second build
-          # of the game with TESTING=1; the battle tests use every core.
+          # Upstream's test suite has a workflow of its own
+          # (upstream-tests.yml), split over several machines.
           - name: Linux (32-bit)
-            cmake-flags: -DPKM_UPSTREAM_TESTS=ON
+            cmake-flags: ""
             packages: ""
           # AddressSanitizer + UndefinedBehaviorSanitizer (PLAN.md, Phase
           # 19a), including the game's own heap: the tests and the monkey
