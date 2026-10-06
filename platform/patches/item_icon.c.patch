@@ -1,0 +1,47 @@
+--- a/src/item_icon.c
++++ b/src/item_icon.c
+@@ -13,6 +13,24 @@
+ EWRAM_DATA u8 *gItemIconDecompressionBuffer = NULL;
+ EWRAM_DATA u8 *gItemIcon4x4Buffer = NULL;
+ 
++#ifdef HOST_BUILD
++// PC port: the functions below build the sprite's template in a temporary
++// heap buffer and free it right after creating the sprite, which keeps
++// pointing at it; destroying the sprite then reads its tile tag from freed
++// memory (upstream notes this in FreeSpriteTiles). Each item icon sprite now
++// keeps a copy of its template, in its sprite slot. Found with PKM_ASAN_HEAP.
++static struct SpriteTemplate sHostItemIconTemplates[MAX_SPRITES];
++
++static void KeepSpriteTemplate(u8 spriteId, const struct SpriteTemplate *spriteTemplate)
++{
++    if (spriteId < MAX_SPRITES)
++    {
++        sHostItemIconTemplates[spriteId] = *spriteTemplate;
++        gSprites[spriteId].template = &sHostItemIconTemplates[spriteId];
++    }
++}
++#endif
++
+ static const struct OamData sOamData_ItemIcon =
+ {
+     .y = 0,
+@@ -111,6 +129,9 @@
+         spriteId = CreateSpriteUnchecked(spriteTemplate, 0, 0, 0);
+ 
+         FreeItemIconTemporaryBuffers();
++#ifdef HOST_BUILD
++        KeepSpriteTemplate(spriteId, spriteTemplate);
++#endif
+         Free(spriteTemplate);
+ 
+         return spriteId;
+@@ -148,6 +169,9 @@
+         spriteId = CreateSprite(spriteTemplate, 0, 0, 0);
+ 
+         FreeItemIconTemporaryBuffers();
++#ifdef HOST_BUILD
++        KeepSpriteTemplate(spriteId, spriteTemplate);
++#endif
+         Free(spriteTemplate);
+ 
+         return spriteId;

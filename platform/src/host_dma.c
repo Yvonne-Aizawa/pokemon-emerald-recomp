@@ -16,6 +16,7 @@
  * with DMA_DEST_RELOAD, the destination) is reloaded from the registers.
  */
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "global.h"
@@ -118,4 +119,25 @@ void Host_DmaHBlank(void)
         if (!(cntH & DMA_REPEAT))
             dmaRegs[2] = control & ~((u32)CNT_ENABLE << 16);
     }
+}
+
+/* --------------------------------------------------------------------- */
+/* Snapshots for queued DMA3 copies whose source is freed                  */
+/* (dma3_manager.c.patch, malloc.c.patch): host memory, outside the game's */
+/* heap.                                                                  */
+/* --------------------------------------------------------------------- */
+
+void *Host_DmaSnapshot(const void *src, u32 size)
+{
+    void *copy = malloc(size);
+
+    if (copy == NULL)
+        abort();
+    memcpy(copy, src, size);
+    return copy;
+}
+
+void Host_DmaSnapshotFree(void *snapshot)
+{
+    free(snapshot);
 }

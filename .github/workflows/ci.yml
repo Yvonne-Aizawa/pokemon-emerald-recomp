@@ -47,7 +47,8 @@ jobs:
             cmake-flags: ""
             packages: ""
           # AddressSanitizer + UndefinedBehaviorSanitizer (PLAN.md, Phase
-          # 19a): the tests and the monkey runs fail on any report.
+          # 19a), including the game's own heap: the tests and the monkey
+          # runs fail on any report.
           - name: Linux sanitizers (ASan + UBSan)
             cmake-flags: -DPKM_SANITIZE=address,undefined
             packages: lib32asan8 lib32ubsan1

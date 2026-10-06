@@ -80,8 +80,8 @@ Finding memory errors (Linux): configure a separate build with
 reads through NULL or past an array where they happen, even when nothing
 crashes; the GBA tolerates those, so upstream has some (see
 `known_crashes.md`). `ctest` runs the tests and the monkey runs below under
-them; CI does the same. `PKM_ASAN_HEAP=1` also checks the game's own heap
-(more reports, mostly upstream reading freed heap memory).
+them; CI does the same. The game's own heap is checked too (freed and unused
+heap memory is off-limits); `PKM_ASAN_HEAP=0` turns that part off.
 
 Useful for checking changes in the running game:
 

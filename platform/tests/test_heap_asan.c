@@ -1,8 +1,8 @@
 /*
  * platform/tests/test_heap_asan.c
  *
- * With AddressSanitizer (PKM_SANITIZE=address...) and PKM_ASAN_HEAP=1, the
- * game's own heap marks its unused memory off-limits (malloc.c.patch), so
+ * With AddressSanitizer (PKM_SANITIZE=address...), the game's own heap marks
+ * its unused memory off-limits (malloc.c.patch), so
  * overruns and use-after-free inside gHeap are reported. Checks which memory
  * is marked; in other builds there is nothing to check.
  */
@@ -34,7 +34,7 @@ int main(void)
 #if PKM_ASAN
     u8 *a, *b, *c;
 
-    setenv("PKM_ASAN_HEAP", "1", 1);  /* before the first heap operation reads it */
+    unsetenv("PKM_ASAN_HEAP");  /* the default (on), whatever ctest's environment */
     InitHeap(gHeap, HEAP_SIZE);
     Check(__asan_address_is_poisoned(gHeap + HEAP_SIZE / 2), "a fresh heap is off-limits");
 

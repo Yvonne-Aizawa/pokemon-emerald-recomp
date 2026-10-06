@@ -38,7 +38,7 @@
  
      u32 shift0 = (x0 % 8) * 4, shift8 = 32 - shift0;
  
-@@ -801,8 +812,8 @@
+@@ -801,13 +812,18 @@
          mask = mask & 0x11111111;
          mask = mask * 0xF;
  
@@ -48,4 +48,15 @@
 +        u32 mask0 = mask << shift0, mask8 = ArmLsr(mask, shift8);
  
          u32 *alignedWindowTiles = (u32 *)((u8 *)alignedWindowTilesX + ((y / 8) * widthOffset) + ((y % 8) * 4));
+ 
+         alignedWindowTiles[0] = (alignedWindowTiles[0] & ~mask0) | pixels0;
+-        alignedWindowTiles[8] = (alignedWindowTiles[8] & ~mask8) | pixels8;
++        // PC port: only when the glyph reaches the next tile. A glyph ending
++        // at the window's right edge on its last row "updated" (read and
++        // wrote back unchanged) the 4 bytes past the window's buffer (found
++        // with PKM_ASAN_HEAP).
++        if (mask8 != 0)
++            alignedWindowTiles[8] = (alignedWindowTiles[8] & ~mask8) | pixels8;
+     }
+ }
  

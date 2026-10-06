@@ -87,10 +87,8 @@ __attribute__((constructor)) static void SnapshotEwramInit(void)
 }
 
 #if PKM_ASAN
-/* PKM_ASAN_HEAP=1 (environment): the game's heap marks its unused memory
- * off-limits to AddressSanitizer (malloc.c.patch). Off by default: it mostly
- * reports upstream reading freed heap memory, which behaves the same on the
- * GBA and the PC. */
+/* The game's heap marks its unused memory off-limits to AddressSanitizer
+ * (malloc.c.patch), unless PKM_ASAN_HEAP=0 is set in the environment. */
 bool32 Host_AsanHeapChecks(void)
 {
     static int sEnabled = -1;
@@ -99,7 +97,7 @@ bool32 Host_AsanHeapChecks(void)
     {
         const char *value = getenv("PKM_ASAN_HEAP");
 
-        sEnabled = value != NULL && value[0] != '\0' && strcmp(value, "0") != 0;
+        sEnabled = value == NULL || strcmp(value, "0") != 0;
     }
     return sEnabled;
 }
