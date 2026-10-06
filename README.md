@@ -2,7 +2,7 @@
 
 A PC port of [pokeemerald-expansion](https://github.com/rh-hideout/pokeemerald-expansion).
 
-Work in progress. See [PLAN.md](PLAN.md) for the phased port plan and current status.
+Work in progress. See [PLAN.md](PLAN.md) for the phased port plan and current status, and [CONTRIBUTING_PC.md](CONTRIBUTING_PC.md) for how the port is organised, how to change upstream code, and how to update to a newer upstream.
 
 **Source only.** The built game contains Nintendo's assets (graphics, music and text from `reference/`), so this project provides no binaries: build it yourself with the instructions below.
 

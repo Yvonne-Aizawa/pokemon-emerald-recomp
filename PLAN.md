@@ -1,8 +1,8 @@
 # Port Plan: `reference/` (pokeemerald-expansion) → PC game
 
-## Current status (2026-10-05)
+## Current status (2026-10-06)
 
-The game is playable from boot to the overworld and battles, with graphics, input, saves and sound, on Linux (32-bit build). Playtesting so far covers the intro (Birch's speech), the truck, Littleroot, Route 101, wild battles, catching and nicknaming, learning moves, the Pokémon Center PC and the Pokédex. Crashes found while playing are fixed with patches documented in [known_crashes.md](known_crashes.md); none are open.
+The game is playable from boot to the overworld and battles, with graphics, input, saves and sound, on Linux and Windows (32-bit builds; Windows cross-compiled with MinGW). It has a settings file (window, fullscreen, sound, keyboard layout), and CI builds and tests both platforms on every pull request. The project is source only: no builds are published. Playtesting so far covers the intro (Birch's speech), the truck, Littleroot, Route 101, wild battles, catching and nicknaming, learning moves, the Pokémon Center PC and the Pokédex. Crashes found while playing are fixed with patches documented in [known_crashes.md](known_crashes.md); none are open.
 
 | Phase | Status |
 |------:|--------|
@@ -15,7 +15,7 @@ The game is playable from boot to the overworld and battles, with graphics, inpu
 | 13    | Done (checked by ear and against mGBA) |
 | 14–15 | In progress: verified by playtesting so far, continuing as the game is played further |
 | 16    | Not started (optional) |
-| 17    | Not started: **next** (platform builds, source only) |
+| 17    | Done (Linux and Windows builds, source only); on real Windows still to check: sound, `--console`/log file |
 | 18    | Not started (64-bit build; needed for macOS) |
 
 
@@ -454,7 +454,7 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 
 **Done when** following `README.md` on a clean Linux and a clean Windows machine builds the game, which runs, saves, quits, relaunches and continues with all progress intact; and CI builds and tests both platforms.
 
-**Status: in progress.** Already in place: integer-scaled window (`-x SCALE`, default 3×), saves that survive crashes and restarts, crash reports (Linux), `README.md` build instructions (Linux).
+**Status: done.** Already in place: integer-scaled window (`-x SCALE`, default 3×), saves that survive crashes and restarts, crash reports (Linux), `README.md` build instructions (Linux).
 - *Done (Linux):* `RelWithDebInfo` is the default build type; CMake's `-DNDEBUG` is stripped so build types only change optimisation (the game's own `RELEASE` switch still picks its debug/release configuration). 32-bit builds use SSE2 maths (`-msse2 -mfpmath=sse`): with x87, the sound mix differed by ±1 LSB between Debug and Release; now both produce byte-identical audio and identical frames on scripted runs. The optimised build runs ~3× faster than `-O0`. `cmake --install` installs the binary and a `.desktop` launcher; `--target package` makes a local `.tar.gz`. Saves and crash reports default to the per-user data directory (`SDL_GetPrefPath`: `~/.local/share/pkmemerald/`, `%APPDATA%\pkmemerald\` on Windows), except that an existing `./saves/pkmemerald.sav` keeps being used.
 - *Done (Windows):* cross-compiled from Linux with MinGW-w64 i686 (`cmake/mingw-i686.cmake`, SDL2 from `tools/fetch_sdl2_mingw.sh`); `--target package` makes a `.zip` with `SDL2.dll`. All 10 tests pass under Wine (`test_crash_handler` is POSIX-only), `data-abi-matches-gba` included; a scripted continue-walk-Pokédex run gives the same final frame as Linux; paced play runs at 60 fps with WASAPI sound. What it took:
   - *Struct layout:* the Windows ABI aligns 64-bit integers to 8 and packs bitfields the Microsoft way. `u64`/`s64` are typedef'd 4-byte aligned (`gba/types.h`), and game code builds with `-mno-ms-bitfields` (not the SDL/Win32 files). `verify_data_abi.py` now reads layouts from DWARF (`objdump --dwarf=info`, no gdb) and handles COFF objects, so the check covers Windows.
@@ -467,7 +467,7 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 - *Done (Windows polish):* installed and packaged copies are stripped of debug info but keep the symbol table crash reports use (Windows `.exe` 103 → 39 MB, zip 20 MB; Linux 69 → 38 MB). The `.exe` is a windowed program: no console window; messages go to `pkmemerald-log.txt` in the save directory unless output is redirected, and `--console` attaches to the starting console or opens one (`console_win32.c`). CI uses `actions/checkout@v5`.
 - *Real Windows (2026-10-06):* boots and walks into a new map (so the interrupt timer works there). Not yet checked on real Windows: sound, `--console`/log file, fullscreen.
 - *Done (warnings):* `platform/` code (library sources, tests, entry point) builds with the warnings the project disables for upstream turned back on (unused variables/functions, implicit declarations, pointer/integer conversions), and with `-DPKM_WERROR=ON` (CI) as errors; off by default so a newer compiler can't stop a player's build. Upstream headers reach platform code via `-idirafter` + `-fno-canonical-system-headers`, so they count as system headers (their warnings don't count) while still resolving through the host include tree; checked: all 31 platform files include exactly the same headers as before. It found a real bug: the Windows EWRAM reset `memset` from zero-size marker arrays (undefined: the compiler may drop it), now done through pointers whose origin is hidden.
-- Remaining: `CONTRIBUTING_PC.md`.
+- *Done (docs):* `CONTRIBUTING_PC.md`: ground rules (source only, `reference/` untouched, PRs, crash log), where code goes, writing patches, updating upstream step by step, CI. `tools/check_patches.sh` dry-runs every patch against `reference/` and reports failing or inexact ones (first step after an upstream update).
 - Note: `-d DATA_DIR` is never read (the game data is compiled into the executable). The build is 32-bit only (the game assumes 32-bit pointers), so Linux and Windows builds need 32-bit SDL2; making it 64-bit is Phase 18.
 
 ---
