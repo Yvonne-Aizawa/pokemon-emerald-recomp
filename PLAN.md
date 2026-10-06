@@ -465,19 +465,27 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 - **411 pointer↔integer cast warnings in ~60 files**, normally hidden by `-Wno-pointer-to-int-cast`/`-Wno-int-to-pointer-cast` in `CMakeLists.txt`. Most are the bytecode readers (`contest_ai.c` 100, `scrcmd.c` 44); the rest store pointers in 32-bit task/sprite data (`SetWordTaskArg` and friends, `battle_factory_screen.c` 29). Platform code is clean apart from an implicit declaration of `MidiKeyToFreq` in `m4a_engine.c`.
 - **Two compile errors** (size asserts): `struct ListMenu` holds pointers and outgrows task data (`list_menu.c`); `struct RecordedBattleSave` grows because `u64` is 8-byte aligned on x86-64 but 4-byte on the GBA (`recorded_battle.c`). The latter also changes save-struct padding, which would break `.sav` compatibility.
 
+**Checks first** (they can land in the 32-bit build and must pass there before anything changes, so that the 64-bit work fails at build or `ctest` time rather than in play):
+- **asm layout asserts** (the Linux kernel's `asm-offsets.c` trick): a host C file compiled before the asm emits `sizeof`/`offsetof` of every struct the asm fills (`MapHeader`, `MapEvents`, object/warp/coord/bg event templates, connections, `ToneData`, `SongHeader`, …) into a generated `.inc`. Host versions of the `asm/macros/*.inc` macros end each entry with `.if (. - start) != SIZEOF_<Struct>` … `.error`, so a 4-vs-8-byte mismatch stops the build at the offending file and line.
+- **Pointer warnings as errors**: once the cast sites are fixed, replace `-Wno-pointer-to-int-cast`/`-Wno-int-to-pointer-cast` with `-Werror=` for both (and for `int-conversion`), so new upstream code that assumes 32-bit pointers fails to compile.
+- **Data-walk test** (`ctest`): walk every map header, event list, connection, voicegroup, song header and script pointer table (battle, anim, contest AI, field effect, mystery event), and check that each pointer lands inside the game's data. This covers every map without playing it.
+- **Debug decode check**: the self-relative bytecode decode helper asserts (in debug builds) that the result lands inside the game's data and reports the script and offset; a reader that was not converted gives a wild pointer and crashes at once.
+- **Sanitizers**: run `ctest` and a scripted boot of the 64-bit build under AddressSanitizer and UBSan (out-of-bounds and misaligned reads).
+- Still invisible to all of these: pointers copied as raw bytes (`memcpy`) or held in a `u32` inside a union. Rare; playtesting covers them.
+
 **Edits**
 - `platform/include/gba/types.h`: `typedef uint64_t u64 __attribute__((aligned(4)))` (and `s64`), so save structs keep the GBA layout. Add a test that the save block sizes match the 32-bit build.
 - Struct tables: host versions of the `asm/macros/*.inc` macros (map, events, voicegroups, song headers, pointer tables) that emit pointer-sized, C-aligned slots (`.8byte` + `.p2align 3`), applied through `tools/host_assemble.sh`; `reference/` stays unmodified. Check each against its C struct with a size/offset test.
 - Bytecode pointers: keep them 4 bytes but self-relative (`.4byte label - .`), and patch the readers to decode `slot + (s32)value`: `script.c`, `scrcmd.c`, battle script commands, `battle_anim.c`, `contest_ai.c`, field effect scripts, movement, `mystery_event_script.c`, and the song sequencer in `m4a_engine.c`. (Widening to 8 bytes would mean finding every place that skips an operand by 4.)
 - Pointers in task/sprite data: patch the `SetWordTaskArg`-style sites (or add a host handle table), and make `ListMenu` fit.
-- Fix every remaining cast warning, then drop the four `-Wno-*` pointer/int flags so new ones show up.
+- Fix every remaining cast warning, then turn the pointer/int flags into errors (see checks above).
 - CMake: 64-bit SDL2 (`libsdl2-dev`), and flip `PKM_HOST_32BIT` to default OFF once 64-bit passes playtesting.
 
 **Shortcut (Linux/Windows only, not macOS):** linking without PIE (`-no-pie`; on Windows a low image base) keeps all static data — including `gHeap` and the emulated RAM — below 4 GB, so 4-byte bytecode pointers and the casts round-trip unchanged. Only the struct tables and the two compile errors need fixing (~1 week). It doesn't work on macOS, where 64-bit programs always load above 4 GB and arm64 requires PIE.
 
-**Done when** the 64-bit build passes `ctest`, a save from the 32-bit build loads and plays on it (and vice versa), and the Phase 14–15 playtest route (intro, Littleroot, Route 101, battles, catching, PC, Pokédex, music) behaves identically.
+**Done when** the 64-bit build compiles with the layout asserts and pointer-warning errors on, passes `ctest` (including the data-walk test) clean under ASan/UBSan, a save from the 32-bit build loads and plays on it (and vice versa), and the Phase 14–15 playtest route (intro, Littleroot, Route 101, battles, catching, PC, Pokédex, music) behaves identically.
 
-**Status: not started.** Do after Phase 17 unless macOS becomes a target sooner. Expect most failures as wrong data at runtime, not compile errors.
+**Status: not started.** Do after Phase 17 unless macOS becomes a target sooner. Without the checks above, most failures would show up as wrong data at runtime; with them, the build and `ctest` should catch nearly all of them.
 
 ---
 
@@ -499,7 +507,7 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 | 15    | 2–3 weeks | medium |
 | 16    | 1–2 weeks | medium (optional) |
 | 17    | 1–2 weeks | low |
-| 18    | 3–5 weeks (1 week for the Linux/Windows shortcut) | medium — layout mismatches fail silently at runtime |
+| 18    | 3–5 weeks (1 week for the Linux/Windows shortcut) | medium — layout mismatches are silent unless the build-time checks are in place |
 
 **Realistic total**: 3–5 months to a single-player build of the full Hoenn region. With multiplayer, plan on 4–6 months. The first playable milestone (walk around one map) is reachable in **~4–6 weeks** with focused work.
 
