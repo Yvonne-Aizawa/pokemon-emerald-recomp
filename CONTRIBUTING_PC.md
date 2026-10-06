@@ -16,7 +16,8 @@ and status are in [PLAN.md](PLAN.md).
   bytes. Generated `.sav` files stay in build directories and must never be
   uploaded as CI artifacts or cached. Local `test-saves/` remains ignored.
 - **`reference/` is never edited.** It is upstream
-  ([pokeemerald-expansion](https://github.com/rh-hideout/pokeemerald-expansion))
+  ([our fork](https://github.com/Yvonne-Aizawa/pokeemerald-expansion) of
+  [pokeemerald-expansion](https://github.com/rh-hideout/pokeemerald-expansion))
   as a git submodule. Changes to upstream code go in `platform/patches/`
   (below), applied to copies at build time.
 - **Changes go through pull requests**, not straight to `main`; CI must pass.
