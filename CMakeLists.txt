@@ -84,7 +84,8 @@ endif()
 
 # The codebase was written for `-Wall -Wextra` under arm-none-eabi-gcc. We
 # follow suit on the host, but suppress the warning floods that come from
-# deliberately-unused-portable code (most of it, for now).
+# upstream's code (which we don't edit). Our own code (platform/) turns the
+# serious ones back on: PLATFORM_WARNINGS below.
 add_compile_options(
     -Wall
     -Wextra
@@ -98,6 +99,24 @@ add_compile_options(
     -Wno-pointer-to-int-cast
     -Wno-int-to-pointer-cast
 )
+
+# platform/ (the library's own sources, the tests, the entry point): all of
+# the above, and errors with PKM_WERROR (on in CI). Off by default, so a
+# newer compiler's new warnings don't stop anyone building the game.
+option(PKM_WERROR "Treat warnings in platform/ code as errors" OFF)
+set(PLATFORM_WARNINGS
+    -Wunused-variable
+    -Wunused-function
+    -Wunused-but-set-variable
+    -Wimplicit-function-declaration
+    -Wincompatible-pointer-types
+    -Wint-conversion
+    -Wpointer-to-int-cast
+    -Wint-to-pointer-cast
+)
+if(PKM_WERROR)
+    list(APPEND PLATFORM_WARNINGS -Werror)
+endif()
 
 #-------------------------------------------------------------------------------
 # Layout
@@ -401,12 +420,22 @@ target_include_directories(pkmemerald-core
         ${PLATFORM_INC}
 )
 
-# Game headers are reached through the host include tree (see above), as
-# quoted includes only: reference/include/strings.h must not shadow libc's
-# <strings.h>.
+# Game headers are reached through the host include tree (see above). As an
+# -idirafter directory it is searched after the system headers, so
+# reference/include/strings.h can't shadow libc's <strings.h>, and its headers
+# count as system headers: upstream's warnings don't land in platform/ code
+# (PLATFORM_WARNINGS). Game headers include each other from their own
+# directory first, so only a header platform/ includes directly could be
+# shadowed by a libc header of the same name (none is; it would fail to
+# compile, not misbehave). -fno-canonical-system-headers: GCC otherwise
+# resolves system headers' symlinks, which would bypass the host include
+# tree (global.h would pick up upstream's gba/ headers instead of ours).
 target_compile_options(pkmemerald-core
     PUBLIC
-        -iquote "${HOST_INC}"
+        -idirafter "${HOST_INC}"
+        -fno-canonical-system-headers
+    PRIVATE
+        ${PLATFORM_WARNINGS}
 )
 
 find_package(Threads REQUIRED)
@@ -443,6 +472,7 @@ foreach(TEST_SRC ${PLATFORM_TEST_SOURCES})
     get_filename_component(TEST_NAME "${TEST_SRC}" NAME_WE)
     add_executable(${TEST_NAME} "${TEST_SRC}")
     target_link_libraries(${TEST_NAME} PRIVATE pkmemerald-core m)
+    target_compile_options(${TEST_NAME} PRIVATE ${PLATFORM_WARNINGS})
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
     set_tests_properties(${TEST_NAME} PROPERTIES ENVIRONMENT "${HEADLESS_TEST_ENV}")
 endforeach()
@@ -451,6 +481,7 @@ endforeach()
 # Target: pkmemerald (executable)
 #-------------------------------------------------------------------------------
 add_executable(pkmemerald "${HOST_MAIN_SOURCE}")
+target_compile_options(pkmemerald PRIVATE ${PLATFORM_WARNINGS})
 # Windows: a windowed program, so no console window opens beside the game;
 # --console shows one (console_win32.c).
 set_target_properties(pkmemerald PROPERTIES WIN32_EXECUTABLE TRUE)

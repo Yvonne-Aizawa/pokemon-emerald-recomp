@@ -75,10 +75,10 @@ static void check_reg_macros(void)
     if (REG_BG0CNT  != 0x5678) (void)0;
 }
 
-/* Sanity: the section attributes are no-ops. */
-static IWRAM_DATA  uint8_t  in_iwram[4];
-static EWRAM_DATA  uint8_t  in_ewram[4];
-static COMMON_DATA uint32_t in_common;
+/* Sanity: the section attributes compile (the variables are never used). */
+static IWRAM_DATA  UNUSED uint8_t  in_iwram[4];
+static EWRAM_DATA  UNUSED uint8_t  in_ewram[4];
+static COMMON_DATA UNUSED uint32_t in_common;
 
 /* Sanity: the GBA bitfield struct layouts match. */
 static void check_struct_layouts(void)

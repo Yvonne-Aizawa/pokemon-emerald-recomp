@@ -31,6 +31,10 @@
 #include "gba/m4a_internal.h"
 #include "platform/host_audio.h"
 
+/* reference/src/m4a.c; no upstream header declares it (the GBA assembly
+ * calls it directly). */
+u32 MidiKeyToFreq(struct WaveData *wav, u8 key, u8 fineAdjust);
+
 extern const u8 gClockTable[];
 extern const s8 gDeltaEncodingTable[];
 extern void *const gMPlayJumpTableTemplate[];

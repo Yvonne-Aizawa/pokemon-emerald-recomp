@@ -42,11 +42,24 @@
 /* --------------------------------------------------------------------- */
 
 #ifdef _WIN32
-#define SECTION_MARKERS(name)                                                         \
-    __attribute__((used, section(".data$" #name "_a"))) static char __start_##name[0]; \
-    __attribute__((used, section(".data$" #name "_z"))) static char __stop_##name[0];
+/* The markers are empty objects, so to the compiler a memset from one of
+ * them writes out of bounds (undefined: it may drop the call). Their
+ * addresses are passed through an empty asm, which hides where the pointer
+ * came from. */
+static char *SectionBound(char *marker)
+{
+    __asm__("" : "+r"(marker));
+    return marker;
+}
+#define SECTION_MARKERS(name)                                                              \
+    __attribute__((used, section(".data$" #name "_a"))) static char sStartMarker_##name[0]; \
+    __attribute__((used, section(".data$" #name "_z"))) static char sStopMarker_##name[0];
 SECTION_MARKERS(ewram_data)
 SECTION_MARKERS(ewram_init)
+#define __start_ewram_data SectionBound(sStartMarker_ewram_data)
+#define __stop_ewram_data  SectionBound(sStopMarker_ewram_data)
+#define __start_ewram_init SectionBound(sStartMarker_ewram_init)
+#define __stop_ewram_init  SectionBound(sStopMarker_ewram_init)
 #else
 extern char __start_ewram_data[] __attribute__((weak));
 extern char __stop_ewram_data[] __attribute__((weak));

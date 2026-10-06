@@ -68,7 +68,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends $COMMON_PACKAGES gcc-multilib libsdl2-dev:i386
 
       - name: Configure
-        run: cmake -S . -B build
+        run: cmake -S . -B build -DPKM_WERROR=ON
 
       - name: Build
         run: cmake --build build -j"$(nproc)"
@@ -125,7 +125,7 @@ jobs:
         run: tools/fetch_sdl2_mingw.sh
 
       - name: Configure
-        run: cmake -S . -B build-win --toolchain cmake/mingw-i686.cmake
+        run: cmake -S . -B build-win --toolchain cmake/mingw-i686.cmake -DPKM_WERROR=ON
 
       - name: Build
         run: cmake --build build-win -j"$(nproc)"
