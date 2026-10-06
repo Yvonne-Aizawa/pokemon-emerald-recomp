@@ -554,7 +554,7 @@ void HostAudio_SoundFrame(const int8_t *right, const int8_t *left, int count, in
     }
     if (buffered + frames > MAX_BUFFERED)
         __atomic_fetch_add(&sDroppedFrames,
-                           buffered >= MAX_BUFFERED ? frames : buffered + frames - MAX_BUFFERED,
+                           buffered >= MAX_BUFFERED ? (uint32_t)frames : buffered + frames - MAX_BUFFERED,
                            __ATOMIC_RELAXED);
     if (buffered < MAX_BUFFERED)
     {

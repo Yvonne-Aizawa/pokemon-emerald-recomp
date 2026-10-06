@@ -31,7 +31,7 @@ cmake -S . -B build
 cmake --build build -j
 ```
 
-This makes an optimised build with debug symbols (`RelWithDebInfo`); add `-DCMAKE_BUILD_TYPE=Debug` to the first `cmake` for an unoptimised one.
+This makes an optimised build with debug symbols (`RelWithDebInfo`); add `-DCMAKE_BUILD_TYPE=Debug` to the first `cmake` for an unoptimised one. When changing the port's own code (`platform/`), add `-DPKM_WERROR=ON`: warnings there are then errors, as in CI. (Upstream's code in `reference/` keeps its warnings; we don't edit it.)
 
 The first build also builds upstream's tools and converts its graphics into `reference/build/` (ignored by upstream's `.gitignore`). After changing upstream graphics or data, re-run that step with:
 

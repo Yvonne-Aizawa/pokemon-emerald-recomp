@@ -249,12 +249,29 @@ static const char *ExceptionName(DWORD code)
     }
 }
 
+/* This thread's stack: the TIB's StackLimit and StackBase. On 32-bit x86
+ * read directly from fs:, as NtCurrentTeb() does: MinGW's NtCurrentTeb()
+ * trips GCC's -Warray-bounds. */
+static void StackBounds(uintptr_t *low, uintptr_t *high)
+{
+#if defined(__i386__)
+    __asm__("movl %%fs:8, %0" : "=r"(*low));
+    __asm__("movl %%fs:4, %0" : "=r"(*high));
+#else
+    NT_TIB *tib = (NT_TIB *)NtCurrentTeb();
+
+    *low = (uintptr_t)tib->StackLimit;
+    *high = (uintptr_t)tib->StackBase;
+#endif
+}
+
 /* Frame pointer chain: [ebp] = caller's ebp, [ebp+4] = return address. */
 static void PutCallStack(uintptr_t pc, uintptr_t fp)
 {
-    NT_TIB *tib = (NT_TIB *)NtCurrentTeb();
-    uintptr_t stackLow = (uintptr_t)tib->StackLimit, stackHigh = (uintptr_t)tib->StackBase;
+    uintptr_t stackLow, stackHigh;
     int i;
+
+    StackBounds(&stackLow, &stackHigh);
 
     Put("call stack:\n");
     for (i = 0; i < MAX_FRAMES && pc != 0; i++)

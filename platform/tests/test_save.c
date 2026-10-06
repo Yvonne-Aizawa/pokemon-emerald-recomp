@@ -64,7 +64,8 @@ static char *mkdtemp(char *template)
 int main(void)
 {
     char dir[256] = "/tmp/pkmemerald-test-save-XXXXXX";
-    char path[256], tmpPath[256];
+    /* Room for the directory (256) plus the longest suffix. */
+    char path[512], tmpPath[512 + 8];
     static u8 sector[0x1000], readBack[0x1000];
     FILE *f;
     int i;

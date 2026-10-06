@@ -35,8 +35,8 @@
 #define LAYER_OBJ 4
 #define LAYER_BD  5
 
-/* A line-buffer pixel: BGR555 colour, or TRANSPARENT. */
-#define TRANSPARENT 0x8000
+/* A line-buffer pixel: BGR555 colour, or PIXEL_TRANSPARENT. */
+#define PIXEL_TRANSPARENT 0x8000
 
 /* Window/blend control bits per pixel: BG0-3, OBJ, colour effect. */
 #define WINDOW_ALL 0x3F
@@ -165,20 +165,20 @@ static void DrawTextBgLine(int bg, int y, u16 *out)
     u32 height = (cnt & 0x8000) ? 512 : 256;
     struct Mosaic mosaic = GetMosaic();
     bool32 useMosaic = cnt & BGCNT_MOSAIC;
-    u32 srcY = useMosaic ? y - y % mosaic.bgV : (u32)y;
+    u32 srcY = useMosaic ? (u32)(y - y % mosaic.bgV) : (u32)y;
     u32 yy = (srcY + vofs) & (height - 1);
     int x;
 
     for (x = 0; x < WIDTH; x++)
     {
-        u32 srcX = useMosaic ? x - x % mosaic.bgH : (u32)x;
+        u32 srcX = useMosaic ? (u32)(x - x % mosaic.bgH) : (u32)x;
         u32 xx = (srcX + hofs) & (width - 1);
         u32 block = (xx >> 8) + (yy >> 8) * (width >> 8);
         u32 entryAddr = screenBase + block * 0x800 + ((yy & 0xFF) >> 3) * 64 + ((xx & 0xFF) >> 3) * 2;
         u16 entry, tile;
         u32 px, py, addr, index;
 
-        out[x] = TRANSPARENT;
+        out[x] = PIXEL_TRANSPARENT;
         if (entryAddr + 1 >= BG_VRAM_SIZE)
             continue;
         entry = Vram16(entryAddr);
@@ -243,7 +243,7 @@ static void DrawAffineBgLine(int bg, int y, u16 *out)
         s32 tx, ty;
         u32 mapAddr, addr, index;
 
-        out[x] = TRANSPARENT;
+        out[x] = PIXEL_TRANSPARENT;
         AffineCoords(bg, y, x, &tx, &ty);
         if (wrap)
         {
@@ -278,7 +278,7 @@ static void DrawBitmapBgLine(int mode, int y, u16 *out)
     {
         s32 tx, ty;
 
-        out[x] = TRANSPARENT;
+        out[x] = PIXEL_TRANSPARENT;
         AffineCoords(2, y, x, &tx, &ty);
         if (tx < 0 || ty < 0 || tx >= w || ty >= h)
             continue;
@@ -308,7 +308,7 @@ static void DrawBitmapBgLine(int mode, int y, u16 *out)
 /* One line of sprite output. */
 struct ObjLine
 {
-    u16 color[WIDTH];   /* TRANSPARENT where no sprite pixel */
+    u16 color[WIDTH];   /* PIXEL_TRANSPARENT where no sprite pixel */
     u8 priority[WIDTH];
     bool8 semi[WIDTH];
     bool8 window[WIDTH]; /* covered by an OBJ-window sprite */
@@ -356,7 +356,7 @@ static void DrawObjLine(int y, struct ObjLine *line)
 
     for (x = 0; x < WIDTH; x++)
     {
-        line->color[x] = TRANSPARENT;
+        line->color[x] = PIXEL_TRANSPARENT;
         line->priority[x] = 4;
         line->semi[x] = FALSE;
         line->window[x] = FALSE;
@@ -457,7 +457,7 @@ static void DrawObjLine(int y, struct ObjLine *line)
             }
             /* Among sprites, a pixel is only taken over by a strictly better
              * priority, so on ties the lower OAM index stays in front. */
-            if (line->color[sx] != TRANSPARENT && priority >= line->priority[sx])
+            if (line->color[sx] != PIXEL_TRANSPARENT && priority >= line->priority[sx])
                 continue;
             line->color[sx] = ObjPalette(is8bpp ? index : palBank + index);
             line->priority[sx] = priority;
@@ -616,7 +616,7 @@ static void RenderLine(int y, uint32_t *out)
         u16 color[2] = { backdrop, backdrop };
         int layer[2] = { LAYER_BD, LAYER_BD };
         int found = 0;
-        bool32 objPending = sObjLine.color[x] != TRANSPARENT && (window[x] & (1 << LAYER_OBJ));
+        bool32 objPending = sObjLine.color[x] != PIXEL_TRANSPARENT && (window[x] & (1 << LAYER_OBJ));
         bool32 topIsSemiObj = FALSE;
         u16 result;
 
@@ -640,7 +640,7 @@ static void RenderLine(int y, uint32_t *out)
             if (i == count)
                 break;
             bg = order[i];
-            if (!(window[x] & (1 << bg)) || sBgLine[bg][x] == TRANSPARENT)
+            if (!(window[x] & (1 << bg)) || sBgLine[bg][x] == PIXEL_TRANSPARENT)
                 continue;
             color[found] = sBgLine[bg][x];
             layer[found] = LAYER_BG0 + bg;
