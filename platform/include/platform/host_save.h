@@ -30,6 +30,11 @@ bool Host_SaveOpen(const char *saveDir);
  * once per frame and at exit. Returns false if writing failed. */
 bool Host_SaveFlush(void);
 
+/* Save the game as the start menu's SAVE does, and write the file (for
+ * generating test saves: host_main.c --make-save). Only when the player is
+ * free in the overworld; returns false otherwise or if saving failed. */
+bool Host_SaveGameNow(void);
+
 #ifdef __cplusplus
 }
 #endif

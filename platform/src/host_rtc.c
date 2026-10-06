@@ -11,13 +11,21 @@
  * player's clock as an offset from the RTC), so the PC clock maps straight
  * through. Values are BCD, as the chip reports them; the year counts from
  * 2000. The chip always appears present, powered and in 24-hour mode.
+ *
+ * PKM_FIXED_TIME="YYYY-MM-DD HH:MM:SS" (environment), for reproducible test
+ * runs: the clock starts at that time and advances with game frames (60 per
+ * second) instead of following the PC's clock.
  */
 
 /* libc first: global.h defines function-like macros that clash with it. */
+#include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 
 #include "global.h"
 #include "siirtc.h"
+
+#include "platform/main_loop.h"
 
 static u8 sStatus = SIIRTCINFO_24HOUR;
 
@@ -26,16 +34,62 @@ static u8 ToBcd(int value)
     return (u8)(((value / 10) % 10) << 4 | (value % 10));
 }
 
+/* PKM_FIXED_TIME, as seconds (UTC), or -1 if it isn't set. */
+static time_t FixedTimeBase(void)
+{
+    static int sParsed;
+    static time_t sBase = -1;
+
+    if (!sParsed)
+    {
+        const char *value = getenv("PKM_FIXED_TIME");
+        struct tm tm = {0};
+
+        sParsed = 1;
+        if (value != NULL && *value != '\0')
+        {
+            if (sscanf(value, "%d-%d-%d %d:%d:%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday,
+                       &tm.tm_hour, &tm.tm_min, &tm.tm_sec) != 6)
+            {
+                fprintf(stderr, "rtc: PKM_FIXED_TIME should be \"YYYY-MM-DD HH:MM:SS\", not \"%s\"; using the PC's clock\n", value);
+                return -1;
+            }
+            tm.tm_year -= 1900;
+            tm.tm_mon -= 1;
+#ifdef _WIN32
+            sBase = _mkgmtime(&tm);
+#else
+            sBase = timegm(&tm);
+#endif
+        }
+    }
+    return sBase;
+}
+
 static void ReadLocalTime(struct SiiRtcInfo *rtc)
 {
-    time_t now = time(NULL);
+    time_t base = FixedTimeBase();
+    time_t now;
     struct tm tm;
 
+    if (base != -1)
+    {
+        now = base + Host_GetFrameCount() / 60;
 #ifdef _WIN32
-    localtime_s(&tm, &now);
+        gmtime_s(&tm, &now);
 #else
-    localtime_r(&now, &tm);
+        gmtime_r(&now, &tm);
 #endif
+    }
+    else
+    {
+        now = time(NULL);
+#ifdef _WIN32
+        localtime_s(&tm, &now);
+#else
+        localtime_r(&now, &tm);
+#endif
+    }
     rtc->year = ToBcd((tm.tm_year + 1900 - 2000) % 100);
     rtc->month = ToBcd(tm.tm_mon + 1);
     rtc->day = ToBcd(tm.tm_mday);
