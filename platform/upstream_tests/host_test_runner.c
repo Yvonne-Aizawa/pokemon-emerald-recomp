@@ -21,8 +21,12 @@
  *    process I (gTestRunnerI/gTestRunnerN), each with its own children and
  *    restarts; the summary adds them up.
  *
- * Usage: pkmemerald-tests [-j N] [PATTERN]
+ *  - --shard splits them further across machines (CI): machine I of M runs
+ *    shards (I-1)*N to I*N-1 of M*N, so every machine must use the same -j.
+ *
+ * Usage: pkmemerald-tests [-j N] [--shard I/M] [PATTERN]
  *   -j N: shards to run in parallel (1-32; default: the number of CPUs).
+ *   --shard I/M: run part I (1-M) of M; needs -j, and M*N at most 32.
  *   PATTERN as upstream's `make check TESTS=...`: a test file
  *   ("test/fpmath.c"), a test name prefix, or "*infix"; or a directory
  *   ("test/battle/move_effect/"). Default: all.
@@ -386,15 +390,19 @@ static int RunShard(void)
 static void Usage(FILE *out, const char *argv0)
 {
     fprintf(out,
-            "usage: %s [-j N] [PATTERN]\n"
+            "usage: %s [-j N] [--shard I/M] [PATTERN]\n"
             "  -j N: shards to run in parallel (1-%d; default: the number of CPUs)\n"
+            "  --shard I/M: run part I (1-M) of M, e.g. one per CI machine; needs -j\n"
+            "           (the same on every machine), and M*N at most %d\n"
             "  PATTERN: a test file (test/fpmath.c), a directory (test/battle/), a test\n"
-            "           name prefix, or *infix\n", argv0, MAX_SHARDS);
+            "           name prefix, or *infix\n", argv0, MAX_SHARDS, MAX_SHARDS);
 }
 
 int main(int argc, char **argv)
 {
     long shards = sysconf(_SC_NPROCESSORS_ONLN);
+    unsigned long part = 1, parts = 1;  /* --shard */
+    bool shardsGiven = false;
     int argi, i, result = 0;
 
     for (argi = 1; argi < argc; argi++)
@@ -414,6 +422,19 @@ int main(int argc, char **argv)
                 fprintf(stderr, "%s: invalid -j '%s' (1-%d)\n", argv[0], argv[argi], MAX_SHARDS);
                 return 2;
             }
+            shardsGiven = true;
+            continue;
+        }
+        if (strcmp(argv[argi], "--shard") == 0 && argi + 1 < argc)
+        {
+            char extra;
+
+            if (sscanf(argv[++argi], "%lu/%lu%c", &part, &parts, &extra) != 2
+             || parts < 1 || parts > MAX_SHARDS || part < 1 || part > parts)
+            {
+                fprintf(stderr, "%s: invalid --shard '%s' (I/M, 1 <= I <= M)\n", argv[0], argv[argi]);
+                return 2;
+            }
             continue;
         }
         if (argv[argi][0] == '-' || gTestRunnerArgv[0] != '\0')
@@ -429,7 +450,14 @@ int main(int argc, char **argv)
         shards = MAX_SHARDS;
     if (getenv("PKM_TESTS_NO_FORK") != NULL)
         shards = 1;
-    gTestRunnerN = (uint8_t)shards;
+    if (parts > 1 && (!shardsGiven || parts * (unsigned long)shards > MAX_SHARDS))
+    {
+        fprintf(stderr, "%s: --shard needs -j, with parts * -j at most %d\n", argv[0], MAX_SHARDS);
+        return 2;
+    }
+    /* This machine runs shards first .. first + shards - 1 of all of them. */
+    gTestRunnerN = (uint8_t)(parts * (unsigned long)shards);
+    gTestRunnerI = (uint8_t)((part - 1) * (unsigned long)shards);
 
     setenv("SDL_VIDEODRIVER", "dummy", 0);
     setenv("SDL_AUDIODRIVER", "dummy", 0);
@@ -466,7 +494,7 @@ int main(int argc, char **argv)
             }
             if (pid == 0)
             {
-                gTestRunnerI = (uint8_t)i;
+                gTestRunnerI += (uint8_t)i;
                 sShared = &sShards[i];
                 _exit(RunShard());
             }
