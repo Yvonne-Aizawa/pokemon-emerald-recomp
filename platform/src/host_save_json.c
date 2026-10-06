@@ -26,6 +26,7 @@
 
 #include "platform/host_json.h"
 #include "platform/host_save_json.h"
+#include "platform/host_save_layout.h"
 
 struct SaveSymbol { unsigned id; const char *name; };
 #define SAVE_SYMBOLS_CHARMAP
@@ -463,6 +464,180 @@ static bool SymbolId(const struct SaveSymbol *symbols, size_t count, const char 
 }
 
 /* --------------------------------------------------------------------- */
+/* Save block fields (host_save_layout.h)                                */
+/*                                                                       */
+/* Each block is an object of its fields by name: numbers, objects for   */
+/* structs, arrays for arrays, and unions as arrays of their bytes. A    */
+/* field that is 0 is left out, and so are trailing array entries that   */
+/* are 0 (an empty struct in the middle of an array is {}); reading      */
+/* starts from all zeros. Padding isn't kept (the game never reads it).  */
+/* --------------------------------------------------------------------- */
+
+/* Fields that game.player, game.flags and game.vars hold in readable form. */
+static const struct
+{
+    u16 type;
+    const char *field;
+    const char *readable;
+} sReadableFields[] = {
+    { HOST_SAVE_TYPE_SAVE_BLOCK_2, "playerName",      "game.player.name" },
+    { HOST_SAVE_TYPE_SAVE_BLOCK_2, "playerGender",    "game.player.gender" },
+    { HOST_SAVE_TYPE_SAVE_BLOCK_2, "playerTrainerId", "game.player.trainer_id" },
+    { HOST_SAVE_TYPE_SAVE_BLOCK_2, "playTimeHours",   "game.player.play_time" },
+    { HOST_SAVE_TYPE_SAVE_BLOCK_2, "playTimeMinutes", "game.player.play_time" },
+    { HOST_SAVE_TYPE_SAVE_BLOCK_2, "playTimeSeconds", "game.player.play_time" },
+    { HOST_SAVE_TYPE_SAVE_BLOCK_2, "playTimeVBlanks", "game.player.play_time" },
+    { HOST_SAVE_TYPE_SAVE_BLOCK_1, "money",           "game.player.money" },
+    { HOST_SAVE_TYPE_SAVE_BLOCK_1, "coins",           "game.player.coins" },
+    { HOST_SAVE_TYPE_SAVE_BLOCK_1, "flags",           "game.flags" },
+    { HOST_SAVE_TYPE_SAVE_BLOCK_1, "vars",            "game.vars" },
+};
+
+/* Where `field` of `type` is shown instead, or NULL. */
+static const char *ReadableField(u16 type, const char *field)
+{
+    size_t i;
+
+    for (i = 0; i < ARRAY_COUNT(sReadableFields); i++)
+        if (sReadableFields[i].type == type && strcmp(sReadableFields[i].field, field) == 0)
+            return sReadableFields[i].readable;
+    return NULL;
+}
+
+static bool AllZero(const u8 *data, size_t size)
+{
+    size_t i;
+
+    for (i = 0; i < size; i++)
+        if (data[i] != 0)
+            return false;
+    return true;
+}
+
+/* Bytes in one entry at array dimension `dim` (the whole field at 0). */
+static size_t FieldStride(const struct HostSaveField *f, unsigned dim)
+{
+    size_t size = f->size;
+    unsigned i;
+
+    for (i = dim; i < f->dimCount; i++)
+        size *= f->dims[i];
+    return size;
+}
+
+static u64 ReadLittle(const u8 *p, size_t size)
+{
+    u64 value = 0;
+    size_t i;
+
+    for (i = size; i-- > 0;)
+        value = (value << 8) | p[i];
+    return value;
+}
+
+static void WriteLittle(u8 *p, size_t size, u64 value)
+{
+    size_t i;
+
+    for (i = 0; i < size; i++, value >>= 8)
+        p[i] = (u8)value;
+}
+
+static unsigned ScalarBits(const struct HostSaveField *f)
+{
+    return f->bitSize != 0 ? f->bitSize : f->size * 8u;
+}
+
+/* A scalar field's value, sign-extended for signed ones. */
+static s64 ReadScalar(const struct HostSaveField *f, const u8 *p)
+{
+    unsigned bits = ScalarBits(f);
+    u64 value = ReadLittle(p, f->size) >> f->bitOffset;
+
+    if (bits < 64)
+        value &= ((u64)1 << bits) - 1;
+    if (f->kind == HOST_SAVE_SINT && bits < 64 && (value >> (bits - 1)) != 0)
+        value |= ~(((u64)1 << bits) - 1);
+    return (s64)value;
+}
+
+static void WriteScalar(const struct HostSaveField *f, u8 *p, s64 value)
+{
+    unsigned bits = ScalarBits(f);
+    u64 mask = (bits < 64 ? ((u64)1 << bits) - 1 : ~(u64)0) << f->bitOffset;
+    u64 container = ReadLittle(p, f->size);
+
+    container = (container & ~mask) | (((u64)value << f->bitOffset) & mask);
+    WriteLittle(p, f->size, container);
+}
+
+static void WriteStruct(struct HostJsonWriter *w, u16 type, const u8 *data);
+
+static void WriteFieldValue(struct HostJsonWriter *w, const struct HostSaveField *f, const u8 *p, unsigned dim)
+{
+    if (dim < f->dimCount)
+    {
+        size_t stride = FieldStride(f, dim + 1);
+        unsigned count = f->dims[dim], i;
+
+        while (count > 0 && AllZero(p + (count - 1) * stride, stride))
+            count--;
+        if (dim + 1 == f->dimCount && (f->kind == HOST_SAVE_UINT || f->kind == HOST_SAVE_SINT))
+            HostJsonW_BeginOneLineArray(w);
+        else
+            HostJsonW_BeginArray(w);
+        for (i = 0; i < count; i++)
+            WriteFieldValue(w, f, p + i * stride, dim + 1);
+        HostJsonW_EndArray(w);
+        return;
+    }
+    switch (f->kind)
+    {
+    case HOST_SAVE_STRUCT:
+        WriteStruct(w, f->type, p);
+        break;
+    case HOST_SAVE_BYTES:
+    {
+        unsigned count = f->size, i;
+        while (count > 0 && p[count - 1] == 0)
+            count--;
+        HostJsonW_BeginOneLineArray(w);
+        for (i = 0; i < count; i++)
+            HostJsonW_Uint(w, p[i]);
+        HostJsonW_EndArray(w);
+        break;
+    }
+    case HOST_SAVE_SINT:
+        HostJsonW_Int(w, (s32)ReadScalar(f, p));
+        break;
+    default:
+        HostJsonW_Uint(w, (u32)ReadScalar(f, p));
+        break;
+    }
+}
+
+static void WriteStruct(struct HostJsonWriter *w, u16 type, const u8 *data)
+{
+    const struct HostSaveType *t = &gHostSaveTypes[type];
+    unsigned i;
+
+    HostJsonW_BeginObject(w);
+    for (i = 0; i < t->fieldCount; i++)
+    {
+        const struct HostSaveField *f = &gHostSaveFields[t->firstField + i];
+        const u8 *p = data + f->offset;
+
+        if (ReadableField(type, f->name) != NULL)
+            continue;
+        if (f->bitSize != 0 ? ReadScalar(f, p) == 0 : AllZero(p, FieldStride(f, 0)))
+            continue;
+        HostJsonW_Key(w, f->name);
+        WriteFieldValue(w, f, p, 0);
+    }
+    HostJsonW_EndObject(w);
+}
+
+/* --------------------------------------------------------------------- */
 /* Writing                                                               */
 /* --------------------------------------------------------------------- */
 
@@ -622,6 +797,12 @@ char *HostSaveJson_FromFlash(const unsigned char *flash, size_t *length)
     HostJsonW_CString(&w, HOST_SAVE_JSON_FORMAT);
     HostJsonW_Key(&w, "version");
     HostJsonW_Uint(&w, HOST_SAVE_JSON_VERSION);
+    if (kind != FLASH_RAW)
+    {
+        HostJsonW_Key(&w, "note");
+        HostJsonW_CString(&w, "Edit while the game is closed. In game.blocks, a missing field or trailing "
+                              "array entry is 0, and unions are lists of their bytes.");
+    }
     WriteLayout(&w);
 
     if (kind == FLASH_RAW)
@@ -647,7 +828,7 @@ char *HostSaveJson_FromFlash(const unsigned char *flash, size_t *length)
             for (i = 0; i < ARRAY_COUNT(sBlocks); i++)
             {
                 HostJsonW_Key(&w, sBlocks[i].name);
-                WriteBase64(&w, (const u8 *)image + sBlocks[i].offset, sBlocks[i].size);
+                WriteStruct(&w, (u16)i, (const u8 *)image + sBlocks[i].offset);
             }
             HostJsonW_EndObject(&w);
             HostJsonW_EndObject(&w);
@@ -849,7 +1030,87 @@ static bool ApplyVars(struct Reader *r, const struct HostJsonValue *vars, struct
     return true;
 }
 
-static bool ReadGame(struct Reader *r, const struct HostJsonValue *root, const struct HostJsonValue *game, u8 *flash)
+static bool ReadStruct(struct Reader *r, const struct HostJsonValue *v, u16 type, u8 *data, const char *path);
+
+static bool ReadFieldValue(struct Reader *r, const struct HostJsonValue *v, const struct HostSaveField *f,
+                           u8 *p, unsigned dim, const char *path)
+{
+    char child[512];
+    size_t i;
+
+    if (dim < f->dimCount)
+    {
+        size_t stride = FieldStride(f, dim + 1);
+        if (v->type != HOST_JSON_ARRAY || v->count > f->dims[dim])
+            return Error(r, "%s must be a list of at most %u entries", path, f->dims[dim]);
+        for (i = 0; i < v->count; i++)
+        {
+            snprintf(child, sizeof(child), "%s[%lu]", path, (unsigned long)i);
+            if (!ReadFieldValue(r, &v->items[i], f, p + i * stride, dim + 1, child))
+                return false;
+        }
+        return true;
+    }
+    switch (f->kind)
+    {
+    case HOST_SAVE_STRUCT:
+        return ReadStruct(r, v, f->type, p, path);
+    case HOST_SAVE_BYTES:
+        if (v->type != HOST_JSON_ARRAY || v->count > f->size)
+            return Error(r, "%s must be a list of at most %u bytes", path, f->size);
+        for (i = 0; i < v->count; i++)
+        {
+            u32 byte;
+            if (!HostJson_GetUint(&v->items[i], 0xFF, &byte))
+                return Error(r, "%s[%lu] must be a whole number from 0 to 255", path, (unsigned long)i);
+            p[i] = (u8)byte;
+        }
+        return true;
+    default:
+    {
+        unsigned bits = ScalarBits(f);
+        s64 min = f->kind == HOST_SAVE_SINT ? -((s64)1 << (bits - 1)) : 0;
+        s64 max = f->kind == HOST_SAVE_SINT ? ((s64)1 << (bits - 1)) - 1 : (s64)(((u64)1 << bits) - 1);
+        int64_t value;
+        if (!HostJson_GetInt(v, min, max, &value))
+            return Error(r, "%s must be a whole number from %lld to %lld", path, (long long)min, (long long)max);
+        WriteScalar(f, p, value);
+        return true;
+    }
+    }
+}
+
+static bool ReadStruct(struct Reader *r, const struct HostJsonValue *v, u16 type, u8 *data, const char *path)
+{
+    const struct HostSaveType *t = &gHostSaveTypes[type];
+    char child[512];
+    size_t i;
+
+    if (v->type != HOST_JSON_OBJECT)
+        return Error(r, "%s must be an object", path);
+    for (i = 0; i < v->count; i++)
+    {
+        const struct HostJsonValue *member = &v->items[i];
+        const struct HostSaveField *f = NULL;
+        const char *readable;
+        unsigned j;
+
+        snprintf(child, sizeof(child), "%s.%s", path, member->key);
+        for (j = 0; j < t->fieldCount && f == NULL; j++)
+            if (strcmp(gHostSaveFields[t->firstField + j].name, member->key) == 0)
+                f = &gHostSaveFields[t->firstField + j];
+        if (f == NULL)
+            return Error(r, "%s: no such field in %s", child, t->name);
+        if ((readable = ReadableField(type, f->name)) != NULL)
+            return Error(r, "%s: set this in %s", child, readable);
+        if (!ReadFieldValue(r, member, f, data + f->offset, 0, child))
+            return false;
+    }
+    return true;
+}
+
+static bool ReadGame(struct Reader *r, const struct HostJsonValue *root, const struct HostJsonValue *game,
+                     u32 version, u8 *flash)
 {
     const struct HostJsonValue *layout = HostJson_Get(root, "layout");
     const struct HostJsonValue *blocks = HostJson_Get(game, "blocks");
@@ -859,7 +1120,9 @@ static bool ReadGame(struct Reader *r, const struct HostJsonValue *root, const s
 
     if (game->type != HOST_JSON_OBJECT)
         return Error(r, "\"game\" must be an object");
-    for (i = 0; i < ARRAY_COUNT(sBlocks); i++)
+    /* Version 1 held the blocks as images, so they had to match this
+     * build's layout; version 2 names every field. */
+    for (i = 0; version == 1 && i < ARRAY_COUNT(sBlocks); i++)
     {
         u32 size;
         if (!HostJson_GetUint(HostJson_Get(layout, sBlocks[i].name), 0xFFFFFFFF, &size))
@@ -868,16 +1131,33 @@ static bool ReadGame(struct Reader *r, const struct HostJsonValue *root, const s
             return Error(r, "the save was made by a build with a different %s layout (%lu bytes, this build: %lu)",
                          sBlocks[i].name, (unsigned long)size, (unsigned long)sBlocks[i].size);
     }
+    if (blocks == NULL || blocks->type != HOST_JSON_OBJECT)
+        return Error(r, "\"game\".\"blocks\" is missing");
 
     image = calloc(1, sizeof(*image));
     if (image == NULL)
         return Error(r, "out of memory");
+    memset(image->sb2.playerName, 0xFF, sizeof(image->sb2.playerName));
     ok = HostJson_GetUint(HostJson_Get(game, "save_counter"), 0xFFFFFFFF, &image->counter)
       || Error(r, "\"save_counter\" is missing or not a whole number");
-    for (i = 0; ok && i < ARRAY_COUNT(sBlocks); i++)
+    for (i = 0; ok && version == 1 && i < ARRAY_COUNT(sBlocks); i++)
         if (!ReadBase64(HostJson_Get(blocks, sBlocks[i].name), (u8 *)image + sBlocks[i].offset, sBlocks[i].size))
             ok = Error(r, "\"blocks\".\"%s\" is missing or not %lu bytes of base64",
                        sBlocks[i].name, (unsigned long)sBlocks[i].size);
+    for (i = 0; ok && version != 1 && i < blocks->count; i++)
+    {
+        const struct HostJsonValue *block = &blocks->items[i];
+        char path[64];
+        size_t j;
+
+        for (j = 0; j < ARRAY_COUNT(sBlocks) && strcmp(sBlocks[j].name, block->key) != 0; j++)
+            ;
+        snprintf(path, sizeof(path), "blocks.%s", block->key);
+        if (j == ARRAY_COUNT(sBlocks))
+            ok = Error(r, "%s: no such save block", path);
+        else
+            ok = ReadStruct(r, block, (u16)j, (u8 *)image + sBlocks[j].offset, path);
+    }
     ok = ok && ApplyPlayer(r, HostJson_Get(game, "player"), image)
             && ApplyFlags(r, HostJson_Get(game, "flags"), &image->sb1)
             && ApplyVars(r, HostJson_Get(game, "vars"), &image->sb1);
@@ -906,7 +1186,7 @@ bool HostSaveJson_ToFlash(const char *text, size_t length, unsigned char *flash,
         HostJson_Free(root);
         return Error(&r, "not a " HOST_SAVE_JSON_FORMAT " file");
     }
-    if (!HostJson_GetUint(HostJson_Get(root, "version"), 0xFFFFFFFF, &version) || version != HOST_SAVE_JSON_VERSION)
+    if (!HostJson_GetUint(HostJson_Get(root, "version"), 0xFFFFFFFF, &version) || version < 1 || version > HOST_SAVE_JSON_VERSION)
     {
         HostJson_Free(root);
         return Error(&r, "unsupported version (this build reads version %d)", HOST_SAVE_JSON_VERSION);
@@ -931,7 +1211,7 @@ bool HostSaveJson_ToFlash(const char *text, size_t length, unsigned char *flash,
         const struct HostJsonValue *sectors = HostJson_Get(root, "sectors");
 
         if (game != NULL)
-            ok = ReadGame(&r, root, game, image);
+            ok = ReadGame(&r, root, game, version, image);
         for (i = 0; ok && i < ARRAY_COUNT(sSpecialSectors); i++)
         {
             v = HostJson_Get(sectors, sSpecialSectors[i].name);

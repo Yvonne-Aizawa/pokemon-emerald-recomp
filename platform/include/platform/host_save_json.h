@@ -5,10 +5,10 @@
  * 128 KiB flash chip and its JSON form. host_flash.c does the file I/O.
  *
  * The file holds the save the game's loader would pick from the flash --
- * the newest complete save slot -- as one image per save block, plus
- * readable fields (player, money, flags, vars...). Reading the file rebuilds
- * a flash chip holding that one slot, with the readable fields applied over
- * the block images: edit either. When the slots aren't in a state the
+ * the newest complete save slot -- as every field of its save blocks by name
+ * (host_save_layout.h), plus readable fields (player, money, flags,
+ * vars...) in place of the raw ones. Reading the file rebuilds a flash chip
+ * holding that one slot. When the slots aren't in a state the
  * loader takes cleanly (an interrupted or damaged save), the file holds the
  * raw flash image instead, so the game sees exactly what it wrote.
  */
@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define HOST_SAVE_JSON_FORMAT  "pkmemerald-save"
-#define HOST_SAVE_JSON_VERSION 1
+#define HOST_SAVE_JSON_VERSION 2  /* 1: save blocks as base64 (still read) */
 
 /* The JSON text for a flash image (FLASH_ROM_SIZE_1M bytes): malloc'd and
  * NUL-terminated, length in *length. NULL if out of memory. */

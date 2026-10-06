@@ -51,6 +51,9 @@ const struct HostJsonValue *HostJson_Get(const struct HostJsonValue *object, con
 /* A whole number in [0, max]; false otherwise (wrong type, fraction, range). */
 bool HostJson_GetUint(const struct HostJsonValue *value, uint32_t max, uint32_t *out);
 
+/* A whole number in [min, max]; false otherwise. */
+bool HostJson_GetInt(const struct HostJsonValue *value, int64_t min, int64_t max, int64_t *out);
+
 struct HostJsonWriter
 {
     char *data;
@@ -59,6 +62,7 @@ struct HostJsonWriter
     bool failed;               /* out of memory or misuse; data is unusable */
     int depth;
     bool first[32];            /* nothing written yet at this depth */
+    bool oneLine[32];          /* this depth is written on one line */
     bool afterKey;
 };
 
@@ -67,6 +71,8 @@ void HostJsonW_Free(struct HostJsonWriter *w);
 void HostJsonW_BeginObject(struct HostJsonWriter *w);
 void HostJsonW_EndObject(struct HostJsonWriter *w);
 void HostJsonW_BeginArray(struct HostJsonWriter *w);
+/* An array written on one line, with everything inside it. */
+void HostJsonW_BeginOneLineArray(struct HostJsonWriter *w);
 void HostJsonW_EndArray(struct HostJsonWriter *w);
 void HostJsonW_Key(struct HostJsonWriter *w, const char *key);
 void HostJsonW_String(struct HostJsonWriter *w, const char *s, size_t length);

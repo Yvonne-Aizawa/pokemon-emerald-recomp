@@ -129,7 +129,11 @@ of its own.
    `cmake --build build --target reference-prepare`, then
    `cmake --build build`. Undefined symbols at link time usually mean
    upstream added a function in assembly or the linker script, which needs a
-   host version (see `platform/src/host_gba_misc.c`).
+   host version (see `platform/src/host_gba_misc.c`). A failed
+   `_Static_assert` in `platform/src/host_save_layout.inc` means a save
+   struct changed: regenerate the JSON save's field table with
+   `cmake --build build --target save-layout` (needs pyelftools) and commit
+   it.
 5. **Test:** `ctest --test-dir build`. Install the ARM toolchain
    (`gcc-arm-none-eabi`, `libnewlib-arm-none-eabi`) so `data-abi-matches-gba`
    runs: it checks that the assembled game data and the structs read from it

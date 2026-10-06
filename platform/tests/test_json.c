@@ -122,6 +122,21 @@ int main(void)
 
     HostJsonW_Init(&w);
     HostJsonW_BeginArray(&w);
+    HostJsonW_BeginOneLineArray(&w);
+    HostJsonW_Uint(&w, 1);
+    HostJsonW_BeginArray(&w);
+    HostJsonW_Int(&w, -2);
+    HostJsonW_EndArray(&w);
+    HostJsonW_EndArray(&w);
+    HostJsonW_BeginOneLineArray(&w);
+    HostJsonW_EndArray(&w);
+    HostJsonW_EndArray(&w);
+    Check(HostJsonW_Finish(&w) && strcmp(w.data, "[\n  [1, [-2]],\n  []\n]\n") == 0,
+          "one-line arrays, nested and empty");
+    HostJsonW_Free(&w);
+
+    HostJsonW_Init(&w);
+    HostJsonW_BeginArray(&w);
     Check(!HostJsonW_Finish(&w), "an unfinished document is an error");
     HostJsonW_Free(&w);
 

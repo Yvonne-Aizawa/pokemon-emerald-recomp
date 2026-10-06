@@ -400,6 +400,15 @@ bool HostJson_GetUint(const struct HostJsonValue *value, uint32_t max, uint32_t 
     return true;
 }
 
+bool HostJson_GetInt(const struct HostJsonValue *value, int64_t min, int64_t max, int64_t *out)
+{
+    if (value == NULL || value->type != HOST_JSON_NUMBER || value->number < (double)min
+     || value->number > (double)max || value->number != (double)(int64_t)value->number)
+        return false;
+    *out = (int64_t)value->number;
+    return true;
+}
+
 /* --------------------------------------------------------------------- */
 /* Writing                                                               */
 /* --------------------------------------------------------------------- */
@@ -463,9 +472,10 @@ static void BeforeItem(struct HostJsonWriter *w)
     if (w->depth > 0)
     {
         if (!w->first[w->depth])
-            Append(w, ",", 1);
+            Append(w, w->oneLine[w->depth] ? ", " : ",", w->oneLine[w->depth] ? 2 : 1);
         w->first[w->depth] = false;
-        Newline(w);
+        if (!w->oneLine[w->depth])
+            Newline(w);
     }
 }
 
@@ -480,7 +490,7 @@ void HostJsonW_Free(struct HostJsonWriter *w)
     memset(w, 0, sizeof(*w));
 }
 
-static void Begin(struct HostJsonWriter *w, char open)
+static void Begin(struct HostJsonWriter *w, char open, bool oneLine)
 {
     BeforeItem(w);
     Append(w, &open, 1);
@@ -489,12 +499,14 @@ static void Begin(struct HostJsonWriter *w, char open)
         w->failed = true;
         return;
     }
-    w->first[++w->depth] = true;
+    w->depth++;
+    w->first[w->depth] = true;
+    w->oneLine[w->depth] = oneLine || w->oneLine[w->depth - 1];
 }
 
 static void End(struct HostJsonWriter *w, char close)
 {
-    bool empty;
+    bool empty, oneLine;
 
     if (w->depth == 0)
     {
@@ -502,15 +514,17 @@ static void End(struct HostJsonWriter *w, char close)
         return;
     }
     empty = w->first[w->depth];
+    oneLine = w->oneLine[w->depth];
     w->depth--;
-    if (!empty)
+    if (!empty && !oneLine)
         Newline(w);
     Append(w, &close, 1);
 }
 
-void HostJsonW_BeginObject(struct HostJsonWriter *w) { Begin(w, '{'); }
+void HostJsonW_BeginObject(struct HostJsonWriter *w) { Begin(w, '{', false); }
 void HostJsonW_EndObject(struct HostJsonWriter *w) { End(w, '}'); }
-void HostJsonW_BeginArray(struct HostJsonWriter *w) { Begin(w, '['); }
+void HostJsonW_BeginArray(struct HostJsonWriter *w) { Begin(w, '[', false); }
+void HostJsonW_BeginOneLineArray(struct HostJsonWriter *w) { Begin(w, '[', true); }
 void HostJsonW_EndArray(struct HostJsonWriter *w) { End(w, ']'); }
 
 static void WriteString(struct HostJsonWriter *w, const char *s, size_t length)

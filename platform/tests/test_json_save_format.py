@@ -4,6 +4,7 @@ Conversion must not change what the game's loader sees, must be stable, must
 apply edits to the readable fields, must refuse bad edits, must keep a
 damaged chip raw, and must convert an old pkmemerald.sav on first start.
 """
+import base64
 import json
 import pathlib
 import shutil
@@ -20,6 +21,18 @@ SIGNATURE = 0x08012025
 manifest_path, output_dir, binary = map(pathlib.Path, sys.argv[1:])
 manifest = json.loads(manifest_path.read_text())
 work = pathlib.Path(tempfile.mkdtemp(prefix='pkmemerald-json-save-'))
+
+
+def newest_slot(path):
+    """The save blocks' sector data of a raw save's newest slot, by sector id."""
+    data = path.read_bytes()
+    sectors = {}
+    for i in range(28):
+        sector = data[i * SECTOR_SIZE:(i + 1) * SECTOR_SIZE]
+        if int.from_bytes(sector[0xFF8:0xFFC], 'little') == SIGNATURE:
+            sectors.setdefault(int.from_bytes(sector[0xFFC:0x1000], 'little'), {})[
+                int.from_bytes(sector[0xFF4:0xFF6], 'little')] = sector[:0xFF4]
+    return sectors[max(sectors)]
 
 
 def convert(source, target):
@@ -47,7 +60,12 @@ try:
         expected = inspect(binary, sav)
         assert inspect(binary, first) == expected, f"{entry['id']}: JSON loads differently"
         assert inspect(binary, raw) == expected, f"{entry['id']}: rebuilt flash loads differently"
-        print(entry['id'], 'loads the same from JSON, and converts stably')
+        # Every byte of the save blocks survives (the game zeroes padding,
+        # which the JSON doesn't keep, so that matches too).
+        original, rebuilt = newest_slot(sav), newest_slot(raw)
+        for sector_id in range(14):
+            assert original[sector_id] == rebuilt[sector_id], f"{entry['id']}: sector id {sector_id} differs"
+        print(entry['id'], 'loads the same from JSON, converts stably, and keeps every save block byte')
 
     # Edits to the readable fields reach the game's loader.
     last = output_dir / manifest['checkpoints'][-1]['id'] / 'pkmemerald.sav'
@@ -75,6 +93,36 @@ try:
         assert after[key] == before[key], key
     print('edits to name, money, flags and vars load')
 
+    # Save block fields are named: edits reach the loader, and the file
+    # doesn't depend on the block sizes.
+    document = json.loads(base.read_text())
+    blocks = document['game']['blocks']
+    blocks['save_block_1']['pos']['x'] = 3
+    for name in document['layout']:
+        document['layout'][name] += 4
+    edited.write_text(json.dumps(document))
+    after = inspect(binary, edited)
+    assert after['map']['x'] == 3 and after['map']['y'] == before['map']['y']
+    print('edits to save block fields load, whatever the recorded layout')
+
+    # Version 1 (the blocks as base64 images) still loads. Build one from the
+    # .sav's newest slot, decoded here independently of the game.
+    document = json.loads(base.read_text())
+    slot = newest_slot(last)
+    sizes = document['layout']
+    images = {
+        'save_block_2': slot[0][:3968],
+        'save_block_1': b''.join(slot[i][:3968] for i in range(1, 5)),
+        'pokemon_storage': b''.join(slot[i][:3968] for i in range(5, 14)),
+        'save_block_3': b''.join(slot[i][3968:4084] for i in range(14)),
+    }
+    document['version'] = 1
+    document['game']['blocks'] = {name: base64.b64encode(image[:sizes[name]]).decode() for name, image in images.items()}
+    version1 = work / 'version1.json'
+    version1.write_text(json.dumps(document))
+    assert inspect(binary, version1) == inspect(binary, last)
+    print('a version 1 file loads the same')
+
     # Bad edits are refused with a message, leaving the file alone.
     def edit(change):
         copy = json.loads(base.read_text())
@@ -86,8 +134,12 @@ try:
         (lambda d: d['game']['player'].update(money=10 ** 7), 'whole number'),
         (lambda d: d['game']['player'].update(name='Toolongname'), 'longer than'),
         (lambda d: d['game']['player'].update(name='€'), 'no character'),
-        (lambda d: d['layout'].update(save_block_1=1), 'different save_block_1 layout'),
-        (lambda d: d['game']['blocks'].update(save_block_2='AAAA'), 'base64'),
+        (lambda d: d['game']['blocks']['save_block_2'].update(nope=1), 'no such field in SaveBlock2'),
+        (lambda d: d['game']['blocks']['save_block_2'].update(optionsTextSpeed=8), 'from 0 to 7'),
+        (lambda d: d['game']['blocks']['save_block_1'].update(money=5), 'set this in game.player.money'),
+        (lambda d: d['game']['blocks']['save_block_1']['pos'].update(x=-40000), 'from -32768 to 32767'),
+        (lambda d: d['game']['blocks']['save_block_1'].update(mapView=[0] * 257), 'at most 256 entries'),
+        (lambda d: d['game']['blocks'].update(save_block_9={}), 'no such save block'),
         (lambda d: d.update(version=99), 'unsupported version'),
     ]:
         stderr = rejected(edit(change), message)
