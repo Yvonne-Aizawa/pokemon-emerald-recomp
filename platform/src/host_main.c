@@ -10,8 +10,10 @@
  * then the display is drawn.
  */
 
+#include "platform/console.h"
 #include "platform/crash_handler.h"
 #include "platform/host_audio.h"
+#include "platform/host_fs.h"
 #include "platform/host_game.h"
 #include "platform/host_input.h"
 #include "platform/host_render.h"
@@ -56,7 +58,7 @@ static const struct { const char *name; uint16_t button; } sButtonNames[] = {
 static void Usage(FILE *out, const char *argv0)
 {
     fprintf(out,
-            "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [-x SCALE] [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT] [--fast] [--mute] [--smooth-sound]\n"
+            "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [-x SCALE] [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT] [--fast] [--mute] [--smooth-sound] [--console]\n"
             "  -d DATA_DIR  converted game data (default: assets)\n"
             "  -s SAVE_DIR  save files and crash reports (default: ./saves if it holds\n"
             "               a save, otherwise the per-user data directory)\n"
@@ -70,7 +72,9 @@ static void Usage(FILE *out, const char *argv0)
             "               defaults to %d frames)\n"
             "  --fast       don't wait between frames (scripted test runs); implies --mute\n"
             "  --mute       no sound\n"
-            "  --smooth-sound  interpolated, low-passed sound instead of the exact GBA output\n",
+            "  --smooth-sound  interpolated, low-passed sound instead of the exact GBA output\n"
+            "  --console    Windows: show the game's messages in a console (otherwise, unless\n"
+            "               redirected, they go to " CONSOLE_LOG_FILE " in the save directory)\n",
             argv0, DEFAULT_SCALE, DEFAULT_HOLD_FRAMES);
 }
 
@@ -270,6 +274,7 @@ int main(int argc, char **argv)
     };
     unsigned long maxFrames = 0;
     bool sound = true;
+    bool console = false;
     const char *framePath = NULL;
     const char *audioPath = NULL;
     uint64_t startNs;
@@ -283,6 +288,7 @@ int main(int argc, char **argv)
 
         if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0)
         {
+            Console_Setup(true, NULL);
             Usage(stdout, argv[0]);
             return 0;
         }
@@ -301,6 +307,11 @@ int main(int argc, char **argv)
         if (strcmp(arg, "--smooth-sound") == 0)
         {
             HostAudio_SetRawOutput(false);
+            continue;
+        }
+        if (strcmp(arg, "--console") == 0)
+        {
+            console = true;
             continue;
         }
         if (arg[0] == '-' && strchr("dsxfoia", arg[1]) != NULL && arg[1] != '\0' && arg[2] == '\0' && i + 1 < argc)
@@ -325,6 +336,7 @@ int main(int argc, char **argv)
             case 'i':
                 if (!ParseScript(value))
                 {
+                    Console_Setup(true, NULL);  /* Windows: so the message is seen */
                     fprintf(stderr, "%s: invalid input script '%s'\n", argv[0], value);
                     return 2;
                 }
@@ -332,6 +344,7 @@ int main(int argc, char **argv)
             case 'x':
                 if (!ParseNumber(value, MAX_SCALE, &scale) || scale == 0)
                 {
+                    Console_Setup(true, NULL);  /* Windows: so the message is seen */
                     fprintf(stderr, "%s: invalid scale '%s' (1-%d)\n", argv[0], value, MAX_SCALE);
                     return 2;
                 }
@@ -340,6 +353,7 @@ int main(int argc, char **argv)
             case 'f':
                 if (!ParseNumber(value, UINT32_MAX, &maxFrames))
                 {
+                    Console_Setup(true, NULL);  /* Windows: so the message is seen */
                     fprintf(stderr, "%s: invalid frame count '%s'\n", argv[0], value);
                     return 2;
                 }
@@ -347,6 +361,7 @@ int main(int argc, char **argv)
             }
             continue;
         }
+        Console_Setup(true, NULL);  /* Windows: so the message is seen */
         fprintf(stderr, "%s: unknown or incomplete argument '%s'\n", argv[0], arg);
         Usage(stderr, argv[0]);
         return 2;
@@ -354,6 +369,8 @@ int main(int argc, char **argv)
 
     if (config.saveDir == NULL)
         config.saveDir = DefaultSaveDir();
+    HostFs_MakeDir(config.saveDir);
+    Console_Setup(console, config.saveDir);
     snprintf(crashReportPath, sizeof(crashReportPath), "%s/%s", config.saveDir, CRASH_REPORT_FILE);
     Crash_Install(crashReportPath);
     Crash_SetFrameCounter(Host_GetFrameCount);

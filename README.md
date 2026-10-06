@@ -45,7 +45,7 @@ To install it for your user (the game data is built into the executable; it need
 cmake --install build --prefix ~/.local
 ```
 
-This installs `~/.local/bin/pkmemerald` and a desktop launcher. `cmake --build build --target package` makes the same as a `.tar.gz`, for copying to your own machines.
+This installs `~/.local/bin/pkmemerald` and a desktop launcher. Installed copies (and packages) leave out the debug info but keep the symbol table, so crash reports still name functions. `cmake --build build --target package` makes the same as a `.tar.gz`, for copying to your own machines.
 
 ### Windows
 
@@ -58,7 +58,7 @@ cmake --build build-win -j
 cmake --build build-win --target package                    # pkmemerald-*-win32.zip
 ```
 
-The zip holds `pkmemerald.exe` and `SDL2.dll`; unpack it anywhere on the Windows machine and run the `.exe`. With Wine installed, `ctest --test-dir build-win` runs the tests under it (and `wine build-win/pkmemerald.exe` runs the game).
+The zip holds `pkmemerald.exe` and `SDL2.dll`; unpack it anywhere on the Windows machine and run the `.exe`. It opens no console window: its messages go to `pkmemerald-log.txt` in the save directory, or, with `pkmemerald.exe --console`, to the console it was started from (or a new one). With Wine installed, `ctest --test-dir build-win` runs the tests under it (and `wine build-win/pkmemerald.exe` runs the game).
 
 ### Saves and crash reports
 

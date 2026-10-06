@@ -451,6 +451,9 @@ endforeach()
 # Target: pkmemerald (executable)
 #-------------------------------------------------------------------------------
 add_executable(pkmemerald "${HOST_MAIN_SOURCE}")
+# Windows: a windowed program, so no console window opens beside the game;
+# --console shows one (console_win32.c).
+set_target_properties(pkmemerald PROPERTIES WIN32_EXECUTABLE TRUE)
 # Link the *whole* library, not just what host_main reaches: every symbol the
 # game references must resolve, so gaps show up at build time instead of as
 # missing behaviour later.
@@ -502,6 +505,13 @@ endif()
 #-------------------------------------------------------------------------------
 include(GNUInstallDirs)
 install(TARGETS pkmemerald RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+# Installed copies drop the debug info (~100 MB) but keep the symbol table,
+# which crash reports name functions from; the build tree keeps everything.
+install(CODE "
+    execute_process(COMMAND \"${CMAKE_OBJCOPY}\" --strip-debug
+        \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/$<TARGET_FILE_NAME:pkmemerald>\"
+        COMMAND_ERROR_IS_FATAL ANY)
+")
 if(WIN32)
     # SDL2.dll goes next to the .exe, in the build tree (for running it and
     # the tests) and in the install/zip.
