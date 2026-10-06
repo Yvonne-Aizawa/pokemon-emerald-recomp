@@ -441,11 +441,21 @@ set_source_files_properties(${REFERENCE_ASM_OBJS} PROPERTIES EXTERNAL_OBJECT TRU
 #-------------------------------------------------------------------------------
 # Target: pkmemerald-core (static lib)
 #-------------------------------------------------------------------------------
+file(GLOB SAVE_SYMBOL_HEADERS CONFIGURE_DEPENDS "${REFERENCE_INC}/constants/flags*.h" "${REFERENCE_INC}/constants/vars*.h")
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/save_symbols.inc"
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_SOURCE_DIR}/platform/tools/save_symbols.py"
+            "${REFERENCE_DIR}" "${CMAKE_BINARY_DIR}/save_symbols.inc"
+    DEPENDS "${CMAKE_SOURCE_DIR}/platform/tools/save_symbols.py" ${SAVE_SYMBOL_HEADERS}
+    VERBATIM)
+
 add_library(pkmemerald-core STATIC
     ${PLATFORM_SOURCES}
+    "${CMAKE_BINARY_DIR}/save_symbols.inc"
     $<TARGET_OBJECTS:reference-objs>
     ${REFERENCE_ASM_OBJS}
 )
+
+target_include_directories(pkmemerald-core PRIVATE "${CMAKE_BINARY_DIR}")
 
 target_include_directories(pkmemerald-core
     PUBLIC
@@ -514,6 +524,11 @@ endforeach()
 # Target: pkmemerald (executable)
 #-------------------------------------------------------------------------------
 add_executable(pkmemerald "${HOST_MAIN_SOURCE}")
+if(NOT CMAKE_CROSSCOMPILING)
+    add_test(NAME save_inspector_rejects_invalid
+        COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tests/test_save_inspector.py" $<TARGET_FILE:pkmemerald>)
+endif()
+
 target_compile_options(pkmemerald PRIVATE ${PLATFORM_WARNINGS})
 # Windows: a windowed program, so no console window opens beside the game;
 # --console shows one (console_win32.c).

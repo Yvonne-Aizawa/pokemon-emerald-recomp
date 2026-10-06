@@ -59,7 +59,7 @@ static void Usage(FILE *out, const char *argv0)
 {
     fprintf(out,
             "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [--config FILE] [-x SCALE] [--fullscreen | --windowed]\n"
-            "       [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT|@FILE] [--monkey SEED[@FRAME]] [--make-save] [--fast] [--mute] [--smooth-sound] [--console]\n"
+            "       [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT|@FILE] [--monkey SEED[@FRAME]] [--inspect-save FILE] [--fast] [--mute] [--smooth-sound] [--console]\n"
             "Settings come from " HOST_CONFIG_FILE " in the save directory (created with the\n"
             "defaults on first start); the flags below override it for this run.\n"
             "  -d DATA_DIR  converted game data (default: assets)\n"
@@ -79,8 +79,7 @@ static void Usage(FILE *out, const char *argv0)
             "               (-i @FILE: the script in a file; \"#\" starts a comment)\n"
             "  --monkey SEED[@FRAME]  from FRAME on, press pseudo-random buttons (the same\n"
             "               for the same SEED), for testing\n"
-            "  --make-save  when the run ends, save the game as the start menu does (the\n"
-            "               player must be free in the overworld), for test saves\n"
+            "  --inspect-save FILE  inspect a checkpoint without writing to it; exits\n"
             "  --fast       don't wait between frames (scripted test runs); implies --mute\n"
             "  --mute       no sound\n"
             "  --smooth-sound  interpolated, low-passed sound instead of the exact GBA output\n"
@@ -185,25 +184,32 @@ fail:
 }
 
 /* -i @FILE: the script in a file, one or more steps per line, "#" starting
- * a comment; for long scripts such as the test-save scenarios. */
+ * a comment; for reproducible regression scripts. */
 static char *ReadScriptFile(const char *path)
 {
     FILE *f = fopen(path, "rb");
     char *text = NULL, line[512];
     size_t length = 0;
+    bool comment = false;
 
     if (f == NULL)
         return NULL;
     while (fgets(line, sizeof(line), f) != NULL)
     {
-        char *hash = strchr(line, '#'), *p;
+        char *p;
         size_t n;
         char *grown;
 
-        if (hash != NULL)
-            *hash = '\0';
         for (p = line; *p != '\0'; p++)
         {
+            if (*p == '#')
+                comment = true;
+            if (comment)
+            {
+                if (*p == '\n')
+                    comment = false;
+                *p = ',';
+            }
             if (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
                 *p = ',';
         }
@@ -219,6 +225,12 @@ static char *ReadScriptFile(const char *path)
         length += n;
         text[length++] = ',';
         text[length] = '\0';
+    }
+    if (ferror(f))
+    {
+        free(text);
+        fclose(f);
+        return NULL;
     }
     fclose(f);
     return text != NULL ? text : strdup("");
@@ -402,7 +414,7 @@ int main(int argc, char **argv)
     const char *configFile = NULL;
     /* Command-line overrides of the settings file: 0 / -1 = not given. */
     int scaleFlag = 0, fullscreenFlag = -1;
-    bool muteFlag = false, smoothSoundFlag = false, makeSave = false;
+    bool muteFlag = false, smoothSoundFlag = false;
     unsigned long maxFrames = 0;
     bool sound;
     bool console = false;
@@ -410,7 +422,7 @@ int main(int argc, char **argv)
     const char *audioPath = NULL;
     uint64_t startNs;
     uint32_t framesRun;
-    int exitCode = 0;
+    const char *inspectSave = NULL;
     char crashReportPath[1024];
     int i;
 
@@ -446,9 +458,9 @@ int main(int argc, char **argv)
             fullscreenFlag = strcmp(arg, "--fullscreen") == 0;
             continue;
         }
-        if (strcmp(arg, "--make-save") == 0)
+        if (strcmp(arg, "--inspect-save") == 0 && i + 1 < argc)
         {
-            makeSave = true;
+            inspectSave = argv[++i];
             continue;
         }
         if (strcmp(arg, "--monkey") == 0 && i + 1 < argc)
@@ -530,6 +542,12 @@ int main(int argc, char **argv)
         return 2;
     }
 
+    if (inspectSave != NULL)
+    {
+        Console_Setup(true, NULL);
+        return Host_InspectSave(inspectSave);
+    }
+
     if (config.saveDir == NULL)
         config.saveDir = DefaultSaveDir();
     HostFs_MakeDir(config.saveDir);
@@ -586,13 +604,6 @@ int main(int argc, char **argv)
     framesRun = Host_RunMainLoop((uint32_t)maxFrames);
     printf("ran %u frames in %.3f s\n", framesRun, (double)(Platform_GetTimeNs() - startNs) / 1e9);
     Host_SaveFlush();
-    if (makeSave)
-    {
-        if (!Host_SaveGameNow())
-            exitCode = 1;
-        else
-            printf("save: game saved\n");
-    }
 
     if (framePath != NULL && !SaveFrame(framePath, Platform_GetFramebuffer()))
         fprintf(stderr, "%s: could not write '%s'\n", argv[0], framePath);
@@ -606,5 +617,5 @@ int main(int argc, char **argv)
     }
     HostAudio_CloseDevice();
     Platform_Shutdown();
-    return exitCode;
+    return 0;
 }

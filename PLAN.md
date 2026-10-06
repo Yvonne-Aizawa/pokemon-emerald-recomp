@@ -17,7 +17,7 @@ The game is playable from boot to the overworld and battles, with graphics, inpu
 | 16    | Not started (optional) |
 | 17    | Done (Linux and Windows builds, source only); on real Windows still to check: sound, `--console`/log file |
 | 18    | Not started (64-bit build; needed for macOS) |
-| 19    | In progress: 19a done (sanitizers + monkey runs in CI, heap checks included); 19b-1 in review; **next**: 19a-2 (generated test saves, fixed clock), then 19b-2…5, then 19c (every map) |
+| 19    | In progress: 19a done (sanitizers + monkey runs in CI, heap checks included); 19b-1 in review; **next**: 19a-2 (played checkpoint saves, fixed clock), then 19b-2…5, then 19c (every map) |
 
 
 ## Source under analysis
@@ -538,15 +538,16 @@ Nearly every crash in [known_crashes.md](known_crashes.md) was a read through NU
 - Heap checking (`malloc.c.patch`): the game heap's unused memory is marked off-limits, on by default in sanitizer builds (`PKM_ASAN_HEAP=0` turns it off), so CI covers it. It found upstream heap misuse that behaves the same on the GBA (`known_crashes.md`), all fixed: DMA3 copies queued from blocks freed before the V-blank (freeing a block now snapshots pending copies from it; `test_dma_free`), item icon sprites pointing at a freed template, a glyph read-modify-writing past a window's buffer, and a sprite sheet loaded at more than its decompressed size. `MoveSaveBlocks_ResetHeap` uses the heap as scratch on purpose (`load_save.c.patch` allows it). To look at with 19b/19c: `data.c` points battler sprite images at a fixed heap area (`gHeap + 0x8000`) outside the allocator.
 - Caveat: the interrupt timer (SIGALRM) can preempt ASan's own runtime code; harmless so far, but a run that fails inside the sanitizer runtime should be read with that in mind.
 
-### 19a-2 — Generated test saves and a fixed clock (~1 day)
+### 19a-2 — Played checkpoint saves and a fixed clock (~1 day plus playthrough)
 
-Scripted and monkey runs so far start from a new game (quick start) or from a player's own save. A real save is personal, changes as it is played, and made runs unreproducible (the same build gave different frames run to run; likely the real-time clock, which affects encounters). Instead:
+Use checkpoints saved through ordinary gameplay rather than constructing game state or setting story flags in code. Inspection checks integrity and exposes unexpected state; it cannot prove gameplay provenance or every story invariant.
 
-- **A fixed clock for tests**: `PKM_FIXED_TIME` (environment) starts the RTC at a given date and time and advances it with game frames, so a run depends only on its input.
-- **Saves generated from code**: named scenarios in C (e.g. a fresh start in Littleroot, Route 101 with a starter, a team of three further on), each starting a new game, setting up its state with the game's own functions (party, items, badges, story flags and variables, location) and saving with the game's save code (`--make-save SCENARIO`). Made during the test run (a ctest fixture), never committed: no binary or personal files in the repository, the scenarios are reviewable, and the saves always match the current save format.
-- **Monkey runs from those saves**, so they reach battles, routes and later areas, not just the player's house; and frame-exact before/after comparisons again.
+- **Fixed clock**: `PKM_FIXED_TIME="YYYY-MM-DD HH:MM:SS"` starts the test RTC at a UTC time and advances it with game frames. Record the value used when collecting saves as well as when replaying them. Scripted input supports `-i @FILE` with comments.
+- **Collect natural checkpoints**: in the truck immediately after Birch’s introduction; after setting the bedroom clock; after meeting the rival before Route 101; after rescuing Birch and receiving the starter; after receiving the Pokédex; then Petalburg Woods/Route 104 with a small party, and Rustboro after the first badge. Use the normal SAVE menu when control is free. Never edit flags or inject a save mid-script.
+- **Read-only inspection**: `--inspect-save FILE` loads with the game's save code and reports location, party, bag, money, set flags (including badges), and nonzero variables with upstream names. The Python wrapper checks file hashes and compares successive checkpoints. Review differences against the playthrough before accepting a fixture. See `platform/tests/saves/README.md`.
+- **Fixtures and regression runs — pending played saves**: retain immutable copies and a manifest (checkpoint, upstream/build commit, collection clock, SHA-256, expected state). Tests copy approved fixtures into temporary save directories before running; never overwrite source checkpoints or a personal save. Use a fixed clock for scripted/monkey runs from at least two checkpoints, including battles. Do not upload save fixtures or completed game builds as CI artifacts.
 
-**Done when** two runs from a generated save with the fixed clock give identical frames, and CI runs monkey tests from at least two scenarios, at least one of which reaches battles.
+**Done when** the read-only inspector is verified, user-played checkpoints are reviewed, two identical runs from an approved checkpoint produce identical frames, and CI runs monkey tests from at least two checkpoints including a battle-capable one. Collection and CI integration remain pending until the played saves are available.
 
 ### 19b — Upstream's test suite on the host (~2–4 days)
 

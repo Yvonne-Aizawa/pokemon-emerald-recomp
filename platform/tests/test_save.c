@@ -102,6 +102,17 @@ int main(void)
     ReadFlash(4, 0, readBack, 16);
     Check(readBack[0] == 0xFF, "untouched sectors stay erased");
 
+    /* Inspection detaches persistence, even if emulated flash is changed. */
+    Check(Host_SaveOpenReadOnly(path), "load a read-only flash image");
+    ReadFlash(3, 0, readBack, sizeof(readBack));
+    Check(memcmp(readBack, sector, sizeof(sector)) == 0, "read-only load preserves flash contents");
+    memset(readBack, 0, sizeof(readBack));
+    ProgramFlashSectorAndVerify(3, readBack);
+    Check(Host_SaveFlush(), "read-only flush is harmless");
+    Check(Host_SaveOpenReadOnly(path), "reload untouched file after emulated write");
+    ReadFlash(3, 0, readBack, sizeof(readBack));
+    Check(memcmp(readBack, sector, sizeof(sector)) == 0, "read-only writes never reach disk");
+
     /* A file of the wrong size is never overwritten. */
     f = fopen(path, "wb");
     fputs("not a save", f);

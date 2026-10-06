@@ -153,6 +153,24 @@ bool Host_SaveOpen(const char *saveDir)
     return true;
 }
 
+bool Host_SaveOpenReadOnly(const char *path)
+{
+    FILE *file;
+    bool ok;
+
+    sSaveEnabled = FALSE;
+    sDirty = FALSE;
+    sFlashInitialized = TRUE;
+    memset(sFlash, 0xFF, sizeof(sFlash));
+    file = fopen(path, "rb");
+    if (file == NULL)
+        return false;
+    ok = fread(sFlash, 1, sizeof(sFlash), file) == sizeof(sFlash)
+         && fgetc(file) == EOF && !ferror(file);
+    fclose(file);
+    return ok;
+}
+
 bool Host_SaveFlush(void)
 {
     char error[sizeof(sSavePath) + 256];
