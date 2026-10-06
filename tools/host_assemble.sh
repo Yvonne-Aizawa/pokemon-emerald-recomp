@@ -23,9 +23,18 @@
 #          .includes (only .equ definitions) gets the same fixups once, into
 #          HOST_SOUND_DIR, which is searched first.
 #
+#   inc:   Assembly includes that upstream's tests .include from inline asm
+#          in C (include/test/overworld_script.h: the event script macros),
+#          copied with the fixups into OUTDIR at the same relative paths, for
+#          the compiler's `-Wa,-I OUTDIR`. ELF targets only (Phase 19b).
+#          The C file's own code is assembled with these macros defined, so
+#          those named like x86 instructions (call, inc, nop, lock) would
+#          replace them; they become host_call etc., in their uses too.
+#
 # Usage:
 #   host_assemble.sh data REFDIR PREPROC OUT.o DEPFILE SRC -- CC CPPFLAGS... -- CC ASFLAGS...
 #   host_assemble.sh song REFDIR HOST_SOUND_DIR OUT.o SRC -- CC ASFLAGS...
+#   host_assemble.sh inc REFDIR OUTDIR FILE...
 #
 #   SRC is relative to REFDIR (the working directory, as upstream builds).
 #   CC is the host C compiler driver, used both as the preprocessor and as the
@@ -108,6 +117,17 @@ song)
     arm_to_host "$src" \
         | "$@" -c -x assembler "-Wa,-I$host_sound" -Wa,-Isound -o "$out" -
     if [[ $windows == 1 ]]; then add_symbol_underscores "$out"; fi
+    ;;
+inc)
+    refdir=$1 outdir=$2
+    shift 2
+    for file in "$@"; do
+        mkdir -p "$outdir/$(dirname "$file")"
+        arm_to_host "$refdir/$file" \
+            | sed -E 's/^([[:space:]]*(\.macro[[:space:]]+)?)(call|inc|nop|lock)([[:space:]]|$)/\1host_\3\4/' \
+            > "$outdir/$file.tmp.$$"
+        mv "$outdir/$file.tmp.$$" "$outdir/$file"
+    done
     ;;
 *)
     echo "host_assemble.sh: unknown mode '$mode'" >&2

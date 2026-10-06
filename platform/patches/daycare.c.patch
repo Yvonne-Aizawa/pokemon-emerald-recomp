@@ -1,0 +1,13 @@
+--- a/src/daycare.c
++++ b/src/daycare.c
+@@ -817,7 +817,9 @@
+     {
+         if (sharedMoves[i] == MOVE_NONE)
+             break;
+-        for (j = 0; levelupLearnset[j].move != LEVEL_UP_MOVE_END; i++)
++        // PC port: upstream advanced i here instead of j, reading sharedMoves
++        // far past its end (until stack junk matched a move: a crash here).
++        for (j = 0; levelupLearnset[j].move != LEVEL_UP_MOVE_END; j++)
+         {
+             if (sharedMoves[i] == levelupLearnset[j].move)
+             {

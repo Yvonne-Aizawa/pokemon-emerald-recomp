@@ -4,6 +4,24 @@ None open.
 
 ## Fixed
 
+### Collecting a Day Care egg whose parents share a move
+Found by upstream's tests on the host (PLAN.md, Phase 19b-2; three tests in
+`test/daycare.c`); fixed by `platform/patches/daycare.c.patch`. When both
+parents know the same move, `GiveParentSharedLevelUpMoves` looks it up in the
+baby's level-up learnset, but its inner loop advanced `i` instead of `j`, so
+it read further and further past its 4-move array until stack junk matched
+a move (on the GBA, then adding that junk move to the egg; on the host, a
+SIGSEGV off the top of the stack). The loop now advances `j`, as intended.
+
+### Battle text outside a battle (Illusion lookup)
+Found by upstream's tests on the host (Phase 19b-2; `test/text.c` expands
+every battle string with no battle running); fixed in
+`platform/patches/battle_util.c.patch`. A string with a Pokémon's name asks
+`GetIllusionMonPtr` whether an Illusion hides it, which read and wrote
+through `gBattleStruct` while it is NULL (BIOS memory on the GBA). With no
+battle it now returns NULL (no Illusion). No path to this in the game itself
+is known.
+
 ### Battle animations without an argument (Disguise, Shell Trap, Z-Moves, ...)
 Found by upstream's battle tests on the host (PLAN.md, Phase 19b-3; the
 Disguise test in `test/battle/move_effect/absorb.c`); fixed by
