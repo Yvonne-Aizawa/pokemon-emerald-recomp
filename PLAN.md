@@ -17,7 +17,7 @@ The game is playable from boot to the overworld and battles, with graphics, inpu
 | 16    | Not started (optional) |
 | 17    | Done (Linux and Windows builds, source only); on real Windows still to check: sound, `--console`/log file |
 | 18    | Not started (64-bit build; needed for macOS) |
-| 19    | In progress: 19a done (sanitizers + monkey runs in CI); **next**: 19b (upstream's tests), 19c (every map) |
+| 19    | In progress: 19a done (sanitizers + monkey runs in CI, heap checks included); **next**: 19b (upstream's tests, in 5 steps), then 19c (every map) |
 
 
 ## Source under analysis
@@ -560,6 +560,18 @@ Upstream runs them in mGBA (`make check`: a test ROM, `mgba-rom-test` and the pa
 - Run time: thousands of battles; split across CI cores and keep an eye on the CI budget (maybe the full suite on `main` and a subset on pull requests).
 
 **Done when** the suite builds and runs on Linux and Windows (under Wine), CI runs it, and every failure is either fixed or listed as a known GBA/host difference with a reason.
+
+**Steps** (one pull request each; port bugs found along the way get their own fixes and `known_crashes.md` entries; re-estimate after 19b-1, which shows how much of the setup depends on the GBA):
+
+| Step | What | Done when |
+|---|---|---|
+| 19b-1 Runner skeleton | A `TESTING=1` build of the game sources beside the normal one; a host test runner that finds the registered tests, runs each in its own process, reports pass/fail, handles timeouts. Proved on one small test file (e.g. `test/compression`). Linux only. | That file passes on the host; a deliberately broken test fails with the right message. |
+| 19b-2 Non-battle tests | All ~920 plain `TEST()`s (Pokémon data, bag, party menu, day care, overworld movement, ...). Each failure is investigated: a port bug is fixed; a real GBA-only difference goes on a known-failures list with the reason. | All pass or are listed with a reason; CI runs them. |
+| 19b-3 Battle framework | `test_runner_battle.c` on the host, including `RandomUniform` and friends overridable again in the test build. Proved on a few hundred single-battle tests. | Those pass or are listed with a reason. |
+| 19b-4 All battle + AI tests | The remaining ~5,000 (double, multi, wild, AI), split across CI cores; if too slow for every PR, a subset on PRs and all of it on `main`. | Same rule; CI runs them. |
+| 19b-5 Windows | The suite on the MinGW build under Wine: test registration via `.data$`-style markers, per-test processes by re-running the executable. Could move after 19c: the game logic is the same code on both platforms. | Runs in the Windows CI job. |
+
+**Status: in progress.** Next: 19b-1.
 
 ### 19c — Visit every map (~1 day)
 
