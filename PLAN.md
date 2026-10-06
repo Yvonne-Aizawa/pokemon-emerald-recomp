@@ -579,7 +579,7 @@ Upstream runs them in mGBA (`make check`: a test ROM, `mgba-rom-test` and the pa
 | 19b-1 Runner skeleton | A `TESTING=1` build of the game sources beside the normal one; a host test runner that finds the registered tests, runs each in its own process, reports pass/fail, handles timeouts. Proved on one small test file (e.g. `test/compression`). Linux only. | That file passes on the host; a deliberately broken test fails with the right message. |
 | 19b-2 Non-battle tests | All ~920 plain `TEST()`s (Pokémon data, bag, party menu, day care, overworld movement, ...). Each failure is investigated: a port bug is fixed; a real GBA-only difference goes on a known-failures list with the reason. | All pass or are listed with a reason; CI runs them. |
 | 19b-3 Battle framework | `test_runner_battle.c` on the host, including `RandomUniform` and friends overridable again in the test build. Proved on a few hundred single-battle tests. | Those pass or are listed with a reason. |
-| 19b-4 All battle + AI tests | The remaining ~5,000 (double, multi, wild, AI), split across CI cores; if too slow for every PR, a subset on PRs and all of it on `main`. | Same rule; CI runs them. |
+| 19b-4 All battle + AI tests | The remaining ~5,000 (double, multi, wild, AI). First split CI (see *CI time* below): a separate upstream-tests job over several machines, and a path filter; if still too slow for every PR, a subset on PRs and all of it on `main`. | Same rule; CI runs them, and the slowest job stays well under its 60-minute timeout. |
 | 19b-5 Windows | The suite on the MinGW build under Wine: test registration via `.data$`-style markers, per-test processes by re-running the executable. Could move after 19c: the game logic is the same code on both platforms. | Runs in the Windows CI job. |
 
 **Status: in progress.**
@@ -592,7 +592,11 @@ Upstream runs them in mGBA (`make check`: a test ROM, `mgba-rom-test` and the pa
   - Port bugs found, which crash the game too (`known_crashes.md`): battle animations played with a `NULL` argument (Disguise, Z-Moves, Shell Trap, ...), Hex/Venoshock against a statused target, Dynamaxing, a ball with capture odds 0 (division by zero).
   - `RandomUniform` and friends were already weak in the test build (`random.c.patch`).
 - *Sharding:* `pkmemerald-tests -j N` (default: the number of CPUs, at most 32) splits the tests as Hydra does, through upstream's own `gTestRunnerN`/`gTestRunnerI` cost balancing: N shards, each with its own child processes and restarts; one summary. All move-effect tests: 33 min on one core, under 5 min on 16. A pattern ending in `/` selects a directory (`test/battle/move_effect/`). CI's Linux job builds and runs them (`-DPKM_UPSTREAM_TESTS=ON`).
-- Next: 19b-2 (non-battle tests), then 19b-4 (the remaining battle and AI tests: add their directories; watch the CI time).
+- *CI time:* with the move-effect tests, the Linux (32-bit) job takes ~18 min (the Windows and sanitizer jobs ~5); the tests give no output until they finish. At the same rate, 19b-4's ~5,000 more tests would take that job to ~45–60 min, its timeout. So before adding them, in this order:
+  1. *A job of its own, split over machines:* an upstream-tests job with a matrix of e.g. 4 machines, each building `pkmemerald-tests` and running its share (`pkmemerald-tests --shard I/N`, to add: global shard I of N, its local `-j` shards within it; upstream allows 32 in all). Each machine builds its own copy: no artifacts or caches of build output (Phase 17). Run directly rather than through CTest, so the log shows results as they come; the Linux job's CTest step leaves them out.
+  2. *A path filter:* that job runs only when `reference/`, `platform/`, `CMakeLists.txt`, `cmake/`, `tools/` or the workflow change.
+  3. *Only if still too slow:* a subset on pull requests and the full suite on `main` (or nightly).
+- Next: 19b-2 (non-battle tests), then 19b-4 (the CI split above first, then the remaining battle and AI test directories).
 
 ### 19c — Visit every map (~1 day)
 
