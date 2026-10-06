@@ -6,6 +6,10 @@
  * stack and the game's state, to stderr and to a report file -- then let the
  * signal take its normal course (core dump, debugger).
  *
+ * Each crash gets its own report file, named after the local date and time
+ * of the crash (2026-10-06_19-10-32_pkmemerald-crash.txt), so earlier
+ * reports are kept.
+ *
  * Function names come from the executable's own symbol table, read at
  * install time, so static functions are named too and no debug build is
  * needed.
@@ -20,10 +24,14 @@
 extern "C" {
 #endif
 
-#define CRASH_REPORT_FILE "pkmemerald-crash.txt"
+/* Folder for the reports, inside the save directory. */
+#define CRASH_REPORT_DIR "crashes"
+/* Report file names: YYYY-MM-DD_HH-MM-SS followed by this. */
+#define CRASH_REPORT_SUFFIX "_pkmemerald-crash.txt"
 
-/* Install the handler; the report also goes to `reportPath`. */
-void Crash_Install(const char *reportPath);
+/* Install the handler; each report also goes to a new, timestamped file in
+ * `reportDir`, which must already exist. */
+void Crash_Install(const char *reportDir);
 
 /* Extra state for the report. Both are read from inside the signal
  * handler, so they must stay valid and be safe to read at any time. */
