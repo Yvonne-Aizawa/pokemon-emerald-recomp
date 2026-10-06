@@ -301,8 +301,16 @@ Tests:
   - The special sectors (Hall of Fame, Trainer Hill, recorded battle) and the raw-chip fallback stay base64.
 - **Tests:** on every checkpoint, the save blocks rebuilt from JSON match the original sectors byte for byte (the game zeroes padding). Block edits load, bad block edits are refused, a changed `layout` still loads, and a version 1 file loads the same. Checked in the game: an edited name and an edited `optionsTextSpeed` survive an in-game save.
 
+*Pokémon and names done (branch `json-save-pokemon`):*
+- **Pokémon:** every `struct BoxPokemon` (party, boxes, Day Care, fusions, wherever one is saved) has its `secure` data written decrypted and in order, as `growth` / `attacks` / `condition` / `misc` objects with named fields (`PokemonSubstruct0-3`, added to the field table).
+  - The `checksum` is written only when it's wrong (a "bad egg", kept as it is). Otherwise loading recomputes it, so an edited Pokémon is valid.
+  - The order (`sSubstructOffsets`) and checksum mirror `pokemon.c`.
+- **Names:** the generator also reads the enumerators of every named enum a save field uses (Species, Move, Item, Type, HoldEffect, BerryFirmness, BerryColor). Those fields are written by name (`"SPECIES_TORCHIC"`, `"MOVE_EMBER"`), and loading takes a name or a number. Each value is written under its first-declared name, skipping range markers such as `NUM_*` and `*_COUNT`.
+  - `_Static_assert`s check every enumerator's value (4,378 checks in all). A name another version lacks is dropped like any other mismatch.
+- **Tests:** byte-for-byte rebuilds on every checkpoint still hold. An edited species and move load as a valid Pokémon, an explicit wrong checksum stays a bad egg, and unknown names and parts are refused.
+- **In the game:** a party Torchic edited into a Mudkip with Water Gun shows as such on the summary screen.
+
 *Next:*
-- Decode Pokémon: party, boxes, Day Care and secret bases (encrypted substructs plus checksum).
 - Decode the unions by their type byte.
 - Decode values XORed with the encryption key (`ApplyNewEncryptionKeyToAllEncryptedData` lists them).
 - Turn game-text fields into strings.

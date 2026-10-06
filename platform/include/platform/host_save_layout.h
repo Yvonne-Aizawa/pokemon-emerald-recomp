@@ -34,6 +34,22 @@ struct HostSaveField
     uint8_t dimCount;    /* array dimensions, outermost first */
     uint16_t dims[3];
     uint16_t type;
+    uint16_t names;      /* an enum: 1 + its index in gHostSaveEnums; else 0 */
+};
+
+/* An enum's names, from gHostSaveEnumValues[first]: for each value, the name
+ * to write comes first; aliases and range markers follow. */
+struct HostSaveEnum
+{
+    const char *name;
+    uint16_t first;
+    uint16_t count;
+};
+
+struct HostSaveEnumValue
+{
+    const char *name;
+    int32_t value;
 };
 
 struct HostSaveType
@@ -44,7 +60,8 @@ struct HostSaveType
     uint16_t fieldCount;
 };
 
-/* The roots come first, in this order. */
+/* The roots come first, in this order. PokemonSubstruct0-3 are in the table
+ * too, for BoxPokemon.secure. */
 enum
 {
     HOST_SAVE_TYPE_SAVE_BLOCK_2,
@@ -56,6 +73,9 @@ enum
 extern const struct HostSaveType gHostSaveTypes[];
 extern const struct HostSaveField gHostSaveFields[];
 extern const unsigned gHostSaveTypeCount;
+extern const struct HostSaveEnum gHostSaveEnums[];
+extern const struct HostSaveEnumValue gHostSaveEnumValues[];
+extern const unsigned gHostSaveEnumCount;
 /* A hash of the table: saves made by a build with a different one may name
  * fields this build doesn't have. */
 extern const char gHostSaveLayoutFingerprint[];

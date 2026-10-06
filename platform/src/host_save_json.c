@@ -571,7 +571,163 @@ static void WriteScalar(const struct HostSaveField *f, u8 *p, s64 value)
     WriteLittle(p, f->size, container);
 }
 
+/* An enum value's name (the first listed for it), or NULL. */
+static const char *EnumName(u16 names, s64 value)
+{
+    const struct HostSaveEnum *e = &gHostSaveEnums[names - 1];
+    unsigned i;
+
+    for (i = 0; i < e->count; i++)
+        if (gHostSaveEnumValues[e->first + i].value == value)
+            return gHostSaveEnumValues[e->first + i].name;
+    return NULL;
+}
+
+static bool EnumValue(u16 names, const char *name, s64 *value)
+{
+    const struct HostSaveEnum *e = &gHostSaveEnums[names - 1];
+    unsigned i;
+
+    for (i = 0; i < e->count; i++)
+        if (strcmp(gHostSaveEnumValues[e->first + i].name, name) == 0)
+        {
+            *value = gHostSaveEnumValues[e->first + i].value;
+            return true;
+        }
+    return false;
+}
+
+/* Pokémon (struct BoxPokemon): `secure` holds four 12-byte parts, in an
+ * order set by personality % 24, each 32-bit word XORed with
+ * personality ^ otId, and `checksum` sums the decrypted words (pokemon.c).
+ * The file has the parts decrypted and by name, and the checksum only
+ * when it is wrong (a "bad egg", kept as it is); otherwise loading
+ * recomputes it, so edits stay valid. */
+
+/* pokemon.c's sSubstructOffsets: where part N is, for personality % 24. */
+static const u8 sSubstructOffsets[4][24] =
+{
+    {0, 0, 0, 0, 0, 0, 1, 1, 2, 3, 2, 3, 1, 1, 2, 3, 2, 3, 1, 1, 2, 3, 2, 3},
+    {1, 1, 2, 3, 2, 3, 0, 0, 0, 0, 0, 0, 2, 3, 1, 1, 3, 2, 2, 3, 1, 1, 3, 2},
+    {2, 3, 1, 1, 3, 2, 2, 3, 1, 1, 3, 2, 0, 0, 0, 0, 0, 0, 3, 2, 3, 2, 1, 1},
+    {3, 2, 3, 2, 1, 1, 3, 2, 3, 2, 1, 1, 3, 2, 3, 2, 1, 1, 0, 0, 0, 0, 0, 0},
+};
+
+/* The parts by their use: PokemonSubstruct0-3. */
+static const char *const sSubstructNames[4] = { "growth", "attacks", "condition", "misc" };
+
+#define SUBSTRUCT_SIZE 12
+
+static struct
+{
+    bool ready;
+    int type;  /* BoxPokemon's table index, or -1 */
+    const struct HostSaveField *personality, *otId, *checksum, *secure;
+    u16 parts[4];
+} sBoxMon;
+
+static const struct HostSaveField *FindField(int type, const char *name)
+{
+    const struct HostSaveType *t = &gHostSaveTypes[type];
+    unsigned i;
+
+    for (i = 0; i < t->fieldCount; i++)
+        if (strcmp(gHostSaveFields[t->firstField + i].name, name) == 0)
+            return &gHostSaveFields[t->firstField + i];
+    return NULL;
+}
+
+static int FindType(const char *name)
+{
+    unsigned i;
+
+    for (i = 0; i < gHostSaveTypeCount; i++)
+        if (strcmp(gHostSaveTypes[i].name, name) == 0)
+            return (int)i;
+    return -1;
+}
+
+/* BoxPokemon's index in the table, or -1 (then Pokémon are plain structs). */
+static int BoxMonType(void)
+{
+    static const char *const partTypes[4] = {
+        "PokemonSubstruct0", "PokemonSubstruct1", "PokemonSubstruct2", "PokemonSubstruct3",
+    };
+    int i;
+
+    if (sBoxMon.ready)
+        return sBoxMon.type;
+    sBoxMon.ready = true;
+    sBoxMon.type = FindType("BoxPokemon");
+    if (sBoxMon.type < 0)
+        return -1;
+    sBoxMon.personality = FindField(sBoxMon.type, "personality");
+    sBoxMon.otId = FindField(sBoxMon.type, "otId");
+    sBoxMon.checksum = FindField(sBoxMon.type, "checksum");
+    sBoxMon.secure = FindField(sBoxMon.type, "secure");
+    for (i = 0; i < 4; i++)
+    {
+        int part = FindType(partTypes[i]);
+        if (part < 0 || gHostSaveTypes[part].size != SUBSTRUCT_SIZE)
+            sBoxMon.type = -1;
+        else
+            sBoxMon.parts[i] = (u16)part;
+    }
+    if (sBoxMon.personality == NULL || sBoxMon.otId == NULL || sBoxMon.checksum == NULL || sBoxMon.secure == NULL
+     || sBoxMon.secure->size != 4 * SUBSTRUCT_SIZE || sBoxMon.personality->size != 4 || sBoxMon.otId->size != 4)
+        sBoxMon.type = -1;
+    return sBoxMon.type;
+}
+
+static u32 BoxMonKey(const u8 *box)
+{
+    return (u32)ReadLittle(box + sBoxMon.personality->offset, 4) ^ (u32)ReadLittle(box + sBoxMon.otId->offset, 4);
+}
+
+/* XOR the 32-bit words of `secure` with the Pokémon's key (decrypts or encrypts). */
+static void CryptSecure(const u8 *box, const u8 *from, u8 *to)
+{
+    u32 key = BoxMonKey(box);
+    unsigned i;
+
+    for (i = 0; i < 4 * SUBSTRUCT_SIZE; i += 4)
+        WriteLittle(to + i, 4, (u32)ReadLittle(from + i, 4) ^ key);
+}
+
+/* CalculateBoxMonChecksum, over decrypted data. */
+static u16 SecureChecksum(const u8 *decrypted)
+{
+    u32 sum = 0;
+    unsigned i;
+
+    for (i = 0; i < 4 * SUBSTRUCT_SIZE; i += 4)
+    {
+        u32 word = (u32)ReadLittle(decrypted + i, 4);
+        sum += word + (word >> 16);
+    }
+    return (u16)sum;
+}
+
 static void WriteStruct(struct HostJsonWriter *w, u16 type, const u8 *data);
+
+/* BoxPokemon.secure, decrypted: { "growth": {...}, ... }; parts that are
+ * all zero are left out. */
+static void WriteSecure(struct HostJsonWriter *w, const u8 *box, const u8 *decrypted)
+{
+    u32 order = (u32)ReadLittle(box + sBoxMon.personality->offset, 4) % 24;
+    unsigned i;
+
+    HostJsonW_BeginObject(w);
+    for (i = 0; i < 4; i++)
+    {
+        const u8 *part = decrypted + sSubstructOffsets[i][order] * SUBSTRUCT_SIZE;
+        if (AllZero(part, SUBSTRUCT_SIZE))
+            continue;
+        HostJsonW_Key(w, sSubstructNames[i]);
+        WriteStruct(w, sBoxMon.parts[i], part);
+    }
+    HostJsonW_EndObject(w);
+}
 
 static void WriteFieldValue(struct HostJsonWriter *w, const struct HostSaveField *f, const u8 *p, unsigned dim)
 {
@@ -607,20 +763,30 @@ static void WriteFieldValue(struct HostJsonWriter *w, const struct HostSaveField
         HostJsonW_EndArray(w);
         break;
     }
-    case HOST_SAVE_SINT:
-        HostJsonW_Int(w, (s32)ReadScalar(f, p));
-        break;
     default:
-        HostJsonW_Uint(w, (u32)ReadScalar(f, p));
+    {
+        s64 value = ReadScalar(f, p);
+        const char *name = f->names != 0 ? EnumName(f->names, value) : NULL;
+        if (name != NULL)
+            HostJsonW_CString(w, name);
+        else if (f->kind == HOST_SAVE_SINT)
+            HostJsonW_Int(w, (s32)value);
+        else
+            HostJsonW_Uint(w, (u32)value);
         break;
+    }
     }
 }
 
 static void WriteStruct(struct HostJsonWriter *w, u16 type, const u8 *data)
 {
     const struct HostSaveType *t = &gHostSaveTypes[type];
+    bool boxMon = (int)type == BoxMonType();
+    u8 decrypted[4 * SUBSTRUCT_SIZE];
     unsigned i;
 
+    if (boxMon)
+        CryptSecure(data, data + sBoxMon.secure->offset, decrypted);
     HostJsonW_BeginObject(w);
     for (i = 0; i < t->fieldCount; i++)
     {
@@ -629,6 +795,24 @@ static void WriteStruct(struct HostJsonWriter *w, u16 type, const u8 *data)
 
         if (ReadableField(type, f->name) != NULL)
             continue;
+        if (boxMon && f == sBoxMon.secure)
+        {
+            if (!AllZero(decrypted, sizeof(decrypted)))
+            {
+                HostJsonW_Key(w, f->name);
+                WriteSecure(w, data, decrypted);
+            }
+            continue;
+        }
+        if (boxMon && f == sBoxMon.checksum)
+        {
+            if (ReadScalar(f, p) != SecureChecksum(decrypted))
+            {
+                HostJsonW_Key(w, f->name);
+                HostJsonW_Uint(w, (u32)ReadScalar(f, p));
+            }
+            continue;
+        }
         if (f->bitSize != 0 ? ReadScalar(f, p) == 0 : AllZero(p, FieldStride(f, 0)))
             continue;
         HostJsonW_Key(w, f->name);
@@ -1109,6 +1293,16 @@ static bool ReadFieldValue(struct Reader *r, const struct HostJsonValue *v, cons
         s64 min = f->kind == HOST_SAVE_SINT ? -((s64)1 << (bits - 1)) : 0;
         s64 max = f->kind == HOST_SAVE_SINT ? ((s64)1 << (bits - 1)) - 1 : (s64)(((u64)1 << bits) - 1);
         int64_t value;
+        if (v->type == HOST_JSON_STRING && f->names != 0)
+        {
+            s64 named;
+            if (!EnumValue(f->names, v->string, &named))
+                return Mismatch(r, "%s: no %s named \"%s\"", path, gHostSaveEnums[f->names - 1].name, v->string);
+            if (named < min || named > max)
+                return Mismatch(r, "%s: %s doesn't fit this field", path, v->string);
+            WriteScalar(f, p, named);
+            return true;
+        }
         if (!HostJson_GetInt(v, min, max, &value))
             /* As doubles (exact here): MinGW's printf checks reject %lld. */
             return Mismatch(r, "%s must be a whole number from %.0f to %.0f", path, (double)min, (double)max);
@@ -1118,9 +1312,48 @@ static bool ReadFieldValue(struct Reader *r, const struct HostJsonValue *v, cons
     }
 }
 
+/* BoxPokemon.secure from its parts by name, once personality and otId are
+ * read; encrypts it, and sets the checksum unless the file gives one. */
+static bool ReadSecure(struct Reader *r, const struct HostJsonValue *secure, bool haveChecksum, u8 *box,
+                       const char *path)
+{
+    u8 decrypted[4 * SUBSTRUCT_SIZE];
+    u32 order = (u32)ReadLittle(box + sBoxMon.personality->offset, 4) % 24;
+    char child[512];
+    size_t i;
+
+    memset(decrypted, 0, sizeof(decrypted));
+    if (secure != NULL && secure->type != HOST_JSON_OBJECT)
+        return Mismatch(r, "%s.secure must be an object", path);
+    for (i = 0; secure != NULL && i < secure->count; i++)
+    {
+        const struct HostJsonValue *part = &secure->items[i];
+        unsigned j;
+
+        snprintf(child, sizeof(child), "%s.secure.%s", path, part->key);
+        for (j = 0; j < 4 && strcmp(sSubstructNames[j], part->key) != 0; j++)
+            ;
+        if (j == 4)
+        {
+            if (!Mismatch(r, "%s: not one of growth, attacks, condition, misc", child))
+                return false;
+            continue;
+        }
+        if (!ReadStruct(r, part, sBoxMon.parts[j], decrypted + sSubstructOffsets[j][order] * SUBSTRUCT_SIZE, child))
+            return false;
+    }
+    CryptSecure(box, decrypted, box + sBoxMon.secure->offset);
+    if (!haveChecksum)
+        WriteScalar(sBoxMon.checksum, box + sBoxMon.checksum->offset, SecureChecksum(decrypted));
+    return true;
+}
+
 static bool ReadStruct(struct Reader *r, const struct HostJsonValue *v, u16 type, u8 *data, const char *path)
 {
     const struct HostSaveType *t = &gHostSaveTypes[type];
+    bool boxMon = (int)type == BoxMonType();
+    const struct HostJsonValue *secure = NULL;
+    bool haveChecksum = false;
     char child[512];
     size_t i;
 
@@ -1134,6 +1367,12 @@ static bool ReadStruct(struct Reader *r, const struct HostJsonValue *v, u16 type
         unsigned j;
         bool ok;
 
+        if (boxMon && strcmp(member->key, "secure") == 0)
+        {
+            secure = member;  /* needs personality and otId: read last */
+            continue;
+        }
+        haveChecksum |= boxMon && strcmp(member->key, "checksum") == 0;
         snprintf(child, sizeof(child), "%s.%s", path, member->key);
         for (j = 0; j < t->fieldCount && f == NULL; j++)
             if (strcmp(gHostSaveFields[t->firstField + j].name, member->key) == 0)
@@ -1147,7 +1386,7 @@ static bool ReadStruct(struct Reader *r, const struct HostJsonValue *v, u16 type
         if (!ok)
             return false;
     }
-    return true;
+    return !boxMon || ReadSecure(r, secure, haveChecksum, data, path);
 }
 
 static bool ReadGame(struct Reader *r, const struct HostJsonValue *root, const struct HostJsonValue *game,

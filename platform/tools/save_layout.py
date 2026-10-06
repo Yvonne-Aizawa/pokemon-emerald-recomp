@@ -22,7 +22,14 @@ from elftools.elf.elffile import ELFFile
 
 # The roots, in the order host_save_layout.h numbers them.
 ROOTS = ['SaveBlock2', 'SaveBlock1', 'PokemonStorage', 'SaveBlock3']
+# Also in the table, though only reachable through a union: the four parts
+# of a Pokémon's encrypted data (BoxPokemon.secure), which the save file
+# writes decrypted.
+EXTRA_TYPES = ['PokemonSubstruct0', 'PokemonSubstruct1', 'PokemonSubstruct2', 'PokemonSubstruct3']
 MAX_DIMS = 3
+# Enumerators that mark ranges rather than name a value.
+RANGE_PREFIXES = ('NUM_', 'NUMBER_OF_', 'LAST_', 'FIRST_')
+RANGE_SUFFIXES = ('_COUNT', '_COUNT_ALL', '_COUNT_DYNAMAX', '_START', '_END')
 
 DW_ATE_SIGNED = {0x05, 0x06}        # signed, signed_char
 DW_ATE_UNSIGNED = {0x02, 0x07, 0x08}  # boolean, unsigned, unsigned_char
@@ -89,7 +96,33 @@ class Generator:
     def __init__(self):
         self.types = []      # dicts: name, size, fields
         self.by_offset = {}  # DIE offset -> type index
+        self.enums = []      # dicts: name, values [(name, value)], preferred names first
+        self.enum_by_offset = {}
         self.asserts = []
+
+    def enum_names(self, die):
+        """The `names` value for a field of type `die`: 1 + the index of its
+        named enum's table, or 0."""
+        if die.tag != 'DW_TAG_enumeration_type' or name_of(die) is None:
+            return 0
+        if die.offset not in self.enum_by_offset:
+            values = [(name_of(c), c.attributes['DW_AT_const_value'].value)
+                      for c in die.iter_children() if c.tag == 'DW_TAG_enumerator']
+            # Writing names a value by its first match: put each value's
+            # first-declared name that isn't a range marker first.
+            ranges = [v for v in values if v[0].startswith(RANGE_PREFIXES) or v[0].endswith(RANGE_SUFFIXES)]
+            preferred, aliases, seen = [], [], set()
+            for value in values:
+                if value in ranges or value[1] in seen:
+                    aliases.append(value)
+                else:
+                    preferred.append(value)
+                    seen.add(value[1])
+            self.enum_by_offset[die.offset] = len(self.enums)
+            self.enums.append({'name': name_of(die), 'values': preferred + aliases})
+            for name, value in values:
+                self.asserts.append(f'_Static_assert({name} == {value}, "{name}: regenerate the save layout");')
+        return self.enum_by_offset[die.offset] + 1
 
     def struct_type(self, die, cname, anchor):
         """Index of the table entry for struct `die`. Its layout is checked
@@ -127,7 +160,8 @@ class Generator:
                 bits = member.attributes['DW_AT_bit_size'].value
                 kind, _ = scalar_kind(mtype)
                 fields.append({'name': name, 'offset': bit // 8, 'size': (bit % 8 + bits + 7) // 8,
-                               'kind': kind, 'bit_offset': bit % 8, 'bit_size': bits, 'dims': [], 'type': 0})
+                               'kind': kind, 'bit_offset': bit % 8, 'bit_size': bits, 'dims': [], 'type': 0,
+                               'names': self.enum_names(mtype)})
                 continue
             if 'DW_AT_bit_size' in member.attributes:
                 raise SystemExit('save_layout: old-style DWARF bitfields (DW_AT_bit_offset) are not supported')
@@ -150,7 +184,8 @@ class Generator:
             element_typedef = typedef if not dims else None
             if dims:
                 element, element_typedef = strip(element)
-            field = {'name': name, 'offset': offset, 'bit_offset': 0, 'bit_size': 0, 'dims': dims, 'type': 0}
+            field = {'name': name, 'offset': offset, 'bit_offset': 0, 'bit_size': 0, 'dims': dims, 'type': 0,
+                     'names': self.enum_names(element)}
             if element.tag == 'DW_TAG_structure_type':
                 tag_name = name_of(element)
                 cname = f'struct {tag_name}' if tag_name else element_typedef
@@ -172,21 +207,26 @@ def find_roots(path):
     with open(path, 'rb') as f:
         dwarf = ELFFile(f).get_dwarf_info()
         found = {}
+        wanted = ROOTS + EXTRA_TYPES
         for cu in dwarf.iter_CUs():
             for die in cu.get_top_DIE().iter_children():
-                if (die.tag == 'DW_TAG_structure_type' and name_of(die) in ROOTS
+                if (die.tag == 'DW_TAG_structure_type' and name_of(die) in wanted
                         and 'DW_AT_declaration' not in die.attributes):
                     found.setdefault(name_of(die), die)
-            if len(found) == len(ROOTS):
-                return generate([found[name] for name in ROOTS])
-    raise SystemExit(f'save_layout: {path} has no debug info for {sorted(set(ROOTS) - set(found))}')
+            if len(found) == len(wanted):
+                return generate([found[name] for name in ROOTS], [found[name] for name in EXTRA_TYPES])
+    raise SystemExit(f'save_layout: {path} has no debug info for {sorted(set(wanted) - set(found))}')
 
 
-def generate(roots):
+def c_string(text):
+    return '"' + text.replace('\\', '\\\\').replace('"', '\\"') + '"'
+
+
+def generate(roots, extras):
     gen = Generator()
     for die in roots:
         gen.reserve(die, None)  # the roots are types 0-3
-    for die in roots:
+    for die in roots + extras:
         gen.struct_type(die, f'struct {name_of(die)}', None)
     lines = [
         '/* Generated by platform/tools/save_layout.py from the debug info of',
@@ -206,8 +246,19 @@ def generate(roots):
         for field in entry['fields']:
             dims = ', '.join(str(d) for d in field['dims']) or '0'
             lines.append(f'    {{ "{field["name"]}", {field["offset"]}, {field["size"]}, HOST_SAVE_{field["kind"]}, '
-                         f'{field["bit_offset"]}, {field["bit_size"]}, {len(field["dims"])}, {{ {dims} }}, {field["type"]} }},')
-    lines += ['};', '', f'const unsigned gHostSaveTypeCount = {len(gen.types)};']
+                         f'{field["bit_offset"]}, {field["bit_size"]}, {len(field["dims"])}, {{ {dims} }}, '
+                         f'{field["type"]}, {field["names"]} }},')
+    lines += ['};', '', f'const unsigned gHostSaveTypeCount = {len(gen.types)};', '']
+    lines.append('const struct HostSaveEnum gHostSaveEnums[] = {')
+    first = 0
+    for index, enum in enumerate(gen.enums):
+        lines.append(f'    /* {index + 1} */ {{ "{enum["name"]}", {first}, {len(enum["values"])} }},')
+        first += len(enum['values'])
+    lines += ['};', '', 'const struct HostSaveEnumValue gHostSaveEnumValues[] = {']
+    for enum in gen.enums:
+        lines.append(f'    /* enum {enum["name"]} */')
+        lines += [f'    {{ {c_string(name)}, {value} }},' for name, value in enum['values']]
+    lines += ['};', '', f'const unsigned gHostSaveEnumCount = {len(gen.enums)};']
     # Saves record this: a different one means another layout (upstream
     # version), whose fields may not all exist here.
     fingerprint = hashlib.sha256('\n'.join(lines[5:]).encode()).hexdigest()[:16]

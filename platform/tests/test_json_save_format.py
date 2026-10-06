@@ -106,6 +106,30 @@ try:
     assert after['map']['x'] == 3 and after['map']['y'] == before['map']['y']
     print('edits to save block fields load, whatever the recorded layout')
 
+    # Pokémon are written decrypted, with names: an edit loads as a valid
+    # Pokémon (the checksum is recomputed); a checksum given in the file is
+    # kept, so a "bad egg" stays one.
+    document = json.loads(base.read_text())
+    mon = document['game']['blocks']['save_block_1']['playerParty'][0]['box']
+    assert 'checksum' not in mon, 'a valid Pokémon has no checksum in the file'
+    old_species = before['party'][0]['species']
+    mon['secure']['growth']['species'] = 'SPECIES_MUDKIP'
+    mon['secure']['attacks']['move1'] = 'MOVE_WATER_GUN'
+    edited.write_text(json.dumps(document))
+    after = inspect(binary, edited)
+    assert after['party'][0]['species'] != old_species and not after['party'][0]['bad_egg'], after['party']
+    convert(edited, work / 'edited-again.json')
+    again = json.loads((work / 'edited-again.json').read_text())['game']['blocks']['save_block_1']['playerParty'][0]
+    assert again['box']['secure']['growth']['species'] == 'SPECIES_MUDKIP'
+    assert again['box']['secure']['attacks']['move1'] == 'MOVE_WATER_GUN'
+    mon['checksum'] = 1
+    edited.write_text(json.dumps(document))
+    assert inspect(binary, edited)['party'][0]['bad_egg'], 'a wrong checksum makes a bad egg'
+    convert(edited, work / 'bad-egg.json')
+    bad = json.loads((work / 'bad-egg.json').read_text())['game']['blocks']['save_block_1']['playerParty'][0]['box']
+    assert bad['checksum'] == 1, 'a bad egg keeps its checksum'
+    print('Pokémon load decrypted and by name; edits get a valid checksum; bad eggs stay')
+
     # Version 1 (the blocks as base64 images) still loads. Build one from the
     # .sav's newest slot, decoded here independently of the game.
     document = json.loads(base.read_text())
@@ -141,6 +165,10 @@ try:
         (lambda d: d['game']['blocks']['save_block_1']['pos'].update(x=-40000), 'from -32768 to 32767'),
         (lambda d: d['game']['blocks']['save_block_1'].update(mapView=[0] * 257), 'at most 256 entries'),
         (lambda d: d['game']['blocks'].update(save_block_9={}), 'no such save block'),
+        (lambda d: d['game']['blocks']['save_block_1']['playerParty'][0]['box']['secure']['growth'].update(
+            species='SPECIES_NOPE'), 'no Species named "SPECIES_NOPE"'),
+        (lambda d: d['game']['blocks']['save_block_1']['playerParty'][0]['box']['secure'].update(
+            stats={}), 'not one of growth, attacks, condition, misc'),
         (lambda d: d.update(version=99), 'unsupported version'),
     ]:
         stderr = rejected(edit(change), message)
