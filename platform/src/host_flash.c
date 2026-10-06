@@ -145,16 +145,17 @@ static char *ReadWholeFile(const char *path, size_t *size)
 
 /* A JSON save, or a raw flash image (the .sav format before JSON), into
  * sFlash, which is left erased on failure. */
-static bool LoadSaveData(const char *data, size_t size, char *error, size_t errorSize)
+static bool LoadSaveData(const char *data, size_t size, char *error, size_t errorSize, struct HostSaveJsonLoad *load)
 {
     size_t i = 0;
 
     memset(sFlash, 0xFF, sizeof(sFlash));
+    memset(load, 0, sizeof(*load));
     while (i < size && (data[i] == ' ' || data[i] == '\t' || data[i] == '\n' || data[i] == '\r'))
         i++;
     if (i < size && data[i] == '{')
     {
-        if (HostSaveJson_ToFlash(data, size, sFlash, error, errorSize))
+        if (HostSaveJson_ToFlash(data, size, sFlash, error, errorSize, load))
             return true;
         /* A raw image can start with '{' too; it never parses as JSON. */
         if (size != sizeof(sFlash))
@@ -170,11 +171,50 @@ static bool LoadSaveData(const char *data, size_t size, char *error, size_t erro
     return false;
 }
 
+/* A save from another game version (field layout) is kept as it was, once,
+ * before the game can overwrite it: pkmemerald.<layout>.json.bak. */
+static bool BackUpOtherLayout(const char *saveDir, const char *data, size_t size, const struct HostSaveJsonLoad *load)
+{
+    char path[sizeof(sSavePath)], error[sizeof(sSavePath) + 256];
+    const char *name = load->fingerprint;
+    FILE *existing;
+    size_t i;
+
+    /* The name comes from the file: use it only if it's the hex it should be. */
+    for (i = 0; name[i] != '\0'; i++)
+        if (!((name[i] >= '0' && name[i] <= '9') || (name[i] >= 'a' && name[i] <= 'f')))
+            break;
+    if (i == 0 || name[i] != '\0')
+        name = "other";
+    if (snprintf(path, sizeof(path), "%s/pkmemerald.%s.json.bak", saveDir, name) >= (int)sizeof(path))
+    {
+        fprintf(stderr, "save: path too long for a backup; saving disabled\n");
+        return false;
+    }
+    printf("save: this save is from another game version; %u thing(s) it has were dropped (see above)\n",
+           load->dropped);
+    existing = fopen(path, "rb");
+    if (existing != NULL)
+    {
+        fclose(existing);
+        printf("save: the earlier backup %s is kept\n", path);
+        return true;
+    }
+    if (!HostFs_WriteFileAtomic(path, data, size, error, sizeof(error)))
+    {
+        fprintf(stderr, "save: cannot back up the save before it changes (%s); saving disabled\n", error);
+        return false;
+    }
+    printf("save: backed up the save as it was to %s\n", path);
+    return true;
+}
+
 bool Host_SaveOpen(const char *saveDir)
 {
     char legacyPath[sizeof(sSavePath)];
     char error[512];
     const char *path = sSavePath;
+    struct HostSaveJsonLoad load;
     char *data;
     size_t size;
 
@@ -214,10 +254,16 @@ bool Host_SaveOpen(const char *saveDir)
         fprintf(stderr, "save: cannot read '%s': %s; saving disabled\n", path, strerror(errno));
         return false;
     }
-    if (!LoadSaveData(data, size, error, sizeof(error)))
+    if (!LoadSaveData(data, size, error, sizeof(error), &load))
     {
         free(data);
         fprintf(stderr, "save: '%s': %s; leaving it untouched, saving disabled\n", path, error);
+        return false;
+    }
+    if (load.otherLayout && !BackUpOtherLayout(saveDir, data, size, &load))
+    {
+        free(data);
+        memset(sFlash, 0xFF, sizeof(sFlash));
         return false;
     }
     free(data);
@@ -236,6 +282,7 @@ bool Host_SaveOpen(const char *saveDir)
 
 bool Host_SaveOpenReadOnly(const char *path)
 {
+    struct HostSaveJsonLoad load;
     char error[512];
     char *data;
     size_t size;
@@ -248,7 +295,7 @@ bool Host_SaveOpenReadOnly(const char *path)
     data = ReadWholeFile(path, &size);
     if (data == NULL)
         return false;
-    ok = LoadSaveData(data, size, error, sizeof(error));
+    ok = LoadSaveData(data, size, error, sizeof(error), &load);
     if (!ok)
         fprintf(stderr, "save: '%s': %s\n", path, error);
     free(data);

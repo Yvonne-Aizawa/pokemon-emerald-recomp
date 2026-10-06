@@ -30,9 +30,22 @@ extern "C" {
  * NUL-terminated, length in *length. NULL if out of memory. */
 char *HostSaveJson_FromFlash(const unsigned char *flash, size_t *length);
 
+/* What loading found. */
+struct HostSaveJsonLoad
+{
+    /* The save records another field layout (made by another upstream
+     * version): what this build doesn't have was dropped, with a warning
+     * on stderr, instead of refusing the file. */
+    bool otherLayout;
+    char fingerprint[24];  /* that layout's fingerprint */
+    unsigned dropped;      /* how many things were dropped */
+};
+
 /* Rebuild a flash image from JSON text. On failure `flash` is unchanged and
- * `error` says why (file problems the player can fix: names, ranges...). */
-bool HostSaveJson_ToFlash(const char *text, size_t length, unsigned char *flash, char *error, size_t errorSize);
+ * `error` says why (file problems the player can fix: names, ranges...).
+ * `load` (may be NULL) says what was found. */
+bool HostSaveJson_ToFlash(const char *text, size_t length, unsigned char *flash, char *error, size_t errorSize,
+                          struct HostSaveJsonLoad *load);
 
 #ifdef __cplusplus
 }

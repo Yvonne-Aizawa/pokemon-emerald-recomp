@@ -290,6 +290,10 @@ Tests:
 - **The walker** (`host_save_json.c`) writes each block as an object of named fields: numbers, nested objects, arrays (numbers on one line). A field that is 0 is left out, and so are trailing zero array entries. Reading starts from zeros, so the file is compact (67 KB for a checkpoint).
   - Typos, out-of-range values, too-long arrays and fields that `game.player`/`flags`/`vars` own are refused with their path, e.g. `blocks.save_block_2.optionsTextSpeed must be a whole number from 0 to 7`.
   - The block sizes in `layout` are informational now: loading goes by name.
+  - **Saves from another upstream version:** `layout.fingerprint` is a hash of the field table.
+    - When a save's fingerprint differs from the build's, whatever doesn't exist or fit here is dropped, each with a warning, and the rest loads. That covers fields, blocks, flags and vars, out-of-range values, too-long lists and changed shapes.
+    - Before the game can overwrite such a save, it's copied once to `pkmemerald.<fingerprint>.json.bak`. The name is `other` if the fingerprint isn't hex; if the backup fails, saving is disabled.
+    - With the build's own fingerprint, the same problems are refused as mistakes.
   - Version 1 files (base64 blocks) still load.
 - **Still raw for now:**
   - Unions are lists of their bytes: TV shows, the old man, the Lilycove lady, and Pokémon data (`secure`).

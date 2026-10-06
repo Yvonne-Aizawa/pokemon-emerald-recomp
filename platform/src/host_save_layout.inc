@@ -812,6 +812,7 @@ const struct HostSaveField gHostSaveFields[] = {
 };
 
 const unsigned gHostSaveTypeCount = 64;
+const char gHostSaveLayoutFingerprint[] = "256ccf8ab840687c";
 
 _Static_assert(sizeof(struct SaveBlock2) == 3848, "struct SaveBlock2: regenerate the save layout");
 _Static_assert(offsetof(struct SaveBlock2, playerName) == 0, "struct SaveBlock2.playerName: regenerate the save layout");

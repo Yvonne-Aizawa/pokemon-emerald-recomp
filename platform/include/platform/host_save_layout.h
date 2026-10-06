@@ -56,6 +56,9 @@ enum
 extern const struct HostSaveType gHostSaveTypes[];
 extern const struct HostSaveField gHostSaveFields[];
 extern const unsigned gHostSaveTypeCount;
+/* A hash of the table: saves made by a build with a different one may name
+ * fields this build doesn't have. */
+extern const char gHostSaveLayoutFingerprint[];
 
 #ifdef __cplusplus
 }

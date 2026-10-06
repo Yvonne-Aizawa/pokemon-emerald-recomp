@@ -14,6 +14,7 @@ Usually run as `cmake --build build --target save-layout`. Needs pyelftools
 and an ELF object (a Linux build).
 """
 import argparse
+import hashlib
 import pathlib
 import sys
 
@@ -206,7 +207,11 @@ def generate(roots):
             dims = ', '.join(str(d) for d in field['dims']) or '0'
             lines.append(f'    {{ "{field["name"]}", {field["offset"]}, {field["size"]}, HOST_SAVE_{field["kind"]}, '
                          f'{field["bit_offset"]}, {field["bit_size"]}, {len(field["dims"])}, {{ {dims} }}, {field["type"]} }},')
-    lines += ['};', '', f'const unsigned gHostSaveTypeCount = {len(gen.types)};', '']
+    lines += ['};', '', f'const unsigned gHostSaveTypeCount = {len(gen.types)};']
+    # Saves record this: a different one means another layout (upstream
+    # version), whose fields may not all exist here.
+    fingerprint = hashlib.sha256('\n'.join(lines[5:]).encode()).hexdigest()[:16]
+    lines += [f'const char gHostSaveLayoutFingerprint[] = "{fingerprint}";', '']
     lines += gen.asserts
     return '\n'.join(lines) + '\n'
 

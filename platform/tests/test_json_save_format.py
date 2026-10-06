@@ -99,7 +99,8 @@ try:
     blocks = document['game']['blocks']
     blocks['save_block_1']['pos']['x'] = 3
     for name in document['layout']:
-        document['layout'][name] += 4
+        if name != 'fingerprint':
+            document['layout'][name] += 4
     edited.write_text(json.dumps(document))
     after = inspect(binary, edited)
     assert after['map']['x'] == 3 and after['map']['y'] == before['map']['y']
@@ -145,6 +146,46 @@ try:
         stderr = rejected(edit(change), message)
         assert message in stderr, f'{message!r} not in {stderr!r}'
     print('bad edits are refused')
+
+    # A save from another game version (field layout): what this build
+    # doesn't have, or what no longer fits, is dropped with a warning, the
+    # rest loads, and the game backs the file up before it can change it.
+    # The same file from this layout is refused.
+    def from_another_version(fingerprint):
+        d = json.loads(base.read_text())
+        d['layout']['fingerprint'] = fingerprint
+        blocks = d['game']['blocks']
+        blocks['save_block_2']['fieldFromTheFuture'] = 5
+        blocks['save_block_2']['optionsTextSpeed'] = 9
+        blocks['save_block_1']['mapView'] = [1] * 300
+        blocks['save_block_9'] = {}
+        d['game']['flags'].append('FLAG_FROM_THE_FUTURE')
+        d['game']['vars']['VAR_FROM_THE_FUTURE'] = 1
+        return d
+    other = work / 'other.json'
+    other.write_text(json.dumps(from_another_version('0123456789abcdef')))
+    result = subprocess.run([str(binary.resolve()), '--inspect-save', str(other)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stderr.count('dropped') == 6, result.stderr
+    loaded = json.loads(result.stdout)
+    assert loaded == inspect(binary, base), 'the rest of an older save loads unchanged'
+    same = json.loads(base.read_text())['layout']['fingerprint']
+    assert 'optionsTextSpeed must be' in rejected(from_another_version(same), 'mismatches in this layout')
+
+    saves = work / 'other-version'
+    saves.mkdir()
+    (saves / 'pkmemerald.json').write_bytes(other.read_bytes())
+    run = [str(binary.resolve()), '--fast', '-f', '10', '-s', str(saves)]
+    first_run = subprocess.run(run, capture_output=True, text=True, check=True)
+    backup = saves / 'pkmemerald.0123456789abcdef.json.bak'
+    assert backup.read_bytes() == other.read_bytes(), first_run.stdout
+    assert (saves / 'pkmemerald.json').read_bytes() == other.read_bytes(), 'booting rewrote the save'
+    second_run = subprocess.run(run, capture_output=True, text=True, check=True)
+    assert 'earlier backup' in second_run.stdout, second_run.stdout
+    (saves / 'pkmemerald.json').write_text(json.dumps(from_another_version('../../escape')))
+    subprocess.run(run, capture_output=True, text=True, check=True)
+    assert (saves / 'pkmemerald.other.json.bak').exists(), 'a fingerprint that is not hex names no path'
+    print('a save from another game version loads what fits, warns, and is backed up')
 
     # A chip the loader doesn't take cleanly (here: a damaged sector in the
     # newest slot) is kept raw, byte for byte.

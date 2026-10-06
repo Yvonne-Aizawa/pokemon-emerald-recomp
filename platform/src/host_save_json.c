@@ -765,6 +765,8 @@ static void WriteLayout(struct HostJsonWriter *w)
 
     HostJsonW_Key(w, "layout");
     HostJsonW_BeginObject(w);
+    HostJsonW_Key(w, "fingerprint");
+    HostJsonW_CString(w, gHostSaveLayoutFingerprint);
     for (i = 0; i < ARRAY_COUNT(sBlocks); i++)
     {
         HostJsonW_Key(w, sBlocks[i].name);
@@ -865,6 +867,7 @@ struct Reader
 {
     char *error;
     size_t errorSize;
+    struct HostSaveJsonLoad *load;
 };
 
 static bool Error(struct Reader *r, const char *format, ...)
@@ -875,6 +878,24 @@ static bool Error(struct Reader *r, const char *format, ...)
     vsnprintf(r->error, r->errorSize, format, args);
     va_end(args);
     return false;
+}
+
+/* Something this build's layout doesn't have, or that no longer fits it. In
+ * a save from another layout (upstream version) that is expected: warn and
+ * drop it, returning true. In a save from this layout it's a mistake. */
+static bool Mismatch(struct Reader *r, const char *format, ...)
+{
+    char message[600];
+    va_list args;
+
+    va_start(args, format);
+    vsnprintf(message, sizeof(message), format, args);
+    va_end(args);
+    if (!r->load->otherLayout)
+        return Error(r, "%s", message);
+    fprintf(stderr, "save: dropped (the save is from another game version): %s\n", message);
+    r->load->dropped++;
+    return true;
 }
 
 /* `key` of `object` as a number in [0, max], if present and different from
@@ -991,14 +1012,22 @@ static bool ApplyFlags(struct Reader *r, const struct HostJsonValue *flags, stru
         if (v->type == HOST_JSON_STRING)
         {
             if (!SymbolId(sFlagSymbols, ARRAY_COUNT(sFlagSymbols), v->string, v->length, &id))
-                return Error(r, "unknown flag \"%s\"", v->string);
+            {
+                if (!Mismatch(r, "unknown flag \"%s\"", v->string))
+                    return false;
+                continue;
+            }
         }
         else if (HostJson_GetUint(v, 0xFFFFFFFF, &number))
             id = number;
         else
             return Error(r, "flags must be names or numbers");
         if (id >= NUM_FLAG_BITS)
-            return Error(r, "flag %u is not saved (only 0-%u are)", id, (unsigned)NUM_FLAG_BITS - 1);
+        {
+            if (!Mismatch(r, "flag %u is not saved (only 0-%u are)", id, (unsigned)NUM_FLAG_BITS - 1))
+                return false;
+            continue;
+        }
         sb1->flags[id / 8] |= 1 << (id % 8);
     }
     return true;
@@ -1020,9 +1049,17 @@ static bool ApplyVars(struct Reader *r, const struct HostJsonValue *vars, struct
         u32 value;
 
         if (!SymbolId(sVarSymbols, ARRAY_COUNT(sVarSymbols), v->key, v->keyLength, &id))
-            return Error(r, "unknown var \"%s\"", v->key);
+        {
+            if (!Mismatch(r, "unknown var \"%s\"", v->key))
+                return false;
+            continue;
+        }
         if (id < VARS_START || id >= VARS_START + VARS_COUNT)
-            return Error(r, "var \"%s\" is not saved", v->key);
+        {
+            if (!Mismatch(r, "var \"%s\" is not saved", v->key))
+                return false;
+            continue;
+        }
         if (!HostJson_GetUint(v, 0xFFFF, &value))
             return Error(r, "var \"%s\" must be a whole number from 0 to 65535", v->key);
         sb1->vars[id - VARS_START] = (u16)value;
@@ -1042,7 +1079,7 @@ static bool ReadFieldValue(struct Reader *r, const struct HostJsonValue *v, cons
     {
         size_t stride = FieldStride(f, dim + 1);
         if (v->type != HOST_JSON_ARRAY || v->count > f->dims[dim])
-            return Error(r, "%s must be a list of at most %u entries", path, f->dims[dim]);
+            return Mismatch(r, "%s must be a list of at most %u entries", path, f->dims[dim]);
         for (i = 0; i < v->count; i++)
         {
             snprintf(child, sizeof(child), "%s[%lu]", path, (unsigned long)i);
@@ -1057,12 +1094,12 @@ static bool ReadFieldValue(struct Reader *r, const struct HostJsonValue *v, cons
         return ReadStruct(r, v, f->type, p, path);
     case HOST_SAVE_BYTES:
         if (v->type != HOST_JSON_ARRAY || v->count > f->size)
-            return Error(r, "%s must be a list of at most %u bytes", path, f->size);
+            return Mismatch(r, "%s must be a list of at most %u bytes", path, f->size);
         for (i = 0; i < v->count; i++)
         {
             u32 byte;
             if (!HostJson_GetUint(&v->items[i], 0xFF, &byte))
-                return Error(r, "%s[%lu] must be a whole number from 0 to 255", path, (unsigned long)i);
+                return Mismatch(r, "%s[%lu] must be a whole number from 0 to 255", path, (unsigned long)i);
             p[i] = (u8)byte;
         }
         return true;
@@ -1074,7 +1111,7 @@ static bool ReadFieldValue(struct Reader *r, const struct HostJsonValue *v, cons
         int64_t value;
         if (!HostJson_GetInt(v, min, max, &value))
             /* As doubles (exact here): MinGW's printf checks reject %lld. */
-            return Error(r, "%s must be a whole number from %.0f to %.0f", path, (double)min, (double)max);
+            return Mismatch(r, "%s must be a whole number from %.0f to %.0f", path, (double)min, (double)max);
         WriteScalar(f, p, value);
         return true;
     }
@@ -1088,23 +1125,26 @@ static bool ReadStruct(struct Reader *r, const struct HostJsonValue *v, u16 type
     size_t i;
 
     if (v->type != HOST_JSON_OBJECT)
-        return Error(r, "%s must be an object", path);
+        return Mismatch(r, "%s must be an object", path);
     for (i = 0; i < v->count; i++)
     {
         const struct HostJsonValue *member = &v->items[i];
         const struct HostSaveField *f = NULL;
         const char *readable;
         unsigned j;
+        bool ok;
 
         snprintf(child, sizeof(child), "%s.%s", path, member->key);
         for (j = 0; j < t->fieldCount && f == NULL; j++)
             if (strcmp(gHostSaveFields[t->firstField + j].name, member->key) == 0)
                 f = &gHostSaveFields[t->firstField + j];
         if (f == NULL)
-            return Error(r, "%s: no such field in %s", child, t->name);
-        if ((readable = ReadableField(type, f->name)) != NULL)
-            return Error(r, "%s: set this in %s", child, readable);
-        if (!ReadFieldValue(r, member, f, data + f->offset, 0, child))
+            ok = Mismatch(r, "%s: no such field in %s", child, t->name);
+        else if ((readable = ReadableField(type, f->name)) != NULL)
+            ok = Mismatch(r, "%s: set this in %s", child, readable);
+        else
+            ok = ReadFieldValue(r, member, f, data + f->offset, 0, child);
+        if (!ok)
             return false;
     }
     return true;
@@ -1155,7 +1195,7 @@ static bool ReadGame(struct Reader *r, const struct HostJsonValue *root, const s
             ;
         snprintf(path, sizeof(path), "blocks.%s", block->key);
         if (j == ARRAY_COUNT(sBlocks))
-            ok = Error(r, "%s: no such save block", path);
+            ok = Mismatch(r, "%s: no such save block", path);
         else
             ok = ReadStruct(r, block, (u16)j, (u8 *)image + sBlocks[j].offset, path);
     }
@@ -1168,9 +1208,11 @@ static bool ReadGame(struct Reader *r, const struct HostJsonValue *root, const s
     return ok;
 }
 
-bool HostSaveJson_ToFlash(const char *text, size_t length, unsigned char *flash, char *error, size_t errorSize)
+bool HostSaveJson_ToFlash(const char *text, size_t length, unsigned char *flash, char *error, size_t errorSize,
+                          struct HostSaveJsonLoad *load)
 {
-    struct Reader r = { error, errorSize };
+    struct HostSaveJsonLoad unused;
+    struct Reader r = { error, errorSize, load != NULL ? load : &unused };
     struct HostJsonValue *root;
     const struct HostJsonValue *format, *v;
     u8 *image;
@@ -1178,6 +1220,7 @@ bool HostSaveJson_ToFlash(const char *text, size_t length, unsigned char *flash,
     bool ok = true;
     size_t i;
 
+    memset(r.load, 0, sizeof(*r.load));
     root = HostJson_Parse(text, length, error, errorSize);
     if (root == NULL)
         return false;
@@ -1191,6 +1234,13 @@ bool HostSaveJson_ToFlash(const char *text, size_t length, unsigned char *flash,
     {
         HostJson_Free(root);
         return Error(&r, "unsupported version (this build reads version %d)", HOST_SAVE_JSON_VERSION);
+    }
+    /* Version 2 files name their layout (older ones don't: same build). */
+    v = HostJson_Get(HostJson_Get(root, "layout"), "fingerprint");
+    if (version >= 2 && v != NULL && v->type == HOST_JSON_STRING && strcmp(v->string, gHostSaveLayoutFingerprint) != 0)
+    {
+        r.load->otherLayout = true;
+        snprintf(r.load->fingerprint, sizeof(r.load->fingerprint), "%s", v->string);
     }
 
     image = malloc(FLASH_SIZE);
