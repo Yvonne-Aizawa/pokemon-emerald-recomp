@@ -330,6 +330,12 @@ static void OnFatalSignal(int sig, siginfo_t *info, void *context)
 
 void Crash_Install(const char *reportPath)
 {
+#if PKM_SANITIZE
+    /* The sanitizer reports crashes itself, with more detail; taking over
+     * its signals would hide that. */
+    (void)reportPath;
+    return;
+#endif
     static const int sSignals[] = { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT };
     void *warmup[1];
     stack_t altStack;

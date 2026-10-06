@@ -75,8 +75,20 @@ picked up on the next build.
 - Changes to Windows-specific code: build with the MinGW toolchain and run the
   tests under Wine (README.md, "Windows"). CI does both anyway.
 
+Finding memory errors (Linux): configure a separate build with
+`-DPKM_SANITIZE=address,undefined`. AddressSanitizer and UBSan then report
+reads through NULL or past an array where they happen, even when nothing
+crashes; the GBA tolerates those, so upstream has some (see
+`known_crashes.md`). `ctest` runs the tests and the monkey runs below under
+them; CI does the same. `PKM_ASAN_HEAP=1` also checks the game's own heap
+(more reports, mostly upstream reading freed heap memory).
+
 Useful for checking changes in the running game:
 
+- `--monkey SEED[@FRAME]` plays with pseudo-random input, the same for the
+  same seed; the `monkey-*` tests use it, from boot and after a quick start
+  (`-i 600:a,1300+10:select`: Select on the title screen). A seed that finds
+  a bug reproduces it.
 - `-i SCRIPT` presses buttons at given frames, `-f N` stops after N frames,
   `-o FILE` saves the last frame, `-a FILE` records the sound, and `--fast`
   runs unpaced. Together they give repeatable runs: comparing the frame or

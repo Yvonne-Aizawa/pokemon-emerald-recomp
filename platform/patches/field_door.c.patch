@@ -1,0 +1,18 @@
+--- a/src/field_door.c
++++ b/src/field_door.c
+@@ -1055,9 +1055,14 @@
+     }
+ 
+     // The remaining layers are left as tile 0 (with the same palette)
++    // PC port: the same palettes as the first 4 tiles, as the comment says
++    // (paletteNums has moved past them: paletteNums[-4..-1]).
++    // Reading 4 more from paletteNums ran past the end of the door's palette
++    // list for 1x2 and 2x2 doors (found by AddressSanitizer); those tiles
++    // are empty, so their palette never shows.
+     for (; i < 8; i++)
+     {
+-        tile = *(paletteNums++) << 12;
++        tile = paletteNums[i - 8] << 12;
+         tiles[i] = tile;
+     }
+ }

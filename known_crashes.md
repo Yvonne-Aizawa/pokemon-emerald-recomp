@@ -4,6 +4,35 @@ None open.
 
 ## Fixed
 
+### Closing the trainer card
+Found by the sanitizer monkey runs (PLAN.md, Phase 19a); fixed by
+`platform/patches/trainer_card.c.patch`. `CloseTrainerCard` frees `sData`,
+but the card's V-blank callback stays installed until the next screen sets
+its own, and in between `BlinkTimeColon` wrote through the NULL `sData`
+(SIGSEGV; on the GBA the write lands in read-only BIOS memory). The callback
+now skips its `sData` work once `sData` is gone.
+
+### Memory errors found by the sanitizers (no crash seen)
+Reads the GBA tolerates, found by AddressSanitizer/UBSan in the monkey runs
+(PLAN.md, Phase 19a). None crashed in play, but each reads memory it
+shouldn't and could crash with a different memory layout:
+- `pokemon.c.patch`: `GetBattlerPartyStateByPokemon` returned a pointer into
+  `gBattleStruct` while it is NULL (outside battles; the overworld calls it
+  every frame). Callers check for NULL, but got a non-NULL invalid pointer,
+  and one path reads through it.
+- `field_door.c.patch`: drawing 1x2 and 2x2 doors read past the door's
+  palette list (for the empty upper-layer tiles).
+- `quickstart.c.patch`: the title screen's quick-start label loaded a
+  16-colour palette from a 6-colour array.
+- `region_map.c.patch`: the Hoenn region map loaded 3 palettes from a
+  2-palette array.
+- `menu.c.patch`: compressed map tilesets were copied to VRAM at the size of
+  their whole VRAM slot (e.g. 16 KiB) instead of their decompressed size,
+  reading heap memory past the buffer.
+- Not a bug, exempted: the "smol" tANS decoders (`decompress.c.patch`) read a
+  word past the end of a compressed image when refilling their bit buffer;
+  the bits are unused.
+
 ### Opening the PC in a Pokémon Center
 Fixed by `platform/patches/pokemon_storage_system.c.patch`, three upstream
 reads/writes through bad pointers that the GBA tolerates:

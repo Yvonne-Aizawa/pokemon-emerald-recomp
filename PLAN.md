@@ -17,7 +17,7 @@ The game is playable from boot to the overworld and battles, with graphics, inpu
 | 16    | Not started (optional) |
 | 17    | Done (Linux and Windows builds, source only); on real Windows still to check: sound, `--console`/log file |
 | 18    | Not started (64-bit build; needed for macOS) |
-| 19    | Not started: **next** (automated bug finding: sanitizers, upstream's tests, every map) |
+| 19    | In progress: 19a done (sanitizers + monkey runs in CI); **next**: 19b (upstream's tests), 19c (every map) |
 
 
 ## Source under analysis
@@ -529,6 +529,14 @@ Nearly every crash in [known_crashes.md](known_crashes.md) was a read through NU
 - Upstream code that the GBA build relies on but is undefined in C (shifts ≥ 32, signed overflow; `-fwrapv` is already on): report, then decide per case between a patch and a suppression list.
 
 **Done when** the CI sanitizer job runs the scripted playthroughs clean, and a deliberately reintroduced known crash (e.g. reverting part of `pokedex.c.patch`) is reported with its file and line.
+
+**Status (done).** How it ended up:
+- `-DPKM_SANITIZE=address,undefined` (Linux): the game, the tests and the crash handler (which steps aside, so the sanitizer reports crashes). `shift-base` isn't checked (GCC defines signed shifts into the sign bit, and upstream's DMA macros do it on every call); shifts by the width or more still are.
+- Instead of hand-written input scripts: `--monkey SEED[@FRAME]`, deterministic pseudo-random input (walking, A/B, sometimes menus; never the soft-reset chord). Monkey tests run in every build (they catch plain crashes too): two from boot (intro, title menu, Birch's speech, naming) and two after a quick start (Select on the title: a new game in the truck, then the house, Mom, the start menu), 20,000 frames each. A CI job runs everything with the sanitizers.
+- Checked: reverting `trainer_card.c.patch` makes `monkey-quickstart-2` fail with `trainer_card.c:1584`.
+- Found and fixed (`known_crashes.md`): a crash on closing the trainer card; reads past arrays in door drawing, the quick-start label palette, the region map palette, compressed tileset copies; a pointer into the NULL `gBattleStruct` outside battles. The smol tANS decoders' one-word read-ahead is exempted (`HOST_NO_ASAN`).
+- Heap checking (`malloc.c.patch`) is opt-in: `PKM_ASAN_HEAP=1` marks the game heap's unused memory off-limits. Off by default because it mostly reports upstream reading freed heap memory, which reads the same stale data on the GBA and the PC (the heap is a static array on both). So far it shows: VRAM copies queued from decompression buffers that are freed before the V-blank runs them; `FreeSpriteTiles` reading freed memory while the bag removes its item icon (`RemoveBagItemIconSprite`). `MoveSaveBlocks_ResetHeap` uses the heap as scratch on purpose (`load_save.c.patch` allows it). To look at with 19b/19c: `data.c` points battler sprite images at a fixed heap area (`gHeap + 0x8000`) outside the allocator.
+- Caveat: the interrupt timer (SIGALRM) can preempt ASan's own runtime code; harmless so far, but a run that fails inside the sanitizer runtime should be read with that in mind.
 
 ### 19b — Upstream's test suite on the host (~2–4 days)
 

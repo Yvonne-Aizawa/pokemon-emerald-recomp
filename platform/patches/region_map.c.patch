@@ -1,0 +1,14 @@
+--- a/src/region_map.c
++++ b/src/region_map.c
+@@ -120,7 +120,10 @@
+ static const u16 sRegionMapCursorPal[] = INCGFX_U16("graphics/pokenav/region_map/cursor.pal", ".gbapal");
+ static const u32 sRegionMapCursorSmallGfxLZ[] = INCGFX_U32("graphics/pokenav/region_map/cursor_small.png", ".4bpp.smol");
+ static const u32 sRegionMapCursorLargeGfxLZ[] = INCGFX_U32("graphics/pokenav/region_map/cursor_large.png", ".4bpp.smol");
+-static const u16 sRegionMapBg_Pal[] = INCGFX_U16("graphics/pokenav/region_map/map.pal", ".gbapal");
++// PC port: room for the 3 palettes LoadRegionMapGfx loads; map.pal has 2, so
++// it read 32 bytes past the array (found by AddressSanitizer). The third is
++// now zero instead of whatever follows (the Kanto palettes have all 3).
++static const u16 sRegionMapBg_Pal[3 * 16] = INCGFX_U16("graphics/pokenav/region_map/map.pal", ".gbapal");
+ static const u32 sRegionMapBg_GfxLZ[] = INCGFX_U32("graphics/pokenav/region_map/map.png", ".8bpp.smol", "-num_tiles 233 -Wnum_tiles");
+ static const u32 sRegionMapBg_TilemapLZ[] = INCGFX_U32("graphics/pokenav/region_map/map.bin", ".smolTM");
+ static const u16 sRegionMapPlayerIcon_BrendanPal[] = INCGFX_U16("graphics/pokenav/region_map/brendan_icon.png", ".gbapal");
