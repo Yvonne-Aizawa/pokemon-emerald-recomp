@@ -20,9 +20,9 @@
 
 /* Save blocks: on the GBA (-mabi=apcs-gnu) every struct's size is rounded up
  * to 4 bytes; on x86 it isn't, so the save blocks are smaller on the host
- * (e.g. SaveBlock1: 15496 bytes, 15568 on the GBA). See PLAN.md, Phase 19b
- * (save layout). */
-#define SAVE_LAYOUT "the host's save block layout differs from the GBA's (struct size rounding)"
+ * (e.g. SaveBlock1: 15496 bytes, 15568 on the GBA). The PC save format is
+ * its own by decision (PLAN.md, Phase 19b, save layout). */
+#define SAVE_LAYOUT "the PC save format has its own layout, by design (no GBA save compatibility)"
 
 static const struct { const char *name, *reason; } sKnownFailures[] = {
     { "BuildOamBuffer faster on already-sorted max sprites", BENCHMARK },
