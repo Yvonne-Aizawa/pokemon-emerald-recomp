@@ -524,7 +524,7 @@ file(GLOB SAVE_SYMBOL_HEADERS CONFIGURE_DEPENDS "${REFERENCE_INC}/constants/flag
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/save_symbols.inc"
     COMMAND ${Python3_EXECUTABLE} "${CMAKE_SOURCE_DIR}/platform/tools/save_symbols.py"
             "${REFERENCE_DIR}" "${CMAKE_BINARY_DIR}/save_symbols.inc"
-    DEPENDS "${CMAKE_SOURCE_DIR}/platform/tools/save_symbols.py" ${SAVE_SYMBOL_HEADERS}
+    DEPENDS "${CMAKE_SOURCE_DIR}/platform/tools/save_symbols.py" ${SAVE_SYMBOL_HEADERS} "${REFERENCE_DIR}/charmap.txt"
     VERBATIM)
 
 # Game headers are reached through the host include tree (see above). As an
@@ -664,6 +664,13 @@ if(NOT CMAKE_CROSSCOMPILING)
         COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tests/test_checkpoint_states.py"
                 "${CHECKPOINT_MANIFEST}" "${CHECKPOINT_OUTPUT}" $<TARGET_FILE:pkmemerald>)
     set_tests_properties(checkpoint-reviewed-state PROPERTIES
+        FIXTURES_REQUIRED played-checkpoints
+        ENVIRONMENT "${HEADLESS_TEST_ENV};ASAN_OPTIONS=detect_leaks=0;UBSAN_OPTIONS=print_stacktrace=1")
+    # The JSON save format: conversion, edits, refusals, raw fallback, migration.
+    add_test(NAME json-save-format
+        COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tests/test_json_save_format.py"
+                "${CHECKPOINT_MANIFEST}" "${CHECKPOINT_OUTPUT}" $<TARGET_FILE:pkmemerald>)
+    set_tests_properties(json-save-format PROPERTIES
         FIXTURES_REQUIRED played-checkpoints
         ENVIRONMENT "${HEADLESS_TEST_ENV};ASAN_OPTIONS=detect_leaks=0;UBSAN_OPTIONS=print_stacktrace=1")
 endif()

@@ -6,14 +6,16 @@
  *
  * The chip is emulated in memory -- 32 sectors of 4 KiB, reading 0xFF when
  * erased like real flash -- and persisted to a file (see platform/host_save.h):
- * every erase/program marks it dirty, and Host_SaveFlush writes the image out
- * atomically. A crash mid-save then looks like a power cut mid-save on
- * hardware, which the game's two-slot save scheme (save.c) recovers from.
+ * every erase/program marks it dirty, and Host_SaveFlush writes it out
+ * atomically, as JSON (host_save_json.c). A crash mid-save then looks like a
+ * power cut mid-save on hardware, which the game's two-slot save scheme
+ * (save.c) recovers from: the file then holds the raw chip.
  */
 
 /* libc first: global.h defines function-like macros that clash with it. */
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "global.h"
@@ -22,9 +24,12 @@
 
 #include "platform/host_fs.h"
 #include "platform/host_save.h"
+#include "platform/host_save_json.h"
 
 #define HOST_FLASH_SECTOR_SIZE  0x1000u
 #define HOST_FLASH_SECTOR_COUNT (FLASH_ROM_SIZE_1M / HOST_FLASH_SECTOR_SIZE)
+/* Far above any real save (about 200 KiB), so a stray huge file isn't read. */
+#define MAX_SAVE_FILE_SIZE      (16L * 1024 * 1024)
 
 static u8 sFlash[FLASH_ROM_SIZE_1M];
 static bool8 sFlashInitialized;
@@ -102,10 +107,76 @@ u16 IdentifyFlash(void)
 /* Save file                                                             */
 /* --------------------------------------------------------------------- */
 
+/* The whole file in a malloc'd buffer (NUL-terminated). NULL with errno set
+ * (ENOENT: no file; EFBIG: too large). */
+static char *ReadWholeFile(const char *path, size_t *size)
+{
+    FILE *file = fopen(path, "rb");
+    char *data;
+    long length;
+
+    if (file == NULL)
+        return NULL;
+    if (fseek(file, 0, SEEK_END) != 0 || (length = ftell(file)) < 0 || fseek(file, 0, SEEK_SET) != 0)
+    {
+        fclose(file);
+        errno = EIO;
+        return NULL;
+    }
+    if (length > MAX_SAVE_FILE_SIZE)
+    {
+        fclose(file);
+        errno = EFBIG;
+        return NULL;
+    }
+    data = malloc((size_t)length + 1);
+    if (data == NULL || fread(data, 1, (size_t)length, file) != (size_t)length)
+    {
+        free(data);
+        fclose(file);
+        errno = EIO;
+        return NULL;
+    }
+    fclose(file);
+    data[length] = '\0';
+    *size = (size_t)length;
+    return data;
+}
+
+/* A JSON save, or a raw flash image (the .sav format before JSON), into
+ * sFlash, which is left erased on failure. */
+static bool LoadSaveData(const char *data, size_t size, char *error, size_t errorSize)
+{
+    size_t i = 0;
+
+    memset(sFlash, 0xFF, sizeof(sFlash));
+    while (i < size && (data[i] == ' ' || data[i] == '\t' || data[i] == '\n' || data[i] == '\r'))
+        i++;
+    if (i < size && data[i] == '{')
+    {
+        if (HostSaveJson_ToFlash(data, size, sFlash, error, errorSize))
+            return true;
+        /* A raw image can start with '{' too; it never parses as JSON. */
+        if (size != sizeof(sFlash))
+            return false;
+    }
+    if (size == sizeof(sFlash))
+    {
+        memcpy(sFlash, data, size);
+        return true;
+    }
+    snprintf(error, errorSize, "neither a JSON save nor a %u-byte flash image (size %lu)",
+             (unsigned)sizeof(sFlash), (unsigned long)size);
+    return false;
+}
+
 bool Host_SaveOpen(const char *saveDir)
 {
-    FILE *file;
-    long size;
+    char legacyPath[sizeof(sSavePath)];
+    char error[512];
+    const char *path = sSavePath;
+    char *data;
+    size_t size;
 
     sSaveEnabled = FALSE;
     sDirty = FALSE;
@@ -117,57 +188,90 @@ bool Host_SaveOpen(const char *saveDir)
         fprintf(stderr, "save: cannot create directory '%s': %s; saving disabled\n", saveDir, strerror(errno));
         return false;
     }
-    if (snprintf(sSavePath, sizeof(sSavePath), "%s/%s", saveDir, HOST_SAVE_FILE_NAME) >= (int)sizeof(sSavePath))
+    if (snprintf(sSavePath, sizeof(sSavePath), "%s/%s", saveDir, HOST_SAVE_FILE_NAME) >= (int)sizeof(sSavePath)
+     || snprintf(legacyPath, sizeof(legacyPath), "%s/%s", saveDir, HOST_LEGACY_SAVE_FILE_NAME) >= (int)sizeof(legacyPath))
     {
         fprintf(stderr, "save: path too long; saving disabled\n");
         return false;
     }
 
-    file = fopen(sSavePath, "rb");
-    if (file == NULL)
+    data = ReadWholeFile(sSavePath, &size);
+    if (data == NULL && errno == ENOENT)
     {
-        if (errno != ENOENT)
+        /* A save from before the JSON format: converted on the first flush;
+         * the old file is left as it is. */
+        path = legacyPath;
+        data = ReadWholeFile(legacyPath, &size);
+        if (data == NULL && errno == ENOENT)
         {
-            fprintf(stderr, "save: cannot read '%s': %s; saving disabled\n", sSavePath, strerror(errno));
-            return false;
+            printf("save: %s (new)\n", sSavePath);
+            sSaveEnabled = TRUE;
+            return true;
         }
-        printf("save: %s (new)\n", sSavePath);
-        sSaveEnabled = TRUE;
-        return true;
     }
-
-    fseek(file, 0, SEEK_END);
-    size = ftell(file);
-    rewind(file);
-    if (size != (long)sizeof(sFlash) || fread(sFlash, 1, sizeof(sFlash), file) != sizeof(sFlash))
+    if (data == NULL)
     {
-        fclose(file);
-        memset(sFlash, 0xFF, sizeof(sFlash));
-        fprintf(stderr, "save: '%s' is not a %u-byte flash save (size %ld); leaving it untouched, saving disabled\n",
-                sSavePath, (unsigned)sizeof(sFlash), size);
+        fprintf(stderr, "save: cannot read '%s': %s; saving disabled\n", path, strerror(errno));
         return false;
     }
-    fclose(file);
-    printf("save: %s\n", sSavePath);
+    if (!LoadSaveData(data, size, error, sizeof(error)))
+    {
+        free(data);
+        fprintf(stderr, "save: '%s': %s; leaving it untouched, saving disabled\n", path, error);
+        return false;
+    }
+    free(data);
+    if (path == legacyPath)
+    {
+        printf("save: %s (converting %s, which is kept)\n", sSavePath, HOST_LEGACY_SAVE_FILE_NAME);
+        sDirty = TRUE;
+    }
+    else
+    {
+        printf("save: %s\n", sSavePath);
+    }
     sSaveEnabled = TRUE;
     return true;
 }
 
 bool Host_SaveOpenReadOnly(const char *path)
 {
-    FILE *file;
+    char error[512];
+    char *data;
+    size_t size;
     bool ok;
 
     sSaveEnabled = FALSE;
     sDirty = FALSE;
     sFlashInitialized = TRUE;
     memset(sFlash, 0xFF, sizeof(sFlash));
-    file = fopen(path, "rb");
-    if (file == NULL)
+    data = ReadWholeFile(path, &size);
+    if (data == NULL)
         return false;
-    ok = fread(sFlash, 1, sizeof(sFlash), file) == sizeof(sFlash)
-         && fgetc(file) == EOF && !ferror(file);
-    fclose(file);
+    ok = LoadSaveData(data, size, error, sizeof(error));
+    if (!ok)
+        fprintf(stderr, "save: '%s': %s\n", path, error);
+    free(data);
+    return ok;
+}
+
+/* The flash as JSON, or as a raw image if `raw`. */
+static bool WriteSave(const char *path, bool raw, char *error, size_t errorSize)
+{
+    char *text;
+    size_t length;
+    bool ok;
+
+    if (raw)
+        return HostFs_WriteFileAtomic(path, sFlash, sizeof(sFlash), error, errorSize);
+    text = HostSaveJson_FromFlash(sFlash, &length);
+    if (text == NULL)
+    {
+        snprintf(error, errorSize, "out of memory writing '%s'", path);
+        return false;
+    }
+    ok = HostFs_WriteFileAtomic(path, text, length, error, errorSize);
+    free(text);
     return ok;
 }
 
@@ -178,13 +282,32 @@ bool Host_SaveFlush(void)
     if (!sSaveEnabled || !sDirty)
         return true;
 
-    if (!HostFs_WriteFileAtomic(sSavePath, sFlash, sizeof(sFlash), error, sizeof(error)))
+    if (!WriteSave(sSavePath, false, error, sizeof(error)))
     {
         fprintf(stderr, "save: %s\n", error);
         return false;
     }
     sDirty = FALSE;
     return true;
+}
+
+int Host_ConvertSave(const char *input, const char *output)
+{
+    char error[sizeof(sSavePath) + 256];
+    size_t length = strlen(output);
+    bool raw = length >= 4 && strcmp(output + length - 4, ".sav") == 0;
+
+    if (!Host_SaveOpenReadOnly(input))
+    {
+        fprintf(stderr, "convert: cannot read a save from '%s'\n", input);
+        return 1;
+    }
+    if (!WriteSave(output, raw, error, sizeof(error)))
+    {
+        fprintf(stderr, "convert: %s\n", error);
+        return 1;
+    }
+    return 0;
 }
 
 /* The flash timer bounds how long hardware writes may take; host writes are

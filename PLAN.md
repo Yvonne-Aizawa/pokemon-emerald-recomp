@@ -271,6 +271,20 @@ Added after a link check showed 97% of unresolved symbols were assembly *data*. 
 
 **Status (done).** One file instead of per-sector files: `saves/pkmemerald.sav` (`-s DIR` to change) is a raw 128 KiB image of the flash chip — the format GBA emulators use. (*Correction, Phase 19b-2:* the host's save blocks are laid out differently from the GBA build's, so a GBA emulator's save does **not** load correctly, and that is now by design; see Phase 19b, *save layout*.) `platform/src/host_flash.c` keeps the chip in memory, marks it dirty on every erase/program, and `Host_SaveFlush` (after each frame, and at exit) writes it to a temp file, fsyncs and renames — a crash mid-save looks like a power cut, which the game's two-slot scheme already survives. A file of the wrong size is never overwritten (saving is disabled with a message). Verified end to end with a scripted run: Start → Save → Yes writes the file; relaunching shows CONTINUE with the saved player, time and badges; booting alone doesn't rewrite it. `platform/tests/test_save.c` covers the file handling.
 
+*JSON save format (prototype, branch `json-save`):* the file is now `pkmemerald.json` (`platform/src/host_save_json.c`, with a small JSON reader/writer in `host_json.c`). The game still works on the in-memory flash; only the file changes:
+- On flush, the slot the game's loader would pick (`GetSaveValidStatus`, ported) is decoded into its save blocks (SaveBlock1/2/3, PokemonStorage). They are written as base64 images, with readable fields beside them: player name (game text through upstream's `charmap.txt`, `{XX}` for other bytes), gender, trainer ID, play time, money, coins, flags and vars by upstream name. `info` (location, party) is read-only.
+- On load, the blocks are rebuilt, the readable fields are applied over them when they differ, and one slot is packed with the game's checksums.
+- The Hall of Fame, Trainer Hill and recorded-battle sectors are kept as raw sector images. When the slots aren't in a state the loader takes cleanly (a save interrupted mid-write, or damage), the file holds the raw chip instead, so the game sees exactly what it wrote.
+- `layout` records the block sizes, and a save from a build with a different layout is refused rather than misread.
+- An existing `pkmemerald.sav` is converted on first start and kept. `--convert-save IN OUT` converts either way.
+
+Tests:
+- `json-save-format` covers every played checkpoint: it loads identically through the game's loader and converts stably. It also covers edits, refused edits, the raw fallback and the migration.
+- `test_json` covers the JSON code, and `test_save` covers the file handling.
+- Verified in the game: a hand-edited name shows on CONTINUE, and saving over a JSON-loaded save writes counter+1.
+
+*Next:* generate field-by-field JSON for the save blocks (from debug info or the headers) instead of base64, decode party and box Pokémon (encrypted substructs + checksum), and map names for locations. With every field named, saves would no longer depend on the struct layout, which would help Phase 18's 64-bit build and a GBA↔PC converter.
+
 Also in this phase:
 - `pkmemerald --fast`: no waiting between frames, for scripted test runs (~4x faster at -O0).
 - `platform/patches/text.c.patch`: the glyph blitter shifted 32-bit values by 32, which is 0 on ARM but a no-op on x86 (the count wraps), stamping a stray copy of a glyph's edge after some words ("OPTION|"). `-DPKM_SANITIZE_SHIFT=ON` (separate build dir) instruments the game with `-fsanitize=shift-exponent` to find more of these; the intro/title and the quick-start → Littleroot → save routes now run clean.
