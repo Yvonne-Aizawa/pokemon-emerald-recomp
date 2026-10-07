@@ -12,3 +12,16 @@
  static const u32 sRegionMapBg_GfxLZ[] = INCGFX_U32("graphics/pokenav/region_map/map.png", ".8bpp.smol", "-num_tiles 233 -Wnum_tiles");
  static const u32 sRegionMapBg_TilemapLZ[] = INCGFX_U32("graphics/pokenav/region_map/map.bin", ".smolTM");
  static const u16 sRegionMapPlayerIcon_BrendanPal[] = INCGFX_U16("graphics/pokenav/region_map/brendan_icon.png", ".gbapal");
+@@ -2404,6 +2407,12 @@
+ // Flickers fly destination icon color (by hiding the fly icon sprite) if the cursor is currently on it
+ static void SpriteCB_FlyDestIcon(struct Sprite *sprite)
+ {
++    // PC port: on the frame the fly map closes, CB_ExitFlyMap frees sFlyMap
++    // and CB2_FlyMap still animates these icons. The GBA then reads BIOS junk
++    // through NULL (the screen is already black); the host crashed. Leave
++    // the icon as it is.
++    if (sFlyMap == NULL)
++        return;
+     if (sFlyMap->regionMap.mapSecId == sprite->sIconMapSec)
+     {
+         if (++sprite->sFlickerTimer > 16)
