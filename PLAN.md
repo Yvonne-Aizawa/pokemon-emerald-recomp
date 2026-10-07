@@ -17,7 +17,7 @@ The game is playable from boot to the overworld and battles, with graphics, inpu
 | 16    | Not started (optional) |
 | 17    | Done (Linux and Windows builds, source only); on real Windows still to check: sound, `--console`/log file |
 | 18    | Not started (64-bit build; needed for macOS) |
-| 19    | In progress: 19a done (sanitizers + monkey runs in CI, heap checks included); 19b-1, 19b-3 and the CI split done; 19b-2 done (non-battle tests); 19b-4 in progress (abilities, hold effects, AI and the top-level files done); GBA save compatibility dropped (see 19b, *save layout*); **next**: the rest of 19b-4, 19b-5, then 19c (every map); 19a-2's checkpoint monkey runs on hold |
+| 19    | In progress: 19a done (sanitizers + monkey runs in CI, heap checks included); 19b-1, 19b-3 and the CI split done; 19b-2 done (non-battle tests); 19b-4 in progress (all of `test/battle/` but `move_animations/` done); GBA save compatibility dropped (see 19b, *save layout*); **next**: the rest of 19b-4, 19b-5, then 19c (every map); 19a-2's checkpoint monkey runs on hold |
 
 
 ## Source under analysis
@@ -659,7 +659,8 @@ Upstream runs them in mGBA (`make check`: a test ROM, `mgba-rom-test` and the pa
   - The 1v2 crashes a first unpatched run over all of `test/battle/` hit in `ai/` (`ai_doubles.c`, `ai_multi.c`: Explosion with Risky, Revival Blessing) were the `BufferBattlePartyOrderBySide` bug, already fixed by batch 1, as was `battle_message.c`'s.
   - Port bug found (`known_crashes.md`): `AI_SelectRevivalBlessingMon` divided by an empty party slot's max HP of 0 (SIGFPE on x86, silent on the GBA; `battle_ai_switch.c.patch`).
   - *Batch 3 done: the top-level files of `test/battle/`* (23 files, 307 tests). All pass (1 upstream TO_DO, 1 upstream KNOWN_FAILING); no new port bugs.
-  - Next: the remaining directories (`move_effect_secondary/`, `move_flags/`, `form_change/`, `item_effect/`, `move_effects_combined/` and the small ones); check the upstream workflow's time as they come in.
+  - *Batch 4 done: the remaining directories but `move_animations/`* (`form_change/`, `gimmick/`, `item_effect/`, `move_effects_combined/`, `move_effect_secondary/`, `move_flags/`, `starting_status/`, `status1/`, `volatiles/`, `weather/`; 110 files, 682 tests). The test build now takes all of `test/battle/` but `move_animations/`. All pass; no new port bugs. All of `test/battle/` (5,528 tests: 18 upstream KNOWN_FAILING, 421 upstream TO_DO) on 16 cores: 78 s.
+  - Next: `move_animations/`, with `--draw` (the tests exist to play every move's animation); measure first, and if too slow for every pull request, run it only when the renderer or the battle animation code changes.
 
 ### 19c — Visit every map (~1 day)
 
