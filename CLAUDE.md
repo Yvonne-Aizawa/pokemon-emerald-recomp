@@ -26,7 +26,7 @@ tools/check_patches.sh                     # every patch must apply exactly (aft
 
 - Sanitizer build (Linux): a separate build dir with `-DPKM_SANITIZE=address,undefined`.
 - Windows: cross-build with MinGW: `tools/fetch_sdl2_mingw.sh`, then `cmake -S . -B build-win --toolchain cmake/mingw-i686.cmake`, and run the tests under Wine with `ctest --test-dir build-win`.
-- Upstream's test suite: configure with `-DPKM_UPSTREAM_TESTS=ON` (use a separate dir such as `build-tests`), build target `pkmemerald-tests`, then run `build-tests/pkmemerald-tests [-j N] [--shard I/M] [PATTERN]`. PATTERN can be a file (`test/fpmath.c`), a directory ending in `/` (`test/battle/move_effect/`), a test-name prefix, or `*infix`. `PKM_TESTS_NO_FORK=1` runs everything in one process, for gdb.
+- Upstream's test suite: configure with `-DPKM_UPSTREAM_TESTS=ON` (use a separate dir such as `build-tests`), build target `pkmemerald-tests`, then run `build-tests/pkmemerald-tests [-j N] [--shard I/M] [--draw] [PATTERN]`. Frames aren't drawn unless `--draw` is given (drawing made the suite ~15× slower); the summary ends with each shard's time and the slowest tests. PATTERN can be a file (`test/fpmath.c`), a directory ending in `/` (`test/battle/move_effect/`), a test-name prefix, or `*infix`. `PKM_TESTS_NO_FORK=1` runs everything in one process, for gdb.
 - Repeatable game runs: `--monkey SEED[@FRAME]`, `-i SCRIPT` (input at given frames), `-f N` (stop after N frames), `-o FILE` (save the last frame), `--fast`, and `-s DIR` (use a copy of a save directory). The `monkey-*` CTest entries use these.
 - Making a patch:
   ```sh
