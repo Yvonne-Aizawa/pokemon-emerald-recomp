@@ -62,4 +62,4 @@ All of `reference/src/*.c` is built except `REFERENCE_SRC_EXCLUDE`, the GBA-only
 
 **CI:**
 - `.github/workflows/ci.yml` builds and tests Linux, Linux with sanitizers, and Windows under Wine.
-- `.github/workflows/upstream-tests.yml` runs upstream's suite split over 4 machines (`--shard`). It runs only when `reference`, `platform/`, `tools/`, `cmake/` or `CMakeLists.txt` change.
+- `.github/workflows/upstream-tests.yml` runs upstream's suite split over 8 machines (`--shard`). It runs only when `reference`, `platform/`, `tools/`, `cmake/` or `CMakeLists.txt` change.

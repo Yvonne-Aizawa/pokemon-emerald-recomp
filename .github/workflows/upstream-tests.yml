@@ -36,17 +36,19 @@ concurrency:
 
 jobs:
   upstream-tests:
-    name: Upstream tests ${{ matrix.part }}/4
+    name: Upstream tests ${{ matrix.part }}/8
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         # PARTS x JOBS shards in all (at most 32), the same JOBS everywhere:
-        # each machine takes JOBS of them (pkmemerald-tests --shard).
-        part: [1, 2, 3, 4]
+        # each machine takes JOBS of them (pkmemerald-tests --shard). 8 x 4
+        # uses all 32: each machine's build (~5-7 min) doesn't shrink with
+        # more machines, its tests do.
+        part: [1, 2, 3, 4, 5, 6, 7, 8]
     env:
-      PARTS: 4
+      PARTS: 8
       JOBS: 4   # GitHub's Linux runners have 4 cores
     steps:
       - uses: actions/checkout@v5
@@ -87,7 +89,7 @@ jobs:
         run: cmake --build build -j"$(nproc)" --target pkmemerald-tests
 
       # Results appear in the log as they come (CTest would hold them back).
-      - name: Test (part ${{ matrix.part }} of 4)
+      - name: Test (part ${{ matrix.part }} of 8)
         run: build/pkmemerald-tests -j "$JOBS" --shard "${{ matrix.part }}/$PARTS" test/
 
       # The runner's own checks (a failing test fails the run, crashes are
