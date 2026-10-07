@@ -322,3 +322,15 @@ zero), and `BuildNewString` read the first word's length through it. On the
 GBA that reads junk, and the last real line writes a line break over the
 string's EOS. `BuildNewString` now skips trailing lines that have no words.
 Regression test: `platform/tests/test_line_break.c`.
+
+### A Pokémon's "vertical shake" animation ending
+Fixed by `platform/patches/pokemon_animation.c.patch` (SIGFPE in
+`VerticalShakeTwice`, seen in the overworld). `sVerticalShakeData` ends with
+the row `{-1, 0}`, and `VerticalShakeTwice` and `VerticalShakeLowTwice`
+compute the shake height as `... / var6` before checking for that end marker,
+so the last frame divided by 0. The GBA's software division doesn't trap and
+the result is unused there; x86's `idiv` raises SIGFPE. Only unoptimised
+(Debug) builds crashed: at -O2 GCC moves the division into the branch that
+uses it. Both functions now skip the division when `var6` is 0. Regression
+test: `platform/tests/test_mon_anim_vshake.c` (it shows the crash only in a
+Debug build).
