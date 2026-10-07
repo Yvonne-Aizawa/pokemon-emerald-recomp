@@ -1,0 +1,16 @@
+--- a/src/line_break.c
++++ b/src/line_break.c
+@@ -411,6 +411,13 @@
+ void BuildNewString(struct StringLine *stringLines, u32 numLines, u32 maxLines, u8 *str, enum ToggleScrollPrompt toggleScrollPrompt)
+ {
+     u32 srcCharIndex = 0;
++    //  PC port: the layout in BreakSubStringAutomatic can fill fewer lines
++    //  than it allocated (its first estimate is too high). The unused trailing
++    //  lines have numWords == 0 and an unset words pointer (Alloc doesn't
++    //  zero): reading it crashed here, and the last used line also wrote a
++    //  line break over the string's EOS. Only lay out the lines with words.
++    while (numLines > 1 && stringLines[numLines - 1].numWords == 0)
++        numLines--;
+     for (u32 lineIndex = 0; lineIndex < numLines; lineIndex++)
+     {
+         srcCharIndex += stringLines[lineIndex].words[0].length;
