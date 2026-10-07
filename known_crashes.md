@@ -4,6 +4,44 @@ None open.
 
 ## Fixed
 
+### Memory used after a screen frees it (found by a search, not playtesting)
+After two crashes of this kind on leaving a contest, upstream's 70 source
+files that free memory and change screens were searched. These fixes come
+from reading the code, not from crashes seen in play. The pattern: a screen
+frees its data and sets the pointer to NULL, but code still runs that frame
+(later tasks in the same `RunTasks` pass, the rest of the CB2, sprite
+callbacks, the old V-blank callback) or on the next screen's first frame and
+reads through it. The GBA reads BIOS junk at address 0 and ignores writes;
+the host crashes.
+- **Slot machine, on every exit** (`slot_machine.c.patch`):
+  `SlotTask_FreeDataStructures` frees `sSlotMachine`, then the same frame's
+  `AnimateSprites` (reel symbols, coin digits) and `SlotMachine_VBlankCB` read
+  it. The V-blank callback, sprites and tasks are now reset before the free,
+  as the field does on its first frame.
+- **Roulette, on every exit** (`roulette.c.patch`): `Task_ExitRoulette` frees
+  `sRoulette` inside `CB2_Roulette`'s `RunTasks`, and `CB2_Roulette` then reads
+  `sRoulette->flashUtil`. It now returns if `sRoulette` is NULL.
+- **Berry Blender, on stopping or playing again** (`berry_blender.c.patch`):
+  `CB2_CheckPlayAgainLocal`/`Link` free `sBerryBlender` in their switch, then
+  read it, run the player arrow sprites and leave `VBlankCB_BerryBlender` set,
+  which all read it. With it NULL they now clear the V-blank callback and skip
+  the rest of the frame (the screen is black; the next screen resets sprites).
+- **Trades without a trade evolution** (`trade.c.patch`): the trade animation
+  frees `sTradeAnim` with `VBlankCB_TradeAnim` still set, and that frame's
+  V-blank reads it in `SetTradeGpuRegs`. The callback now skips it when NULL.
+- **Battle Dome tourney tree** (`battle_dome.c.patch`): choosing a trainer
+  wrote `sInfoCard->pos` before the card was allocated (NULL since the last
+  card closed), and closing a card left the scroll-arrow sprites alive for a
+  frame, reading the freed `sInfoCard`. Both are now skipped when it is NULL.
+- **Catching a new species after opening the Pokédex** (`pokedex.c.patch`):
+  `Task_ClosePokedex` frees `sPokedexView` without NULLing it, and the
+  caught-mon page (`Task_ExitCaughtMonPage`, an expansion addition) freed it
+  again: a double free, heap corruption on the GBA too. The page now only
+  forgets the pointer. (Not NULLed in `Task_ClosePokedex`: the Pokédex
+  sprites still read it that frame.)
+- **Berry Crush, on quitting** (`berry_crush.c.patch`, wireless only, not
+  reachable yet): `MainTask` ran `UpdateGame(sGame)` after `Cmd_Quit` freed it.
+
 ### Leaving a contest
 Found while playtesting (SIGSEGV in `Task_FlashJudgeAttentionEye` as the
 contest faded back to the field); fixed by `platform/patches/contest.c.patch`.

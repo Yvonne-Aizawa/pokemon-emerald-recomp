@@ -1,0 +1,59 @@
+--- a/src/berry_blender.c
++++ b/src/berry_blender.c
+@@ -2736,6 +2736,18 @@
+     RestoreBgCoords();
+     UpdateRPM(sBerryBlender->speed);
+     ProcessLinkPlayerCmds();
++#ifdef HOST_BUILD
++    // PC port: the switch above may just have freed sBerryBlender. The rest
++    // of this frame (here, the player arrow sprites, VBlankCB_BerryBlender)
++    // reads it: BIOS junk on the GBA, a crash on the host. The screen is
++    // black and the next screen (CB2_LoadBerryBlender or the field) resets
++    // sprites and the V-blank callback first, so skip the rest of the frame.
++    if (sBerryBlender == NULL)
++    {
++        SetVBlankCallback(NULL);
++        return;
++    }
++#endif
+     Blender_DummiedOutFunc(sBerryBlender->bg_X, sBerryBlender->bg_Y);
+     RunTasks();
+     AnimateSprites();
+@@ -2910,6 +2922,18 @@
+     }
+ 
+     ProcessLinkPlayerCmds();
++#ifdef HOST_BUILD
++    // PC port: the switch above may just have freed sBerryBlender. The rest
++    // of this frame (here, the player arrow sprites, VBlankCB_BerryBlender)
++    // reads it: BIOS junk on the GBA, a crash on the host. The screen is
++    // black and the next screen (CB2_LoadBerryBlender or the field) resets
++    // sprites and the V-blank callback first, so skip the rest of the frame.
++    if (sBerryBlender == NULL)
++    {
++        SetVBlankCallback(NULL);
++        return;
++    }
++#endif
+     Blender_DummiedOutFunc(sBerryBlender->bg_X, sBerryBlender->bg_Y);
+     RunTasks();
+     AnimateSprites();
+@@ -2965,6 +2989,18 @@
+     }
+ 
+     ProcessLinkPlayerCmds();
++#ifdef HOST_BUILD
++    // PC port: the switch above may just have freed sBerryBlender. The rest
++    // of this frame (here, the player arrow sprites, VBlankCB_BerryBlender)
++    // reads it: BIOS junk on the GBA, a crash on the host. The screen is
++    // black and the next screen (CB2_LoadBerryBlender or the field) resets
++    // sprites and the V-blank callback first, so skip the rest of the frame.
++    if (sBerryBlender == NULL)
++    {
++        SetVBlankCallback(NULL);
++        return;
++    }
++#endif
+     Blender_DummiedOutFunc(sBerryBlender->bg_X, sBerryBlender->bg_Y);
+     RunTasks();
+     AnimateSprites();

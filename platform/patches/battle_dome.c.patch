@@ -1,0 +1,45 @@
+--- a/src/battle_dome.c
++++ b/src/battle_dome.c
+@@ -2919,6 +2919,15 @@
+     int tournmanetTrainerId = sTourneyTreeTrainerIds[arrId];
+     int roundId = gSaveBlock2Ptr->frontier.curChallengeBattleNum;
+ 
++#ifdef HOST_BUILD
++    // PC port: closing an info card frees sInfoCard but leaves these arrows
++    // alive for a frame more (Task_ShowTourneyTree resets the sprites in its
++    // second state, after the next AnimateSprites). The GBA reads BIOS junk
++    // through NULL; the host crashes. Leave the arrow as it is instead.
++    if (sInfoCard == NULL)
++        return;
++#endif
++
+     if (gTasks[taskId1].data[3] == 1)
+     {
+         if (sprite->data[1])
+@@ -2985,6 +2994,12 @@
+ {
+     int taskId1 = sprite->data[0];
+ 
++#ifdef HOST_BUILD
++    // PC port: see SpriteCB_HorizontalScrollArrow.
++    if (sInfoCard == NULL)
++        return;
++#endif
++
+     if (gTasks[taskId1].data[3] == 1)
+     {
+         if (sInfoCard->pos != 0)
+@@ -4919,6 +4934,13 @@
+             gTasks[newTaskId].tPrevTaskId = taskId;
+ 
+             gTasks[taskId].tState = STATE_SHOW_INFOCARD_TRAINER + 1;
++#ifdef HOST_BUILD
++            // PC port: the card isn't allocated yet (Task_ShowTourneyInfoCard
++            // does that in its state 3, zeroed) and sInfoCard is NULL here, so
++            // this write goes to address 0x10: ignored on the GBA, a crash on
++            // the host. AllocZeroed sets pos to 0 anyway.
++            if (sInfoCard != NULL)
++#endif
+             sInfoCard->pos = 0;
+         }
+         break;

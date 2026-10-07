@@ -15,7 +15,22 @@
              sPokedexView->selectedMonSpriteId = spriteId;
      }
  }
-@@ -4490,6 +4497,16 @@
+@@ -4125,7 +4132,14 @@
+ 
+         if (sPokedexView)
+         {
++#ifndef HOST_BUILD
+             Free(sPokedexView);
++#endif
++            // PC port: this page never allocates sPokedexView (only
++            // CB2_OpenPokedex does); a non-NULL one here is the Pokédex's,
++            // already freed by Task_ClosePokedex, which doesn't NULL it. The
++            // second Free corrupts the heap (on the GBA as well). Just
++            // forget the stale pointer.
+             sPokedexView = NULL;
+         }
+ 
+@@ -4490,6 +4504,16 @@
      u32 index, bit, mask;
      s8 retVal = 0;
  
