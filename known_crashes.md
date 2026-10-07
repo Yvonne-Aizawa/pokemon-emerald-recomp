@@ -57,6 +57,16 @@ Found by visiting every map under AddressSanitizer; fixed by
 tiles) of frame graphics from a 960-byte (30-tile) image, so 64 bytes past
 it: into the next theme's image, and past the table for the last theme. The
 frame only uses its 30 tiles, so only those are loaded now.
+### Closing the fly map (Fly, and the debug menu's "Fly to map")
+Found while playtesting with upstream's debug menu; fixed by
+`platform/patches/region_map.c.patch`. `CB2_FlyMap` runs the fly map's
+callback and then animates its sprites. On the frame the map closes, the
+callback (`CB_ExitFlyMap`) frees `sFlyMap` and sets it to NULL, but the
+destination icons are still there, and their callback
+(`SpriteCB_FlyDestIcon`) read `sFlyMap->regionMap` through NULL: BIOS junk
+on the GBA, where the screen is already black by then; a crash on the host,
+whenever the player flew or closed the fly map. The icons now stay as they
+are on that last frame.
 
 ### The animations of Spark, Bolt Beak, Overdrive and other electric moves
 Found by upstream's move animation tests on the host (PLAN.md, Phase
