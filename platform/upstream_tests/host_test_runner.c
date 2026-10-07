@@ -19,14 +19,20 @@
  *  - The tests are split across shards (-j), as Hydra splits them across
  *    emulators: shard I of N runs the tests upstream's runner assigns to
  *    process I (gTestRunnerI/gTestRunnerN), each with its own children and
- *    restarts; the summary adds them up.
+ *    restarts; the summary adds them up, and lists each shard's time and
+ *    its slowest tests (to see how evenly the runner split them).
  *
  *  - --shard splits them further across machines (CI): machine I of M runs
  *    shards (I-1)*N to I*N-1 of M*N, so every machine must use the same -j.
  *
- * Usage: pkmemerald-tests [-j N] [--shard I/M] [PATTERN]
+ *  - Frames run their timeline (H-blank interrupts and DMA) but aren't
+ *    drawn: drawing took most of the tests' time, and nobody sees it.
+ *    --draw draws them, to put the renderer through the tests' animations.
+ *
+ * Usage: pkmemerald-tests [-j N] [--shard I/M] [--draw] [PATTERN]
  *   -j N: shards to run in parallel (1-32; default: the number of CPUs).
  *   --shard I/M: run part I (1-M) of M; needs -j, and M*N at most 32.
+ *   --draw: draw every frame (host_render.c), as the game does.
  *   PATTERN as upstream's `make check TESTS=...`: a test file
  *   ("test/fpmath.c"), a test name prefix, or "*infix"; or a directory
  *   ("test/battle/move_effect/"). Default: all.
@@ -80,6 +86,15 @@ void HostTest_SetPersistentState(void *state);
 #define PROGRESS_TIMEOUT_S 60       /* a child with no new frame for this long is stuck */
 #define MAX_RESTARTS 1000
 #define MAX_SHARDS 32               /* MAX_PROCESSES in include/test/test.h */
+#define SLOWEST_TESTS 10            /* kept per shard, and listed in the summary */
+
+/* A test's time: from the shard's previous result (or its start) to this
+ * one, so it includes setting the test up, and a crashed test's restart. */
+struct TestTime
+{
+    uint64_t ns;
+    char name[256];
+};
 
 /* One per shard, shared between it and its children (they come and go),
  * and read by the top process for the summary. */
@@ -96,11 +111,43 @@ struct Shared
              expectedFailsPassing, assumptionFails, todos;
     char failures[32768];           /* "name (file:line)" lines, for the summary */
     uint32_t failuresLength;
+    uint32_t index;                 /* this shard's number, of all of them (gTestRunnerI) */
+    uint64_t startNs, lastResultNs, endNs;  /* CLOCK_MONOTONIC: the same in every process */
+    struct TestTime slowest[SLOWEST_TESTS]; /* slowest first */
 };
 
+static bool sDraw;                  /* --draw */
 static struct Shared *sShards;
 static struct Shared *sShared;      /* this shard's */
 static sigjmp_buf sMainLoop;
+
+static uint64_t NowNs(void)
+{
+    struct timespec now;
+
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t)now.tv_sec * 1000000000u + (uint64_t)now.tv_nsec;
+}
+
+/* Times the result just reported, and keeps it if it's among the slowest. */
+static void TimeResult(void)
+{
+    uint64_t now = NowNs();
+    uint64_t ns = now - sShared->lastResultNs;
+    int i;
+
+    sShared->lastResultNs = now;
+    for (i = SLOWEST_TESTS; i > 0 && ns > sShared->slowest[i - 1].ns; i--)
+    {
+        if (i < SLOWEST_TESTS)
+            sShared->slowest[i] = sShared->slowest[i - 1];
+    }
+    if (i < SLOWEST_TESTS)
+    {
+        sShared->slowest[i].ns = ns;
+        snprintf(sShared->slowest[i].name, sizeof(sShared->slowest[i].name), "%s", sShared->name);
+    }
+}
 
 /* --------------------------------------------------------------------- */
 /* Output, as mgba-rom-test-hydra prints it                               */
@@ -177,6 +224,7 @@ static void HandleLine(const char *line)
         {
             (*counter)++;
             sShared->results++;
+            TimeResult();
             if (listed)
                 AddFailure();
             /* One write per result, so shards' results don't interleave. */
@@ -225,7 +273,9 @@ static void RunTestFrame(void)
     IrqTimer_Arm(HostMain_RaiseVBlankInterrupts, STALL_INTERVAL_NS);
     HostMain_RunFrame();
     IrqTimer_Disarm();
-    Host_RenderFrame(Platform_GetFramebuffer());
+    /* Without --draw, the frame's timeline (H-blank interrupts and DMA)
+     * without drawing it. */
+    Host_RenderFrame(sDraw ? Platform_GetFramebuffer() : NULL);
     sShared->heartbeat++;
 
     /* Timer 2: the runner's one-second tick (timeout), in game time. */
@@ -239,7 +289,7 @@ static void WaitForVBlankInsideFrame(void)
 {
     IrqTimer_Disarm();
     HostMain_RaiseVBlankInterrupts();
-    Host_RenderFrame(Platform_GetFramebuffer());
+    Host_RenderFrame(sDraw ? Platform_GetFramebuffer() : NULL);
     sShared->heartbeat++;
     IrqTimer_Arm(HostMain_RaiseVBlankInterrupts, STALL_INTERVAL_NS);
 }
@@ -299,6 +349,36 @@ static int WaitForChild(pid_t pid)
     }
 }
 
+/* Each shard's time and number of tests, and the slowest tests of all. */
+static void PrintTimes(int shards)
+{
+    struct TestTime slowest[SLOWEST_TESTS] = {0};
+    int i, j, k;
+
+    printf("\nShards (test time, tests, slowest test):\n");
+    for (i = 0; i < shards; i++)
+    {
+        const struct Shared *shard = &sShards[i];
+
+        printf("  %2u: %7.1f s, %4u tests, %s (%.1f s)\n", shard->index,
+               (shard->endNs - shard->startNs) / 1e9, shard->results,
+               shard->results != 0 ? shard->slowest[0].name : "-", shard->slowest[0].ns / 1e9);
+        /* Merge its slowest into the slowest of all (both slowest first). */
+        for (j = 0; j < SLOWEST_TESTS && shard->slowest[j].ns != 0; j++)
+        {
+            for (k = 0; k < SLOWEST_TESTS && slowest[k].ns >= shard->slowest[j].ns; k++)
+                ;
+            if (k == SLOWEST_TESTS)
+                break;
+            memmove(&slowest[k + 1], &slowest[k], sizeof(slowest[0]) * (SLOWEST_TESTS - 1 - k));
+            slowest[k] = shard->slowest[j];
+        }
+    }
+    printf("Slowest tests:\n");
+    for (k = 0; k < SLOWEST_TESTS && slowest[k].ns != 0; k++)
+        printf("  %7.1f s  %s\n", slowest[k].ns / 1e9, slowest[k].name);
+}
+
 static void PrintSummary(int shards)
 {
     struct Shared total = {0};
@@ -331,6 +411,7 @@ static void PrintSummary(int shards)
         for (i = 0; i < shards; i++)
             fputs(sShards[i].failures, stdout);
     }
+    PrintTimes(shards);
 }
 
 /* Runs shard gTestRunnerI: its tests, each child restarted after a crash.
@@ -346,6 +427,8 @@ static int RunShard(void)
         return 2;
     }
     snprintf(sShared->name, sizeof(sShared->name), "WAITING...");
+    sShared->index = gTestRunnerI;
+    sShared->startNs = sShared->lastResultNs = NowNs();
     if (getenv("PKM_TESTS_NO_FORK") != NULL)
         RunChild(saveDir);
 
@@ -364,6 +447,7 @@ static int RunShard(void)
             RunChild(saveDir);
 
         status = WaitForChild(pid);
+        sShared->endNs = NowNs();
         if (WIFEXITED(status))
         {
             rmdir(saveDir);
@@ -390,10 +474,11 @@ static int RunShard(void)
 static void Usage(FILE *out, const char *argv0)
 {
     fprintf(out,
-            "usage: %s [-j N] [--shard I/M] [PATTERN]\n"
+            "usage: %s [-j N] [--shard I/M] [--draw] [PATTERN]\n"
             "  -j N: shards to run in parallel (1-%d; default: the number of CPUs)\n"
             "  --shard I/M: run part I (1-M) of M, e.g. one per CI machine; needs -j\n"
             "           (the same on every machine), and M*N at most %d\n"
+            "  --draw: draw every frame, as the game does (slower; tests the renderer)\n"
             "  PATTERN: a test file (test/fpmath.c), a directory (test/battle/), a test\n"
             "           name prefix, or *infix\n", argv0, MAX_SHARDS, MAX_SHARDS);
 }
@@ -423,6 +508,11 @@ int main(int argc, char **argv)
                 return 2;
             }
             shardsGiven = true;
+            continue;
+        }
+        if (strcmp(argv[argi], "--draw") == 0)
+        {
+            sDraw = true;
             continue;
         }
         if (strcmp(argv[argi], "--shard") == 0 && argi + 1 < argc)

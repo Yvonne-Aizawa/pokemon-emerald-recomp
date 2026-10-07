@@ -705,7 +705,8 @@ void Host_RenderFrame(uint32_t *framebuffer)
     for (line = 0; line < HEIGHT; line++)
     {
         SetReg(REG_OFFSET_VCOUNT, line);
-        RenderLine(line, framebuffer + line * WIDTH);
+        if (framebuffer != NULL)
+            RenderLine(line, framebuffer + line * WIDTH);
         HBlank(line, TRUE);
     }
 

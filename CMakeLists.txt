@@ -838,9 +838,12 @@ if(PKM_UPSTREAM_TESTS)
     add_test(NAME upstream-battle
         COMMAND pkmemerald-tests -j ${_test_cores} test/battle/)
     set_tests_properties(upstream-battle PROPERTIES PROCESSORS ${_test_cores})
+    # The tests don't draw their frames (too slow), so this one does, to put
+    # the renderer through every species' front animation (host_render.c).
+    add_test(NAME upstream-runner-draw COMMAND pkmemerald-tests -j 1 --draw test/battle/front_anim.c)
     set_tests_properties(${_upstream_test_names} upstream-runner-crash upstream-runner-fatalf
                          upstream-runner-player-name upstream-runner-detects-failure
-                         upstream-runner-battle upstream-battle
+                         upstream-runner-battle upstream-battle upstream-runner-draw
         PROPERTIES ENVIRONMENT "${HEADLESS_TEST_ENV}")
     set_tests_properties(upstream-runner-crash upstream-runner-fatalf PROPERTIES
         PASS_REGULAR_EXPRESSION "1 tests: 0 passed, 0 failed, 0 known failing, 1 expected failures")
