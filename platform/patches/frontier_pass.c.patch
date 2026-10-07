@@ -1,0 +1,16 @@
+--- a/src/frontier_pass.c
++++ b/src/frontier_pass.c
+@@ -677,7 +677,12 @@
+ 
+ static void VBlankCB_FrontierPass(void)
+ {
+-    if (sPassGfx->zooming)
++    // PC port: the Frontier map screen (InitFrontierMap) uses this callback
++    // too, after HideFrontierPass has freed sPassGfx. The GBA reads BIOS junk
++    // through NULL (at most setting BG2's affine registers, which the map's
++    // text-mode BG2 doesn't use); the host crashed on opening the map. No
++    // pass graphics: no zoom.
++    if (sPassGfx != NULL && sPassGfx->zooming)
+     {
+         SetBgAffine(2,
+                     sBgAffineCoords[sPassData->areaToShow - 1][0] << 8,

@@ -1,0 +1,16 @@
+--- a/src/debug.c
++++ b/src/debug.c
+@@ -2249,6 +2249,13 @@
+ static u32 GetTrainerIdFromLocalId(u32 localId)
+ {
+     Debug_Trainers_ResetTrainersData();
++    // PC port: the trainer selection tries local IDs before checking them
++    // against the map's objects, so on a map with none (or fewer) this read
++    // an object past the map's list and parsed its "script" (BIOS junk or
++    // other data on the GBA; a crash on the host). Not a trainer.
++    if (localId == 0 || localId > gMapHeader.events->objectEventCount
++     || gMapHeader.events->objectEvents[localId - 1].script == NULL)
++        return TRAINER_NONE;
+     ParseObjectEventScript(gMapHeader.events->objectEvents[localId - 1].script);
+     if (GetTrainerBattleType(sDebugMenuListData->data[0]) == TRAINER_BATTLE_TYPE_DOUBLES)
+         sDebugMenuListData->data[5] = TRUE;
