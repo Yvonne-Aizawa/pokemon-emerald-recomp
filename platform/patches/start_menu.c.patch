@@ -1,0 +1,18 @@
+--- a/src/start_menu.c
++++ b/src/start_menu.c
+@@ -1036,7 +1036,14 @@
+ 
+ static u8 SaveConfirmSaveCallback(void)
+ {
+-    ClearStdWindowAndFrame(GetStartMenuWindowId(), FALSE);
++    // PC port: when a script saves (special SaveGame: the Battle Frontier
++    // lobbies, Trainer Hill, ...), the start menu isn't open and its window
++    // is WINDOW_NONE, and this cleared gWindows[WINDOW_NONE], far past the
++    // window table: filling whatever "pixel buffer" it found there (memory
++    // corruption on the GBA; a crash on the host, depending on that memory).
++    // RemoveStartMenuWindow already checks; so does this now.
++    if (GetStartMenuWindowId() != WINDOW_NONE)
++        ClearStdWindowAndFrame(GetStartMenuWindowId(), FALSE);
+     RemoveStartMenuWindow();
+     ShowSaveInfoWindow();
+ 

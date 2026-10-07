@@ -4,6 +4,40 @@ None open.
 
 ## Fixed
 
+### Saving when a script asks (Pokémon Center upstairs, Battle Frontier, ...)
+Found while playtesting (going upstairs in a Pokémon Center to trade, which
+asks to save first); fixed by `platform/patches/start_menu.c.patch`.
+Scripts save with `special SaveGame` (`Common_EventScript_SaveGame`: the
+Cable Club's trade, battle, Record Corner and Union Room receptionists, the
+Battle Frontier lobbies, Trainer Hill, secret bases, the Berry Blender),
+which starts the same save dialog as the start menu, and its first step,
+`SaveConfirmSaveCallback`, clears the start menu's window. Started by a
+script, the start menu isn't open and its window is `WINDOW_NONE`, so this
+cleared `gWindows[0xFF]`, far past the 32-entry window table, filling
+whatever "pixel buffer" it found there: memory corruption on the GBA too,
+and a crash on the host when that junk pointer was invalid (it depends on
+what lies there, so not every time). The window is now only cleared if the
+start menu is open, as `RemoveStartMenuWindow` already checks.
+
+### Opening the map in the Frontier Pass
+Found while playtesting; fixed by `platform/patches/frontier_pass.c.patch`.
+The Frontier map screen (`InitFrontierMap`) sets the pass's V-blank
+callback, `VBlankCB_FrontierPass`, but the pass has freed its graphics
+(`sPassGfx`, `HideFrontierPass`) before showing the map, so every frame on
+the map read `sPassGfx->zooming` through NULL. The GBA reads BIOS junk, which
+at most sets BG2's affine registers, unused by the map's text-mode
+background; the host crashed as soon as the map opened. Without the pass's
+graphics, the callback now skips the zoom (sprites and palettes as before).
+
+### The debug menu's trainer selection, on a map without trainers
+Found while playtesting with upstream's debug menu; fixed by
+`platform/patches/debug.c.patch`. `GetTrainerIdFromLocalId` (debug.c) read
+`gMapHeader.events->objectEvents[localId - 1]` and parsed its script, and
+the selection tries local IDs before checking them against the map's
+object count: on a map with no objects, an object past the list and a
+garbage script pointer. A local ID outside the map's objects, or an object
+without a script, is now "not a trainer".
+
 ### Entering the Battle Dome lobby
 Found by visiting every map (`--visit-maps`, PLAN.md, Phase 19c); fixed by
 `platform/patches/battle_gimmick.c.patch`. The lobby's on-resume script
