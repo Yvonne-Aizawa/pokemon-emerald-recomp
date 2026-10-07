@@ -311,3 +311,14 @@ A new sprite starts on animation 0, though, so creating it read its first
 frame through `NULL` (BIOS junk on the GBA, replaced at once by
 `StartSpriteAnim`). `SetSpriteSheetFrameTileNum` now skips a `NULL` animation.
 Also crashed when selecting a move on the summary's moves page.
+
+### Printing a battle message
+Fixed by `platform/patches/line_break.c.patch` (crashed in `BuildNewString`,
+fault address 0x2, under `BattleStringExpandPlaceholders`). Automatic line
+breaking first estimates how many lines a message needs, allocates that many,
+then lays the words out. The layout can use fewer lines than the estimate. The
+unused lines keep `numWords == 0` and an unset `words` pointer (`Alloc` doesn't
+zero), and `BuildNewString` read the first word's length through it. On the
+GBA that reads junk, and the last real line writes a line break over the
+string's EOS. `BuildNewString` now skips trailing lines that have no words.
+Regression test: `platform/tests/test_line_break.c`.
