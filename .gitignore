@@ -34,3 +34,6 @@ platform/tests/saves/*
 
 # Locally collected checkpoints and inspection reports.
 /test-saves/
+
+# Claude Code local state (worktrees).
+/.claude/
