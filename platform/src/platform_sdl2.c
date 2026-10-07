@@ -4,7 +4,8 @@
  * SDL2 implementation of platform.h: a window showing the 240x160
  * framebuffer at an integer scale, the OS event loop, input (via
  * input_sdl2.c), and timing. F11 or Alt+Enter switch between the window and
- * borderless fullscreen (the desktop's resolution, letterboxed).
+ * borderless fullscreen (the desktop's resolution, letterboxed); Tab switches
+ * fast-forward (Platform_TakeFastForwardToggle).
  *
  * Runs without a display under SDL_VIDEODRIVER=dummy (the tests do this).
  */
@@ -26,6 +27,7 @@ static uint32_t sFramebuffer[PLATFORM_SCREEN_WIDTH * PLATFORM_SCREEN_HEIGHT];
 static uint64_t sStartCounter;
 static uint64_t sCounterFrequency;
 static bool sQuitRequested;
+static unsigned sFastForwardToggles;  /* Tab presses not yet taken */
 
 static const char *RendererName(SDL_Renderer *renderer)
 {
@@ -175,6 +177,13 @@ static bool IsFullscreenToggle(const SDL_Event *event)
         || ((key->mod & KMOD_ALT) && (key->scancode == SDL_SCANCODE_RETURN || key->scancode == SDL_SCANCODE_KP_ENTER));
 }
 
+/* Tab, pressed or released; these don't reach the game either. */
+static bool IsFastForwardKey(const SDL_Event *event)
+{
+    return (event->type == SDL_KEYDOWN || event->type == SDL_KEYUP)
+        && event->key.keysym.scancode == SDL_SCANCODE_TAB;
+}
+
 void Platform_PollEvents(void)
 {
     SDL_Event event;
@@ -189,6 +198,12 @@ void Platform_PollEvents(void)
                 ToggleFullscreen();
             continue;
         }
+        if (IsFastForwardKey(&event))
+        {
+            if (event.type == SDL_KEYDOWN && !event.key.repeat)
+                sFastForwardToggles++;
+            continue;
+        }
         Input_HandleEvent(&event);
     }
 }
@@ -196,6 +211,14 @@ void Platform_PollEvents(void)
 uint16_t Platform_GetButtons(void)
 {
     return Input_GetButtons();
+}
+
+bool Platform_TakeFastForwardToggle(void)
+{
+    if (sFastForwardToggles == 0)
+        return false;
+    sFastForwardToggles--;
+    return true;
 }
 
 bool Platform_QuitRequested(void)

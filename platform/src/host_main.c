@@ -86,7 +86,9 @@ static void Usage(FILE *out, const char *argv0)
             "  --inspect-save FILE  inspect a checkpoint without writing to it; exits\n"
             "  --convert-save IN OUT  convert a save (JSON or a raw flash image): OUT is a\n"
             "               raw image if it ends in .sav, otherwise JSON; exits\n"
-            "  --fast       don't wait between frames (scripted test runs); implies --mute\n"
+            "  --fast       don't wait between frames (scripted test runs); implies --mute.\n"
+            "               Tab switches fast-forward on and off while playing (no sound\n"
+            "               while on)\n"
             "  --mute       no sound\n"
             "  --smooth-sound  interpolated, low-passed sound instead of the exact GBA output\n"
             "  --console    Windows: show the game's messages in a console (otherwise, unless\n"
@@ -376,8 +378,30 @@ static void DrainAudioDump(int keep)
 #define STALL_INTERVAL_NS 100000000ul
 static unsigned long sIrqIntervalNs = HOST_FRAME_NS;
 
+/* Fast-forward: --fast, or Tab while playing. Unpaced, as fast as the PC
+ * runs the game, and without sound (sound sped up only gets chopped by the
+ * output buffer). */
+static bool sFastForward;
+static bool sSoundDevice;  /* sound is playing through the device (not -a) */
+
+static void SetFastForward(bool fast)
+{
+    sFastForward = fast;
+    Host_SetPacing(!fast);
+    sIrqIntervalNs = fast ? STALL_INTERVAL_NS : HOST_FRAME_NS;
+    if (sSoundDevice)
+        HostAudio_SetEnabled(!fast);
+}
+
 static void RunGameFrame(void)
 {
+    while (Platform_TakeFastForwardToggle())
+    {
+        SetFastForward(!sFastForward);
+        printf("fast-forward %s\n", sFastForward ? "on" : "off");
+        fflush(stdout);
+    }
+
     Host_SetKeypad(Platform_GetButtons() | ScriptedButtons(Host_GetFrameCount())
                    | MonkeyButtons(Host_GetFrameCount()) | HostVisitMaps_Frame(Host_GetFrameCount()));
 
@@ -452,8 +476,7 @@ int main(int argc, char **argv)
         }
         if (strcmp(arg, "--fast") == 0)
         {
-            Host_SetPacing(false);
-            sIrqIntervalNs = STALL_INTERVAL_NS;
+            SetFastForward(true);
             muteFlag = true;
             continue;
         }
@@ -630,7 +653,7 @@ int main(int argc, char **argv)
     }
     else if (sound)
     {
-        HostAudio_OpenDevice();
+        sSoundDevice = HostAudio_OpenDevice();
     }
     fflush(stdout);
     Host_SetFrameCallback(RunGameFrame);

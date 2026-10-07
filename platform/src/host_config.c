@@ -252,11 +252,12 @@ const char *HostConfig_DefaultText(void)
         "[keyboard]\n"
         "# Keys for each GBA button, separated by commas; leave empty for none.\n"
         "# Keys go by position, so \"Z\" means the key right of Left Shift on any\n"
-        "# keyboard layout. Key names: A ... Z, 0 ... 9, Space, Return, Tab,\n"
+        "# keyboard layout. Key names: A ... Z, 0 ... 9, Space, Return,\n"
         "# Escape, Backspace, Left Shift, Right Shift, Left Ctrl, Right Ctrl,\n"
         "# Left Alt, Up, Down, Left, Right, F1 ... F10, F12 (F11 switches\n"
-        "# fullscreen), Keypad 0 ... Keypad 9, Keypad Enter. Unknown names are\n"
-        "# reported in the log, and that button keeps its default keys.\n"
+        "# fullscreen, Tab fast-forward), Keypad 0 ... Keypad 9, Keypad Enter.\n"
+        "# Unknown names are reported in the log, and that button keeps its\n"
+        "# default keys.\n"
         "# Gamepads use the standard layout and aren't configured here.\n",
         defaults.scale, defaults.fullscreen ? "yes" : "no",
         defaults.sound ? "yes" : "no", defaults.smoothSound ? "yes" : "no");
