@@ -1,6 +1,6 @@
 --- a/src/field_door.c
 +++ b/src/field_door.c
-@@ -1055,9 +1055,14 @@
+@@ -1071,9 +1071,14 @@
      }
  
      // The remaining layers are left as tile 0 (with the same palette)

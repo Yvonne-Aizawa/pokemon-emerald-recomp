@@ -4,6 +4,19 @@ None open.
 
 ## Fixed
 
+### An AI trainer choosing whom to revive with Revival Blessing
+Found by upstream's battle tests on the host (PLAN.md, Phase 19b-4; "AI
+revives the best fainted ally with Revival Blessing" in
+`test/battle/ai/ai_switching.c`); fixed by
+`platform/patches/battle_ai_switch.c.patch`. `AI_SelectRevivalBlessingMon`
+scores every party slot with 0 HP, and empty slots have 0 HP too, so with
+fewer than 6 Pokémon it set up an empty slot as a switch-in candidate, and
+`GetHealthPercentage` divided by its max HP of 0. The GBA's division
+returns without trapping (and the hazards check that follows then skips
+the slot); on x86 it raises SIGFPE, in the game too, whenever an AI
+trainer with fewer than 6 Pokémon uses Revival Blessing. Empty slots and eggs are now skipped, as
+`GetFirstFaintedPartyIndex` does; the AI's choice is the same.
+
 ### A double battle against two trainers
 Found by upstream's battle tests on the host (PLAN.md, Phase 19b-4; the
 two-opponent tests in `test/battle/ability/commander.c` and

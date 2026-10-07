@@ -1,0 +1,17 @@
+--- a/src/battle_ai_switch.c
++++ b/src/battle_ai_switch.c
+@@ -2671,6 +2671,14 @@
+     {
+         if (GetMonData(&party[monIndex], MON_DATA_HP) != 0)
+             continue; // Only consider fainted mons
++        // PC port: empty slots (and eggs) have 0 HP too, but aren't fainted
++        // mons. InitializeSwitchinCandidate divides by an empty slot's max HP
++        // of 0: the GBA's division returns without trapping (and the hazards
++        // check below then skips the slot), x86's raises SIGFPE. Skip them
++        // as GetFirstFaintedPartyIndex does; the choice is the same.
++        enum Species species = GetMonData(&party[monIndex], MON_DATA_SPECIES_OR_EGG);
++        if (species == SPECIES_NONE || species == SPECIES_EGG)
++            continue;
+ 
+         bool32 isAceMon = IsAceMon(battler, monIndex);
+ 
