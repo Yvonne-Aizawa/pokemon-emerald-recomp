@@ -1,0 +1,18 @@
+--- a/src/contest.c
++++ b/src/contest.c
+@@ -2858,6 +2858,15 @@
+         DestroyTask(taskId);
+         gFieldCallback = FieldCB_ContestReturnToField;
+         FreeAllWindowBuffers();
++#ifdef HOST_BUILD
++        // PC port: the contest's other tasks (the judge attention eye, ...)
++        // run after this one in the same RunTasks pass and read eContest
++        // through gContestResources, which FreeContestResources sets to
++        // NULL. The GBA reads BIOS junk there; the host crashes. The field
++        // resets the tasks on its first frame anyway (ResumeMap), so drop
++        // them now: the rest of this pass then runs only TaskDummy.
++        ResetTasks();
++#endif
+         FreeContestResources();
+         FreeMonSpritesGfx();
+         SetMainCallback2(CB2_ReturnToField);
