@@ -4,6 +4,19 @@ None open.
 
 ## Fixed
 
+### Leaving a contest
+Found while playtesting (SIGSEGV in `Task_FlashJudgeAttentionEye` as the
+contest faded back to the field); fixed by `platform/patches/contest.c.patch`.
+`Task_ContestReturnToField` frees the contest's memory
+(`FreeContestResources`, which sets `gContestResources` to NULL), but the
+contest's other tasks stay alive and run after it in the same `RunTasks`
+pass. The judge attention eye task (priority 30) reads
+`eContest.prevTurnOrder` through that NULL pointer whenever a contestant's
+eye is still flashing: BIOS junk on the GBA, a crash on the host. The field
+resets all tasks on its first frame (`ResumeMap`), and the contest reset
+them when it started, so every task left is a contest task; they are now
+reset before the memory is freed.
+
 ### Saving when a script asks (Pokémon Center upstairs, Battle Frontier, ...)
 Found while playtesting (going upstairs in a Pokémon Center to trade, which
 asks to save first); fixed by `platform/patches/start_menu.c.patch`.
