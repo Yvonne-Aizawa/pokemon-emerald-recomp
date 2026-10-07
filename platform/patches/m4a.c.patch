@@ -1,6 +1,6 @@
 --- a/src/m4a.c
 +++ b/src/m4a.c
-@@ -6,6 +6,17 @@
+@@ -6,6 +6,27 @@
  
  #define BSS_CODE __attribute__((section(".bss.code")))
  
@@ -11,14 +11,24 @@
 +#define HOST_IGNORE_NULL_PLAYER(mplayInfo, ret) \
 +    if ((mplayInfo) == NULL)                    \
 +        return ret;
++// PC port: a song number past the song table (gSongTable has
++// LAST_PHONEME_SONG + 1 entries). Shadow Force's and Phantom Force's
++// animation scripts pass SOUND_PAN_ATTACKER as the sound (0xFFC0): the GBA
++// reads whatever follows the table in ROM, the host reads past its memory.
++// Such a song is ignored.
++#include "constants/songs.h"
++#define HOST_IGNORE_BAD_SONG(n) \
++    if ((n) > LAST_PHONEME_SONG)  \
++        return;
 +#else
 +#define HOST_IGNORE_NULL_PLAYER(mplayInfo, ret)
++#define HOST_IGNORE_BAD_SONG(n)
 +#endif
 +
  COMMON_DATA struct SoundInfo gSoundInfo = {0};
  COMMON_DATA struct PokemonCrySong gPokemonCrySongs[MAX_POKEMON_CRIES] = {0};
  COMMON_DATA struct MusicPlayerInfo gPokemonCryMusicPlayers[MAX_POKEMON_CRIES] = {0};
-@@ -46,6 +57,7 @@
+@@ -46,6 +67,7 @@
  
  void MPlayContinue(struct MusicPlayerInfo *mplayInfo)
  {
@@ -26,7 +36,7 @@
      if (mplayInfo->ident == ID_NUMBER)
      {
          mplayInfo->ident++;
-@@ -56,6 +68,7 @@
+@@ -56,6 +78,7 @@
  
  void MPlayFadeOut(struct MusicPlayerInfo *mplayInfo, u16 speed)
  {
@@ -34,7 +44,52 @@
      if (mplayInfo->ident == ID_NUMBER)
      {
          mplayInfo->ident++;
-@@ -192,6 +205,7 @@
+@@ -106,6 +129,8 @@
+     const struct MusicPlayer *mplayTable = gMPlayTable;
+     const struct Song *songTable = gSongTable;
+     const struct Song *song = &songTable[n];
++
++    HOST_IGNORE_BAD_SONG(n)
+     const struct MusicPlayer *mplay = &mplayTable[song->ms];
+ 
+     MPlayStart(mplay->info, song->header);
+@@ -116,6 +141,8 @@
+     const struct MusicPlayer *mplayTable = gMPlayTable;
+     const struct Song *songTable = gSongTable;
+     const struct Song *song = &songTable[n];
++
++    HOST_IGNORE_BAD_SONG(n)
+     const struct MusicPlayer *mplay = &mplayTable[song->ms];
+ 
+     if (mplay->info->songHeader != song->header)
+@@ -137,6 +164,8 @@
+     const struct MusicPlayer *mplayTable = gMPlayTable;
+     const struct Song *songTable = gSongTable;
+     const struct Song *song = &songTable[n];
++
++    HOST_IGNORE_BAD_SONG(n)
+     const struct MusicPlayer *mplay = &mplayTable[song->ms];
+ 
+     if (mplay->info->songHeader != song->header)
+@@ -152,6 +181,8 @@
+     const struct MusicPlayer *mplayTable = gMPlayTable;
+     const struct Song *songTable = gSongTable;
+     const struct Song *song = &songTable[n];
++
++    HOST_IGNORE_BAD_SONG(n)
+     const struct MusicPlayer *mplay = &mplayTable[song->ms];
+ 
+     if (mplay->info->songHeader == song->header)
+@@ -163,6 +194,8 @@
+     const struct MusicPlayer *mplayTable = gMPlayTable;
+     const struct Song *songTable = gSongTable;
+     const struct Song *song = &songTable[n];
++
++    HOST_IGNORE_BAD_SONG(n)
+     const struct MusicPlayer *mplay = &mplayTable[song->ms];
+ 
+     if (mplay->info->songHeader == song->header)
+@@ -192,6 +225,7 @@
  
  void m4aMPlayFadeOutTemporarily(struct MusicPlayerInfo *mplayInfo, u16 speed)
  {
@@ -42,7 +97,7 @@
      if (mplayInfo->ident == ID_NUMBER)
      {
          mplayInfo->ident++;
-@@ -204,6 +218,7 @@
+@@ -204,6 +238,7 @@
  
  void m4aMPlayFadeIn(struct MusicPlayerInfo *mplayInfo, u16 speed)
  {
@@ -50,7 +105,7 @@
      if (mplayInfo->ident == ID_NUMBER)
      {
          mplayInfo->ident++;
-@@ -217,8 +232,17 @@
+@@ -217,8 +252,17 @@
  
  void m4aMPlayImmInit(struct MusicPlayerInfo *mplayInfo)
  {
@@ -68,7 +123,7 @@
  
      while (trackCount > 0)
      {
-@@ -311,10 +335,12 @@
+@@ -311,10 +355,12 @@
      soundInfo->ident = ident;
  }
  
@@ -81,7 +136,7 @@
  
  void ClearChain(void *x)
  {
-@@ -406,11 +432,16 @@
+@@ -406,11 +452,16 @@
  
      m4aSoundVSyncOn();
  
@@ -98,7 +153,7 @@
  
      REG_TM0CNT_H = TIMER_ENABLE | TIMER_1CLK;
  }
-@@ -617,6 +648,8 @@
+@@ -617,6 +668,8 @@
      s32 i;
      struct MusicPlayerTrack *track;
  
@@ -107,7 +162,7 @@
      if (mplayInfo->ident != ID_NUMBER)
          return;
  
-@@ -1180,6 +1213,7 @@
+@@ -1180,6 +1233,7 @@
  
  void m4aMPlayTempoControl(struct MusicPlayerInfo *mplayInfo, u16 tempo)
  {
@@ -115,7 +170,7 @@
      if (mplayInfo->ident == ID_NUMBER)
      {
          mplayInfo->ident++;
-@@ -1195,6 +1229,8 @@
+@@ -1195,6 +1249,8 @@
      u32 bit;
      struct MusicPlayerTrack *track;
  
@@ -124,7 +179,7 @@
      if (mplayInfo->ident != ID_NUMBER)
          return;
  
-@@ -1229,6 +1265,8 @@
+@@ -1229,6 +1285,8 @@
      u32 bit;
      struct MusicPlayerTrack *track;
  
@@ -133,7 +188,7 @@
      if (mplayInfo->ident != ID_NUMBER)
          return;
  
-@@ -1264,6 +1302,8 @@
+@@ -1264,6 +1322,8 @@
      u32 bit;
      struct MusicPlayerTrack *track;
  
@@ -142,7 +197,7 @@
      if (mplayInfo->ident != ID_NUMBER)
          return;
  
-@@ -1609,7 +1649,14 @@
+@@ -1609,7 +1669,14 @@
  
  bool32 IsPokemonCryPlaying(struct MusicPlayerInfo *mplayInfo)
  {

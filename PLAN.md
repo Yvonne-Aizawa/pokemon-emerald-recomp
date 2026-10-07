@@ -17,7 +17,7 @@ The game is playable from boot to the overworld and battles, with graphics, inpu
 | 16    | Not started (optional) |
 | 17    | Done (Linux and Windows builds, source only); on real Windows still to check: sound, `--console`/log file |
 | 18    | Not started (64-bit build; needed for macOS) |
-| 19    | In progress: 19a done (sanitizers + monkey runs in CI, heap checks included); 19b-1, 19b-3 and the CI split done; 19b-2 done (non-battle tests); 19b-4 in progress (all of `test/battle/` but `move_animations/` done); GBA save compatibility dropped (see 19b, *save layout*); **next**: the rest of 19b-4, 19b-5, then 19c (every map); 19a-2's checkpoint monkey runs on hold |
+| 19    | In progress: 19a done (sanitizers + monkey runs in CI, heap checks included); 19b-1, 19b-3 and the CI split done; 19b-2 done (non-battle tests); 19b-4 done (all of `test/battle/`); GBA save compatibility dropped (see 19b, *save layout*); **next**: 19b-5 (Windows) and 19c (every map), in either order; 19a-2's checkpoint monkey runs on hold |
 
 
 ## Source under analysis
@@ -652,7 +652,7 @@ Upstream runs them in mGBA (`make check`: a test ROM, `mgba-rom-test` and the pa
   - Upstream test bugs the GBA hides, fixed in test patches: a 12-byte buffer for a 13-byte nickname (`test/pokemon.c.patch`; the host's stack protector caught it), FRLG's NULL map groups read (`test/text.c.patch`).
   - Port bugs (`known_crashes.md`): Day Care eggs from parents sharing a move (an upstream loop advancing the wrong index), the Illusion lookup outside battle. Also: `MgbaPrintf` formats with the game's own `mini_vsnprintf`, as upstream does, so `%S` (a game string) no longer reads past the end as a wide string.
 - *Save layout (decided 2026-10-06: no GBA save compatibility):* `test/save.c` showed that the host's save blocks differ from the GBA's: SaveBlock1 15496 bytes (GBA: 15568), SaveBlock2 3848 (3884), SaveBlock3 1 (4); PokemonStorage matches. The GBA ABI (`-mabi=apcs-gnu`) rounds every struct's size up to a multiple of 4; x86 doesn't, so the padding inside and between structs differs. So GBA emulator saves don't load in the PC build, nor PC saves in an emulator. Matching the GBA layout would tie every saved struct to the GBA ABI and limit later changes, so the PC save format is its own: the same 128 KiB flash image, with the host's struct layout. Saves stay compatible between PC builds of the same upstream version (the played checkpoints); Phase 18's 64-bit build must keep that layout (its `u64` alignment note). The three `test/save.c` size tests stay on the known-differences list. *Later, maybe:* a converter between GBA and PC saves (it would decode each save block with one layout and re-encode it with the other).
-- *19b-4 in progress, in batches (one pull request each):*
+- *19b-4 done, in batches (one pull request each):*
   - *Batch 1 done: `test/battle/ability/` and `test/battle/hold_effect/`* (437 files, ~2,050 tests) in the test build, CTest (`upstream-battle`, now all of `test/battle/` that is built) and the upstream workflow. All pass (137 are upstream's TO_DO, 8 upstream's own KNOWN_FAILING). On 16 cores: abilities 8 min, hold effects 1 min.
   - Port bug found (`known_crashes.md`): a double battle against two trainers overflowed a stack array in `BufferBattlePartyOrderBySide` (`party_menu.c.patch`); the host's stack protector aborted, in the game too.
   - *Batch 2 done: `test/battle/ai/`* (29 files, 486 tests), with `reference` updated to upstream `6057b187f9`. All pass (10 are upstream's TO_DO, 5 upstream's own KNOWN_FAILING). On 16 cores: 4 min.
@@ -660,7 +660,8 @@ Upstream runs them in mGBA (`make check`: a test ROM, `mgba-rom-test` and the pa
   - Port bug found (`known_crashes.md`): `AI_SelectRevivalBlessingMon` divided by an empty party slot's max HP of 0 (SIGFPE on x86, silent on the GBA; `battle_ai_switch.c.patch`).
   - *Batch 3 done: the top-level files of `test/battle/`* (23 files, 307 tests). All pass (1 upstream TO_DO, 1 upstream KNOWN_FAILING); no new port bugs.
   - *Batch 4 done: the remaining directories but `move_animations/`* (`form_change/`, `gimmick/`, `item_effect/`, `move_effects_combined/`, `move_effect_secondary/`, `move_flags/`, `starting_status/`, `status1/`, `volatiles/`, `weather/`; 110 files, 682 tests). The test build now takes all of `test/battle/` but `move_animations/`. All pass; no new port bugs. All of `test/battle/` (5,528 tests: 18 upstream KNOWN_FAILING, 421 upstream TO_DO) on 16 cores: 78 s.
-  - Next: `move_animations/`, with `--draw` (the tests exist to play every move's animation); measure first, and if too slow for every pull request, run it only when the renderer or the battle animation code changes.
+  - *Batch 5 done: `test/battle/move_animations/`* (2 files, 8 tests; upstream's default leaves out the heaviest ones, `T_SHOULD_RUN_MOVE_ANIM`). Every move's animation, Z-moves, Tera Blast and gimmick form changes. All pass, run without drawing with the rest (14 s on 16 cores); with `--draw`, ~6 min (each "Move Animations work N" test ~6 min on one core), so it isn't in CI.
+  - Port bugs found (`known_crashes.md`), both without drawing: the flashing sparks of Spark, Bolt Beak and other electric moves took a modulo by zero (`battle_anim_electric.c.patch`; Spark is in Emerald, so the game crashed too), and Shadow Force's and Phantom Force's scripts pass a pan as the sound effect, a song number far past the song table (`m4a.c.patch` now ignores such songs).
 
 ### 19c — Visit every map (~1 day)
 
