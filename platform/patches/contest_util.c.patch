@@ -1,0 +1,19 @@
+--- a/src/contest_util.c
++++ b/src/contest_util.c
+@@ -1032,6 +1032,16 @@
+             DestroyTask(taskId);
+             FreeAllWindowBuffers();
+             SetMainCallback2(CB2_ReturnToFieldContinueScriptPlayMapMusic);
++#ifdef HOST_BUILD
++            // PC port: the results screen's other tasks (the flashing stars
++            // and hearts, ...) run after this one in the same RunTasks pass
++            // and write through sContestResults, which FreeContestResults
++            // sets to NULL. The GBA writes to BIOS (ignored); the host
++            // crashes. The field resets the tasks on its first frame anyway
++            // (ResumeMap), so drop them now: the rest of this pass then runs
++            // only TaskDummy.
++            ResetTasks();
++#endif
+             FreeContestResults();
+         }
+     }

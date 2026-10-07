@@ -17,6 +17,12 @@ resets all tasks on its first frame (`ResumeMap`), and the contest reset
 them when it started, so every task left is a contest task; they are now
 reset before the memory is freed.
 
+The results screen after the contest has the same bug, fixed the same way in
+`platform/patches/contest_util.c.patch`: `Task_EndShowContestResults` frees
+`sContestResults`, then `Task_FlashStarsAndHearts` writes
+`sContestResults->data->pointsFlashing` through NULL (SIGSEGV on returning to
+the field, with `CB2_ReturnToFieldContinueScriptPlayMapMusic` already set).
+
 ### Saving when a script asks (Pokémon Center upstairs, Battle Frontier, ...)
 Found while playtesting (going upstairs in a Pokémon Center to trade, which
 asks to save first); fixed by `platform/patches/start_menu.c.patch`.
