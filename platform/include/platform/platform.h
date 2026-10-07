@@ -76,7 +76,9 @@ uint32_t *Platform_GetFramebuffer(void);
 void Platform_PollEvents(void);
 
 /* GBA buttons currently held on the keyboard or any gamepad, as of the last
- * Platform_PollEvents. */
+ * Platform_PollEvents, plus any pressed since the last call (so a tap whose
+ * press and release came in one poll still reads as held once). Call it
+ * once per game input sample. */
 uint16_t Platform_GetButtons(void);
 
 /* True once for each press of the fast-forward key (Tab) since the last

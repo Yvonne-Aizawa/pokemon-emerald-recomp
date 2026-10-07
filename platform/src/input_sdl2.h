@@ -21,7 +21,8 @@ void Input_Shutdown(void);
 /* Feed every SDL event through here. */
 void Input_HandleEvent(const SDL_Event *event);
 
-/* Held GBA buttons (PLATFORM_BUTTON_* bits). */
+/* Held GBA buttons (PLATFORM_BUTTON_* bits), plus any pressed since the
+ * last call. */
 uint16_t Input_GetButtons(void);
 
 #endif /* PLATFORM_INPUT_SDL2_H */

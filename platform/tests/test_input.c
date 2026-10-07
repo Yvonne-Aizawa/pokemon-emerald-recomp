@@ -74,6 +74,22 @@ int main(void)
     Check(Platform_GetButtons() == PLATFORM_BUTTON_L, "L held while either Shift is down");
     SendKey(SDL_SCANCODE_RSHIFT, false);
 
+    /* A tap within one poll still reads as held, for one sample. */
+    {
+        SDL_Event tap = {0};
+
+        tap.type = SDL_KEYDOWN;
+        tap.key.state = SDL_PRESSED;
+        tap.key.keysym.scancode = SDL_SCANCODE_X;
+        SDL_PushEvent(&tap);
+        tap.type = SDL_KEYUP;
+        tap.key.state = SDL_RELEASED;
+        SDL_PushEvent(&tap);
+        Platform_PollEvents();
+        Check(Platform_GetButtons() == PLATFORM_BUTTON_B, "a tap within one poll reads as held");
+        Check(Platform_GetButtons() == 0, "... for one sample only");
+    }
+
     SendKey(SDL_SCANCODE_UP, true);
     focusLost.type = SDL_WINDOWEVENT;
     focusLost.window.event = SDL_WINDOWEVENT_FOCUS_LOST;
@@ -98,15 +114,24 @@ int main(void)
         RunFrame();
     Check(gMain.callback2 == MainCB2_Intro, "intro keeps playing with no input");
 
-    SendKey(SDL_SCANCODE_Z, true);
-    RunFrame();
-    SendKey(SDL_SCANCODE_Z, false);
+    /* A quick tap: press and release both land in one frame's poll. */
+    {
+        SDL_Event tap = {0};
+
+        tap.type = SDL_KEYDOWN;
+        tap.key.state = SDL_PRESSED;
+        tap.key.keysym.scancode = SDL_SCANCODE_Z;
+        SDL_PushEvent(&tap);
+        tap.type = SDL_KEYUP;
+        tap.key.state = SDL_RELEASED;
+        SDL_PushEvent(&tap);
+    }
     for (frame = 0; frame < 300 && !reachedTitle; frame++)
     {
         RunFrame();
         reachedTitle = (gMain.callback2 == CB2_InitTitleScreen);
     }
-    Check(reachedTitle, "pressing A skips the intro to the title screen");
+    Check(reachedTitle, "tapping A skips the intro to the title screen");
     Platform_Shutdown();
 
     /* Custom layout: A on Space, a typo for B (keeps its default, X), and L
