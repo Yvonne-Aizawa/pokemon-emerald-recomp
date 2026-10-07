@@ -62,7 +62,7 @@ The zip holds `pkmemerald.exe` and `SDL2.dll`; unpack it anywhere on the Windows
 
 ### Settings
 
-Settings are in `pkmemerald.ini` in the save directory (below), created with comments and the defaults the first time the game starts: window scale, fullscreen, sound on/off, exact or smoothed sound, and the keyboard layout (keys for each GBA button). The game never rewrites it, so edits stay; mistakes are reported in the log and that setting keeps its default. Command-line flags override it for one run (`pkmemerald --help`); delete the file to get the defaults back. F11 or Alt+Enter switch between the window and fullscreen while playing.
+Settings are in `pkmemerald.ini` in the save directory (below), created with comments and the defaults the first time the game starts: window scale, fullscreen, sound on/off, exact or smoothed sound, and the keyboard layout (keys for each GBA button). The game never rewrites it, so edits stay; mistakes are reported in the log and that setting keeps its default. Command-line flags override it for one run (`pkmemerald --help`); delete the file to get the defaults back. F11 or Alt+Enter switch between the window and fullscreen while playing, and Tab switches fast-forward on and off (as fast as the PC runs the game, without sound).
 
 ### Saves and crash reports
 

@@ -79,6 +79,10 @@ void Platform_PollEvents(void);
  * Platform_PollEvents. */
 uint16_t Platform_GetButtons(void);
 
+/* True once for each press of the fast-forward key (Tab) since the last
+ * call; the key doesn't reach the game. */
+bool Platform_TakeFastForwardToggle(void);
+
 /* True once the user has asked to quit (window closed, Ctrl-C, ...). */
 bool Platform_QuitRequested(void);
 void Platform_RequestQuit(void);
