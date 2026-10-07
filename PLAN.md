@@ -17,7 +17,7 @@ The game is playable from boot to the overworld and battles, with graphics, inpu
 | 16    | Not started (optional) |
 | 17    | Done (Linux and Windows builds, source only); on real Windows still to check: sound, `--console`/log file |
 | 18    | Not started (64-bit build; needed for macOS) |
-| 19    | In progress: 19a done (sanitizers + monkey runs in CI, heap checks included); 19b-1, 19b-3 and the CI split done; 19b-2 done (non-battle tests); 19b-4 in progress (abilities and hold effects done); GBA save compatibility dropped (see 19b, *save layout*); **next**: the rest of 19b-4, 19b-5, then 19c (every map); 19a-2's checkpoint monkey runs on hold |
+| 19    | In progress: 19a done (sanitizers + monkey runs in CI, heap checks included); 19b-1, 19b-3 and the CI split done; 19b-2 done (non-battle tests); 19b-4 in progress (abilities, hold effects and AI done); GBA save compatibility dropped (see 19b, *save layout*); **next**: the rest of 19b-4, 19b-5, then 19c (every map); 19a-2's checkpoint monkey runs on hold |
 
 
 ## Source under analysis
@@ -653,8 +653,10 @@ Upstream runs them in mGBA (`make check`: a test ROM, `mgba-rom-test` and the pa
 - *19b-4 in progress, in batches (one pull request each):*
   - *Batch 1 done: `test/battle/ability/` and `test/battle/hold_effect/`* (437 files, ~2,050 tests) in the test build, CTest (`upstream-battle`, now all of `test/battle/` that is built) and the upstream workflow. All pass (137 are upstream's TO_DO, 8 upstream's own KNOWN_FAILING). On 16 cores: abilities 8 min, hold effects 1 min.
   - Port bug found (`known_crashes.md`): a double battle against two trainers overflowed a stack array in `BufferBattlePartyOrderBySide` (`party_menu.c.patch`); the host's stack protector aborted, in the game too.
-  - A first unpatched run over all of `test/battle/` also crashed in 1v2 tests in `ai/` (`ai_doubles.c`, `ai_multi.c`: Explosion with Risky, Revival Blessing) and `battle_message.c`; likely the same bug, to check with their batch.
-  - Next: the remaining directories (`ai/`, `move_effect_secondary/`, `move_flags/`, `form_change/`, `item_effect/`, `move_effects_combined/`, the small ones and the top-level files); check the upstream workflow's time as they come in.
+  - *Batch 2 done: `test/battle/ai/`* (29 files, 486 tests), with `reference` updated to upstream `6057b187f9`. All pass (10 are upstream's TO_DO, 5 upstream's own KNOWN_FAILING). On 16 cores: 4 min.
+  - The 1v2 crashes a first unpatched run over all of `test/battle/` hit in `ai/` (`ai_doubles.c`, `ai_multi.c`: Explosion with Risky, Revival Blessing) were the `BufferBattlePartyOrderBySide` bug, already fixed by batch 1; `battle_message.c`'s is still to check with its batch.
+  - Port bug found (`known_crashes.md`): `AI_SelectRevivalBlessingMon` divided by an empty party slot's max HP of 0 (SIGFPE on x86, silent on the GBA; `battle_ai_switch.c.patch`).
+  - Next: the remaining directories (`move_effect_secondary/`, `move_flags/`, `form_change/`, `item_effect/`, `move_effects_combined/`, the small ones and the top-level files); check the upstream workflow's time as they come in.
 
 ### 19c — Visit every map (~1 day)
 
