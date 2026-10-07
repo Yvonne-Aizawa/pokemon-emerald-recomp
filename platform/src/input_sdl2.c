@@ -14,6 +14,10 @@
  *
  * Keyboard state is tracked from key events (not SDL_GetKeyboardState) so
  * synthetic events, e.g. from tests, behave like real key presses.
+ *
+ * Presses are latched until the next Input_GetButtons: events are drained
+ * once a frame, so a quick tap's key-down and key-up often arrive together,
+ * and without the latch the game would never see the button held.
  */
 
 #include "input_sdl2.h"
@@ -76,6 +80,8 @@ static const struct PadBinding sPadBindings[] = {
 /* Per-scancode held state, so two keys bound to one button (both Shifts)
  * don't release it when only one is let go. */
 static bool sKeyHeld[SDL_NUM_SCANCODES];
+/* Buttons pressed since the last Input_GetButtons, held or not. */
+static uint16_t sPressedSinceSample;
 static SDL_GameController *sGamepads[MAX_GAMEPADS];
 
 static void OpenGamepad(int deviceIndex)
@@ -159,6 +165,7 @@ void Input_Init(const char *const keys[PLATFORM_BUTTON_COUNT])
     /* Gamepads already plugged in arrive as SDL_CONTROLLERDEVICEADDED
      * events on the first poll. */
     memset(sKeyHeld, 0, sizeof(sKeyHeld));
+    sPressedSinceSample = 0;
     memset(sGamepads, 0, sizeof(sGamepads));
 
     /* A list with any unknown key falls back to the default as a whole, so
@@ -191,6 +198,31 @@ void Input_Shutdown(void)
     }
 }
 
+static uint16_t KeyButtons(SDL_Scancode scancode)
+{
+    uint16_t buttons = 0;
+    size_t i;
+
+    for (i = 0; i < sKeyBindingCount; i++)
+    {
+        if (sKeyBindings[i].scancode == scancode)
+            buttons |= sKeyBindings[i].button;
+    }
+    return buttons;
+}
+
+static uint16_t PadButton(Uint8 sdlButton)
+{
+    size_t i;
+
+    for (i = 0; i < SDL_arraysize(sPadBindings); i++)
+    {
+        if (sPadBindings[i].sdlButton == sdlButton)
+            return sPadBindings[i].button;
+    }
+    return 0;
+}
+
 void Input_HandleEvent(const SDL_Event *event)
 {
     switch (event->type)
@@ -199,11 +231,19 @@ void Input_HandleEvent(const SDL_Event *event)
     case SDL_KEYUP:
         if (event->key.keysym.scancode < SDL_NUM_SCANCODES)
             sKeyHeld[event->key.keysym.scancode] = (event->type == SDL_KEYDOWN);
+        if (event->type == SDL_KEYDOWN && !event->key.repeat)
+            sPressedSinceSample |= KeyButtons(event->key.keysym.scancode);
+        break;
+    case SDL_CONTROLLERBUTTONDOWN:
+        sPressedSinceSample |= PadButton(event->cbutton.button);
         break;
     case SDL_WINDOWEVENT:
         /* Key-up events for keys released while unfocused never arrive. */
         if (event->window.event == SDL_WINDOWEVENT_FOCUS_LOST)
+        {
             memset(sKeyHeld, 0, sizeof(sKeyHeld));
+            sPressedSinceSample = 0;
+        }
         break;
     case SDL_CONTROLLERDEVICEADDED:
         OpenGamepad(event->cdevice.which);
@@ -247,9 +287,10 @@ static uint16_t GamepadButtons(SDL_GameController *pad)
 
 uint16_t Input_GetButtons(void)
 {
-    uint16_t buttons = 0;
+    uint16_t buttons = sPressedSinceSample;
     size_t i;
 
+    sPressedSinceSample = 0;
     for (i = 0; i < sKeyBindingCount; i++)
     {
         if (sKeyHeld[sKeyBindings[i].scancode])
