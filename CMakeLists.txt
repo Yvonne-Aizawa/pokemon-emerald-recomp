@@ -278,17 +278,15 @@ if(PKM_UPSTREAM_TESTS)
         message(FATAL_ERROR "PKM_UPSTREAM_TESTS: Linux only for now (PLAN.md, 19b-5)")
     endif()
     # The runner, and the tests run so far (19b-1; 19b-2: the non-battle
-    # tests, test/*.c and test/compression/; 19b-3: move effects; 19b-4,
-    # first batch: abilities and hold effects; second batch: AI; then the
-    # top-level battle tests).
+    # tests, test/*.c and test/compression/; 19b-3 and 19b-4: all of
+    # test/battle/ but move_animations/, which is still to come).
     file(GLOB _upstream_tests RELATIVE "${REFERENCE_DIR}" CONFIGURE_DEPENDS
         "${REFERENCE_DIR}/test/*.c"
-        "${REFERENCE_DIR}/test/compression/*.c"
-        "${REFERENCE_DIR}/test/battle/move_effect/*.c"
-        "${REFERENCE_DIR}/test/battle/ability/*.c"
-        "${REFERENCE_DIR}/test/battle/hold_effect/*.c"
-        "${REFERENCE_DIR}/test/battle/ai/*.c"
+        "${REFERENCE_DIR}/test/compression/*.c")
+    file(GLOB_RECURSE _upstream_battle_tests RELATIVE "${REFERENCE_DIR}" CONFIGURE_DEPENDS
         "${REFERENCE_DIR}/test/battle/*.c")
+    list(FILTER _upstream_battle_tests EXCLUDE REGEX "^test/battle/move_animations/")
+    list(APPEND _upstream_tests ${_upstream_battle_tests})
     # The runner itself, listed first; test_runner_args.c: see below.
     list(REMOVE_ITEM _upstream_tests
         test/test_runner.c test/test_runner_battle.c test/test_runner_args.c)
