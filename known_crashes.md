@@ -42,6 +42,19 @@ the host crashes.
 - **Berry Crush, on quitting** (`berry_crush.c.patch`, wireless only, not
   reachable yet): `MainTask` ran `UpdateGame(sGame)` after `Cmd_Quit` freed it.
 
+### Leaving the contest results screen
+Found while playtesting (SIGSEGV in `Task_FlashStarsAndHearts` as the
+results screen faded back to the field); fixed by
+`platform/patches/contest_util.c.patch`. The same pattern as leaving a
+contest, below, on the next screen: `Task_EndShowContestResults` frees
+`sContestResults` (`FreeContestResults` sets it to NULL), and the
+stars-and-hearts flashing task (priority 20) runs after it in the same
+`RunTasks` pass and writes `sContestResults->data->pointsFlashing`. The
+screen reset the tasks when it started, so its tasks are dropped before the
+free. `CB2_ShowContestResults` also copied BGs 1 and 2 to VRAM after
+`RunTasks`, from the tilemap buffers just freed; it now stops there when the
+results are gone.
+
 ### Leaving a contest
 Found while playtesting (SIGSEGV in `Task_FlashJudgeAttentionEye` as the
 contest faded back to the field); fixed by `platform/patches/contest.c.patch`.
