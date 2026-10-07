@@ -43,3 +43,43 @@
      return ctx->waitAfterCallNative;
  }
  
+@@ -1279,18 +1290,25 @@
+     u16 localId = VarGet(ScriptReadHalfword(ctx));
+     const u8 *movementScript = (const u8 *)ScriptReadWord(ctx);
+     struct ObjectEvent *objEvent;
++    // PC port: for an object that isn't on the map, GetObjectEventIdByLocalId
++    // returns OBJECT_EVENTS_COUNT, and this read and wrote the entry past the
++    // end of gObjectEvents (found by UBSan; on the GBA, whatever follows it).
++    // Such an object is left alone, as ScriptMovement_StartObjectMovementScript
++    // does.
++    u8 objectEventId = GetObjectEventIdByLocalId(localId);
+ 
+     Script_RequestEffects(SCREFF_V1 | SCREFF_HARDWARE);
+ 
+     // When applying script movements to follower, it may have frozen animation that must be cleared
+     if ((localId == OBJ_EVENT_ID_FOLLOWER && (objEvent = GetFollowerObject()) && objEvent->frozen)
+-            || ((objEvent = &gObjectEvents[GetObjectEventIdByLocalId(localId)]) && IS_OW_MON_OBJ(objEvent)))
++            || (objectEventId < OBJECT_EVENTS_COUNT && (objEvent = &gObjectEvents[objectEventId]) && IS_OW_MON_OBJ(objEvent)))
+     {
+         ClearObjectEventMovement(objEvent, &gSprites[objEvent->spriteId]);
+         gSprites[objEvent->spriteId].animCmdIndex = 0; // Reset start frame of animation
+     }
+ 
+-    gObjectEvents[GetObjectEventIdByLocalId(localId)].directionOverwrite = DIR_NONE;
++    if (objectEventId < OBJECT_EVENTS_COUNT)
++        gObjectEvents[objectEventId].directionOverwrite = DIR_NONE;
+     ScriptMovement_StartObjectMovementScript(localId, gSaveBlock1Ptr->location.mapNum, gSaveBlock1Ptr->location.mapGroup, movementScript);
+     sMovingNpcId = localId;
+     if (localId != OBJ_EVENT_ID_FOLLOWER
+@@ -1311,7 +1329,10 @@
+ 
+     Script_RequestEffects(SCREFF_V1 | SCREFF_HARDWARE);
+ 
+-    gObjectEvents[GetObjectEventIdByLocalId(localId)].directionOverwrite = DIR_NONE;
++    // PC port: as in ScrCmd_applymovement, not past gObjectEvents for an
++    // object that isn't there.
++    if (GetObjectEventIdByLocalId(localId) < OBJECT_EVENTS_COUNT)
++        gObjectEvents[GetObjectEventIdByLocalId(localId)].directionOverwrite = DIR_NONE;
+     ScriptMovement_StartObjectMovementScript(localId, mapNum, mapGroup, movementScript);
+     sMovingNpcId = localId;
+     return FALSE;

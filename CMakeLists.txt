@@ -526,6 +526,12 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/save_symbols.inc"
             "${REFERENCE_DIR}" "${CMAKE_BINARY_DIR}/save_symbols.inc"
     DEPENDS "${CMAKE_SOURCE_DIR}/platform/tools/save_symbols.py" ${SAVE_SYMBOL_HEADERS} "${REFERENCE_DIR}/charmap.txt"
     VERBATIM)
+# The map list for --visit-maps (host_visit_maps.c).
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/map_names.inc"
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_SOURCE_DIR}/platform/tools/map_names.py"
+            "${REFERENCE_INC}/constants/map_groups.h" "${CMAKE_BINARY_DIR}/map_names.inc"
+    DEPENDS "${CMAKE_SOURCE_DIR}/platform/tools/map_names.py" "${PREPARE_STAMP}"
+    VERBATIM)
 
 # Game headers are reached through the host include tree (see above). As an
 # -idirafter directory it is searched after the system headers, so
@@ -545,6 +551,7 @@ function(pkm_core_library target objects)
     add_library(${target} STATIC
         ${PLATFORM_SOURCES}
         "${CMAKE_BINARY_DIR}/save_symbols.inc"
+        "${CMAKE_BINARY_DIR}/map_names.inc"
         $<TARGET_OBJECTS:${objects}>
         ${REFERENCE_ASM_OBJS}
     )
@@ -714,6 +721,30 @@ if(NOT CMAKE_CROSSCOMPILING)
     set_tests_properties(json-save-format PROPERTIES
         FIXTURES_REQUIRED played-checkpoints
         ENVIRONMENT "${HEADLESS_TEST_ENV};ASAN_OPTIONS=detect_leaks=0;UBSAN_OPTIONS=print_stacktrace=1")
+endif()
+
+# Every map (PLAN.md, Phase 19c): --visit-maps warps to each map in turn from
+# a played checkpoint, and fails on a crash, a sanitizer report (in a
+# PKM_SANITIZE build) or a map it can't reach. Split by map group into parts
+# of about the same size. Each part gets its own copy of the save (the game
+# converts it in place). Not under Wine: the game code is the same there.
+if(NOT CMAKE_CROSSCOMPILING)
+    set(VISIT_MAPS_SAVES "${CMAKE_BINARY_DIR}/visit-maps-saves")
+    set(VISIT_MAPS_CHECKPOINT "${CHECKPOINT_OUTPUT}/04-after-picking-starter")
+    add_test(NAME visit-maps-clean-saves COMMAND ${CMAKE_COMMAND} -E rm -rf "${VISIT_MAPS_SAVES}")
+    set_tests_properties(visit-maps-clean-saves PROPERTIES FIXTURES_SETUP visit-maps-clean)
+    foreach(_groups 0-13 14-24 25-74)
+        add_test(NAME visit-maps-save-${_groups}
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${VISIT_MAPS_CHECKPOINT}" "${VISIT_MAPS_SAVES}/${_groups}")
+        set_tests_properties(visit-maps-save-${_groups} PROPERTIES
+            FIXTURES_REQUIRED "played-checkpoints;visit-maps-clean"
+            FIXTURES_SETUP visit-maps-save-${_groups})
+        add_test(NAME visit-maps-${_groups}
+            COMMAND pkmemerald --fast -s "${VISIT_MAPS_SAVES}/${_groups}" --visit-maps ${_groups})
+        set_tests_properties(visit-maps-${_groups} PROPERTIES
+            FIXTURES_REQUIRED visit-maps-save-${_groups}
+            ENVIRONMENT "${HEADLESS_TEST_ENV};PKM_FIXED_TIME=2026-01-01 12:00:00;ASAN_OPTIONS=detect_leaks=0;UBSAN_OPTIONS=print_stacktrace=1")
+    endforeach()
 endif()
 
 # Boots the platform and the game, runs 60 game frames, exits 0.

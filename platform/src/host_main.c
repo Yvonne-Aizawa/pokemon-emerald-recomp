@@ -19,6 +19,7 @@
 #include "platform/host_input.h"
 #include "platform/host_render.h"
 #include "platform/host_save.h"
+#include "platform/host_visit_maps.h"
 #include "platform/irq_timer.h"
 #include "platform/main_loop.h"
 #include "platform/platform.h"
@@ -59,7 +60,7 @@ static void Usage(FILE *out, const char *argv0)
 {
     fprintf(out,
             "usage: %s [-d DATA_DIR] [-s SAVE_DIR] [--config FILE] [-x SCALE] [--fullscreen | --windowed]\n"
-            "       [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT|@FILE] [--monkey SEED[@FRAME]] [--inspect-save FILE] [--convert-save IN OUT] [--fast] [--mute] [--smooth-sound] [--console]\n"
+            "       [-f FRAMES] [-o FILE] [-a FILE] [-i SCRIPT|@FILE] [--monkey SEED[@FRAME]] [--visit-maps GROUPS] [--inspect-save FILE] [--convert-save IN OUT] [--fast] [--mute] [--smooth-sound] [--console]\n"
             "Settings come from " HOST_CONFIG_FILE " in the save directory (created with the\n"
             "defaults on first start); the flags below override it for this run.\n"
             "  -d DATA_DIR  converted game data (default: assets)\n"
@@ -79,6 +80,9 @@ static void Usage(FILE *out, const char *argv0)
             "               (-i @FILE: the script in a file; \"#\" starts a comment)\n"
             "  --monkey SEED[@FRAME]  from FRAME on, press pseudo-random buttons (the same\n"
             "               for the same SEED), for testing\n"
+            "  --visit-maps GROUPS  from a save (-s), warp to every map of map groups GROUPS\n"
+            "               (all, G or G-H) in turn and run some frames on each; quits when\n"
+            "               done, with exit status 1 if a map couldn't be reached\n"
             "  --inspect-save FILE  inspect a checkpoint without writing to it; exits\n"
             "  --convert-save IN OUT  convert a save (JSON or a raw flash image): OUT is a\n"
             "               raw image if it ends in .sav, otherwise JSON; exits\n"
@@ -375,7 +379,7 @@ static unsigned long sIrqIntervalNs = HOST_FRAME_NS;
 static void RunGameFrame(void)
 {
     Host_SetKeypad(Platform_GetButtons() | ScriptedButtons(Host_GetFrameCount())
-                   | MonkeyButtons(Host_GetFrameCount()));
+                   | MonkeyButtons(Host_GetFrameCount()) | HostVisitMaps_Frame(Host_GetFrameCount()));
 
     /* If the game's frame overruns (it busy-waits for something an
      * interrupt does, or is just slow), interrupts arrive mid-frame as on
@@ -485,6 +489,16 @@ int main(int argc, char **argv)
             {
                 Console_Setup(true, NULL);  /* Windows: so the message is seen */
                 fprintf(stderr, "%s: invalid --monkey '%s' (SEED or SEED@FRAME)\n", argv[0], argv[i]);
+                return 2;
+            }
+            continue;
+        }
+        if (strcmp(arg, "--visit-maps") == 0 && i + 1 < argc)
+        {
+            if (!HostVisitMaps_Parse(argv[++i]))
+            {
+                Console_Setup(true, NULL);  /* Windows: so the message is seen */
+                fprintf(stderr, "%s: invalid --visit-maps '%s' (all, G or G-H)\n", argv[0], argv[i]);
                 return 2;
             }
             continue;
@@ -639,5 +653,5 @@ int main(int argc, char **argv)
     }
     HostAudio_CloseDevice();
     Platform_Shutdown();
-    return 0;
+    return HostVisitMaps_ExitStatus();
 }

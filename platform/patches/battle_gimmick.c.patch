@@ -1,0 +1,16 @@
+--- a/src/battle_gimmick.c
++++ b/src/battle_gimmick.c
+@@ -59,6 +59,13 @@
+ // Returns a battler's active gimmick, if any.
+ enum Gimmick GetActiveGimmick(enum BattlerId battler)
+ {
++    // PC port: called outside battle too, where gBattleStruct is NULL: the
++    // Battle Dome lobby's results tree (dome_initresultstree, on every
++    // visit) compares party Pokemon's types through battle code. The GBA
++    // reads BIOS junk through NULL; the host crashed. No gimmick is active
++    // outside a battle.
++    if (gBattleStruct == NULL)
++        return GIMMICK_NONE;
+     return gBattleStruct->gimmick.activeGimmick[GetBattlerTrainer(battler)][gBattlerPartyIndexes[battler]];
+ }
+ 

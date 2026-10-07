@@ -17,7 +17,7 @@ The game is playable from boot to the overworld and battles, with graphics, inpu
 | 16    | Not started (optional) |
 | 17    | Done (Linux and Windows builds, source only); on real Windows still to check: sound, `--console`/log file |
 | 18    | Not started (64-bit build; needed for macOS) |
-| 19    | In progress: 19a done (sanitizers + monkey runs in CI, heap checks included); 19b-1, 19b-3 and the CI split done; 19b-2 done (non-battle tests); 19b-4 done (all of `test/battle/`); GBA save compatibility dropped (see 19b, *save layout*); **next**: 19b-5 (Windows) and 19c (every map), in either order; 19a-2's checkpoint monkey runs on hold |
+| 19    | In progress: 19a done (sanitizers + monkey runs in CI, heap checks included); 19b-1, 19b-3 and the CI split done; 19b-2 done (non-battle tests); 19b-4 done (all of `test/battle/`); GBA save compatibility dropped (see 19b, *save layout*); 19c done (every map); **next**: 19b-5 (Windows); 19a-2's checkpoint monkey runs on hold |
 
 
 ## Source under analysis
@@ -673,7 +673,13 @@ There are 939 maps (`reference/data/maps/`). A headless run that warps to each o
 
 **Done when** every map loads and runs its first frames without a crash or sanitizer report, or is listed with a reason (maps that are unreachable in normal play may need special setup).
 
-**Status: not started — next.** Order: 19a, then 19b, then 19c. Each is its own pull request.
+**Status: done (2026-10-07).**
+- `pkmemerald --visit-maps all|G|G-H` (`platform/src/host_visit_maps.c`), from a save (`-s`): for each map, the warp upstream's debug menu does (`SetWarpDestinationToMapWarp`, `DoWarp`, `ResetInitialPlayerAvatarState`, `ScriptContext_Stop`), onto the map's first warp or its middle; waits until the player is there, in the overworld and faded in, and runs 60 more frames. A presses get it through the title screen and through battles or text a map starts. One line per map, flushed before the warp so a crash report follows its map; a map not reached in 30 s of game time is "stuck" (exit status 1). The map list and names come from `map_groups.h` (`platform/tools/map_names.py`).
+- Unlike the debug menu, it can warp while a map's script is printing a message, so it ends the text printers first: they live on the heap, which every map load resets.
+- CTest: `visit-maps-0-13`, `-14-24` and `-25-74`, each from its own copy of the `04-after-picking-starter` checkpoint, with a fixed clock. ~2 min each on one core (the sanitizer build about the same); not under Wine.
+- Results: 516 of the Emerald build's maps visited, none stuck. 417 are FRLG maps (their groups are NULL in the Emerald build: skipped). 2 need a challenge in progress and are listed with the reason: the Battle Tower multi partner room and the Battle Pyramid floor (their `pyramid_resetparty` reads the party chosen for the challenge, index -1 without one).
+- Port bugs found (`known_crashes.md`): entering the Battle Dome lobby (battle code outside a battle, `battle_gimmick.c.patch`; first visit, in normal play); `applymovement` on an object that isn't there read and wrote past `gObjectEvents` (`scrcmd.c.patch`); uncompressed tilesets copied past their images (`fieldmap.c.patch`, `tilesets.c.patch`); the map name popup's frame read past its image (`map_name_popup.c.patch`). And, found by the move animation tests once this branch moved some globals: a shake animation rebuilt a pointer from signed halves (`battle_anim_normal.c.patch`).
+- *Later, maybe:* a second pass from a late-game save (story flags set), so map scripts take their later branches; setting up the challenge maps.
 
 ---
 
