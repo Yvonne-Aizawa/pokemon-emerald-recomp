@@ -648,13 +648,16 @@ static void RenderLine(int y, uint32_t *out)
         }
 
         result = color[0];
-        if (window[x] & WINDOW_EFFECT)
+        /* Semi-transparent sprites alpha-blend with any valid second target,
+         * whatever the blend mode, the first-target bits and the window's
+         * colour-effect bit say (as mGBA does). The overworld relies on it:
+         * its window 0 covers the screen with effects off, and the fog
+         * sprites still blend over the map. */
+        if (topIsSemiObj && (bldcnt & (0x100 << layer[1])))
+            result = Blend(color[0], color[1], eva, evb);
+        else if (window[x] & WINDOW_EFFECT)
         {
-            /* Semi-transparent sprites alpha-blend with any valid second
-             * target, whatever the blend mode and first-target bits say. */
-            if (topIsSemiObj && (bldcnt & (0x100 << layer[1])))
-                result = Blend(color[0], color[1], eva, evb);
-            else if (bldcnt & (1 << layer[0]))
+            if (bldcnt & (1 << layer[0]))
             {
                 if (blendMode == BLEND_ALPHA && (bldcnt & (0x100 << layer[1])))
                     result = Blend(color[0], color[1], eva, evb);
