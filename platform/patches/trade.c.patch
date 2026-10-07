@@ -1,0 +1,16 @@
+--- a/src/trade.c
++++ b/src/trade.c
+@@ -2726,6 +2726,13 @@
+ 
+ static void VBlankCB_TradeAnim(void)
+ {
++#ifdef HOST_BUILD
++    // PC port: the trade animation frees sTradeAnim and leaves for the
++    // field (or gMain.savedCallback) with this callback still set; the
++    // next screen only clears it a frame later. On the frame of the free,
++    // the GBA reads BIOS junk here; the host crashes. Skip the registers.
++    if (sTradeAnim != NULL)
++#endif
+     SetTradeGpuRegs();
+     LoadOam();
+     ProcessSpriteCopyRequests();

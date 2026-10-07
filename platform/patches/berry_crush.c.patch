@@ -1,0 +1,16 @@
+--- a/src/berry_crush.c
++++ b/src/berry_crush.c
+@@ -1136,6 +1136,13 @@
+     if (sGame->cmdCallback)
+         sGame->cmdCallback(sGame, sGame->commandArgs);
+ 
++#ifdef HOST_BUILD
++    // PC port: the command above may have been Cmd_Quit, which frees sGame
++    // (QuitBerryCrush). UpdateGame would then read through NULL: BIOS junk
++    // on the GBA, a crash on the host.
++    if (sGame == NULL)
++        return;
++#endif
+     UpdateGame(sGame);
+ }
+ 

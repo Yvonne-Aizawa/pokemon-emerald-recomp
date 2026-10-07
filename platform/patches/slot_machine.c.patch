@@ -1,0 +1,19 @@
+--- a/src/slot_machine.c
++++ b/src/slot_machine.c
+@@ -1753,6 +1753,16 @@
+     if (!gPaletteFade.active)
+     {
+         SetMainCallback2(sSlotMachine->prevMainCb);
++#ifdef HOST_BUILD
++        // PC port: after this task, the same frame still runs the reel and
++        // coin sprite callbacks (CB2_SlotMachine's AnimateSprites) and
++        // SlotMachine_VBlankCB, which all read sSlotMachine, NULL below: BIOS
++        // junk on the GBA, a crash on the host. The screen is black and the
++        // field resets these on its first frame (ResumeMap), so do it now.
++        SetVBlankCallback(NULL);
++        ResetSpriteData();
++        ResetTasks();
++#endif
+         FREE_AND_SET_NULL(sImageTable_DigitalDisplay_Reel);
+         FREE_AND_SET_NULL(sImageTable_DigitalDisplay_Time);
+         FREE_AND_SET_NULL(sImageTable_DigitalDisplay_Insert);
