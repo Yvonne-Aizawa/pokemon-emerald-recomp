@@ -1,0 +1,32 @@
+--- a/src/contest_util.c
++++ b/src/contest_util.c
+@@ -550,6 +550,12 @@
+     AnimateSprites();
+     BuildOamBuffer();
+     RunTasks();
++#ifdef HOST_BUILD
++    // PC port: Task_EndShowContestResults may have just freed the results,
++    // and BGs 1 and 2 still point at their freed tilemap buffers.
++    if (sContestResults == NULL)
++        return;
++#endif
+     UpdatePaletteFade();
+     CopyBgTilemapBufferToVram(1);
+     CopyBgTilemapBufferToVram(2);
+@@ -1032,6 +1038,16 @@
+             DestroyTask(taskId);
+             FreeAllWindowBuffers();
+             SetMainCallback2(CB2_ReturnToFieldContinueScriptPlayMapMusic);
++#ifdef HOST_BUILD
++            // PC port: the screen's other tasks run after this one in the
++            // same RunTasks pass, and Task_FlashStarsAndHearts writes through
++            // sContestResults, which FreeContestResults sets to NULL (it
++            // can still be running here). The GBA writes to BIOS there;
++            // the host crashes. The screen reset the tasks when it started,
++            // so every task left is its own, and the field resets them on its
++            // first frame anyway: drop them now.
++            ResetTasks();
++#endif
+             FreeContestResults();
+         }
+     }
