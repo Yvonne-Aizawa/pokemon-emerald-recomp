@@ -279,13 +279,12 @@ if(PKM_UPSTREAM_TESTS)
     endif()
     # The runner, and the tests run so far (19b-1; 19b-2: the non-battle
     # tests, test/*.c and test/compression/; 19b-3 and 19b-4: all of
-    # test/battle/ but move_animations/, which is still to come).
+    # test/battle/).
     file(GLOB _upstream_tests RELATIVE "${REFERENCE_DIR}" CONFIGURE_DEPENDS
         "${REFERENCE_DIR}/test/*.c"
         "${REFERENCE_DIR}/test/compression/*.c")
     file(GLOB_RECURSE _upstream_battle_tests RELATIVE "${REFERENCE_DIR}" CONFIGURE_DEPENDS
         "${REFERENCE_DIR}/test/battle/*.c")
-    list(FILTER _upstream_battle_tests EXCLUDE REGEX "^test/battle/move_animations/")
     list(APPEND _upstream_tests ${_upstream_battle_tests})
     # The runner itself, listed first; test_runner_args.c: see below.
     list(REMOVE_ITEM _upstream_tests

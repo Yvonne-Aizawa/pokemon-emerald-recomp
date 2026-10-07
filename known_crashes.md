@@ -4,6 +4,30 @@ None open.
 
 ## Fixed
 
+### The animations of Spark, Bolt Beak, Overdrive and other electric moves
+Found by upstream's move animation tests on the host (PLAN.md, Phase
+19b-4; "Move Animations work 1" and "4", "Z-Moves animations work" in
+`test/battle/move_animations/all_anims.c`); fixed by
+`platform/patches/battle_anim_electric.c.patch`. The flashing electric
+sparks (`AnimSparkElectricityFlashing`) toggle their visibility when
+`data[7] % data[4]` is 0, and the sparks of Spark, Bolt Beak, Electro
+Drift, Overdrive and Supercell Slam pass 0 as that interval
+(`CreateSparks`, `BoltBeakSparks`), so it was a modulo by zero. On the GBA,
+libgcc's `__aeabi_idivmod` returns without trapping and leaves 0 as the
+remainder, so the sparks flash every frame; on x86 it raises SIGFPE, in the
+game too, whenever one of these moves is animated. An interval of 0 now
+flashes every frame, as on the GBA.
+
+### The animations of Shadow Force and Phantom Force
+Found by upstream's move animation tests on the host ("Move Animations work
+2" and "3"); fixed by `platform/patches/m4a.c.patch`. Both scripts play
+their sound with `playsewithpan SOUND_PAN_ATTACKER, SOUND_PAN_ATTACKER`,
+the pan in place of the sound effect, so `m4aSongNumStart` was asked for
+song 0xFFC0 and read `gSongTable` far past its end: on the GBA, whatever
+follows the table in ROM; on the host, past its memory (SIGSEGV). The
+`m4aSongNum*` functions now ignore song numbers past the table
+(`LAST_PHONEME_SONG`), so these moves play no sound there.
+
 ### An AI trainer choosing whom to revive with Revival Blessing
 Found by upstream's battle tests on the host (PLAN.md, Phase 19b-4; "AI
 revives the best fainted ally with Revival Blessing" in

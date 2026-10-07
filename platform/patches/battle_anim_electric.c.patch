@@ -1,0 +1,15 @@
+--- a/src/battle_anim_electric.c
++++ b/src/battle_anim_electric.c
+@@ -790,7 +790,11 @@
+     sprite->y2 = Cos(sprite->data[7], sprite->data[5]);
+ 
+     sprite->data[7] = (sprite->data[7] + sprite->data[6]) & 0xFF;
+-    if (sprite->data[7] % sprite->data[4] == 0)
++    // PC port: scripts that pass 0 as the flashing interval (args[7]) made
++    // this a modulo by zero. The GBA's division routine (libgcc's
++    // __aeabi_idivmod) returns without trapping and leaves 0 as the
++    // remainder, so the spark flashes every frame; x86 raises SIGFPE.
++    if (sprite->data[4] == 0 || sprite->data[7] % sprite->data[4] == 0)
+         sprite->invisible ^= TRUE;
+ 
+     if (sprite->data[0]-- <= 0)
