@@ -13,3 +13,44 @@
      u16 metatileId = MapGridGetMetatileIdAt(x, y);
      return GetAttributeByMetatileIdAndMapLayout(metatileId, attributeType, gMapHeader.mapLayout->isFrlg);
  }
+@@ -944,12 +950,30 @@
+     return FALSE;
+ }
+ 
++#ifdef HOST_BUILD
++// PC port: an uncompressed tileset's image is often smaller than its VRAM
++// slot (numTiles), and was copied whole: past the image, into whatever
++// follows it (found by AddressSanitizer; the secret bases and the Cable
++// Club). The GBA copies ROM data into tiles the map never uses; only the
++// image is copied now. Host_GetUncompressedTilesetSize is in tilesets.c.
++u32 Host_GetUncompressedTilesetSize(const struct Tileset *tileset);
++
++static u32 UncompressedTilesSize(struct Tileset const *tileset, u16 numTiles)
++{
++    u32 size = Host_GetUncompressedTilesetSize(tileset);
++
++    return (size != 0 && size < numTiles * 32u) ? size : numTiles * 32u;
++}
++#else
++#define UncompressedTilesSize(tileset, numTiles) ((numTiles) * 32)
++#endif
++
+ static void CopyTilesetToVram(struct Tileset const *tileset, u16 numTiles, u16 offset)
+ {
+     if (tileset)
+     {
+         if (!tileset->isCompressed)
+-            LoadBgTiles(2, tileset->tiles, numTiles * 32, offset);
++            LoadBgTiles(2, tileset->tiles, UncompressedTilesSize(tileset, numTiles), offset);
+         else
+             DecompressAndCopyTileDataToVram(2, tileset->tiles, numTiles * 32, offset, 0);
+     }
+@@ -960,7 +984,7 @@
+     if (tileset)
+     {
+         if (!tileset->isCompressed)
+-            LoadBgTiles(2, tileset->tiles, numTiles * 32, offset);
++            LoadBgTiles(2, tileset->tiles, UncompressedTilesSize(tileset, numTiles), offset);
+         else
+             DecompressAndLoadBgGfxUsingHeap(2, tileset->tiles, numTiles * 32, offset, 0);
+     }

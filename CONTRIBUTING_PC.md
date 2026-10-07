@@ -99,6 +99,12 @@ Useful for checking changes in the running game:
   same seed; the `monkey-*` tests use it, from boot and after a quick start
   (`-i 600:a,1300+10:select`: Select on the title screen). A seed that finds
   a bug reproduces it.
+- `--visit-maps GROUPS` (`all`, `G` or `G-H`), from a save (`-s`), warps to
+  every map of those map groups in turn, as upstream's debug menu warps, and
+  runs some frames on each; one line per map, exit status 1 if a map
+  couldn't be reached. The `visit-maps-*` tests run all of them from a
+  played checkpoint. For one map by hand, use upstream's debug menu (hold R
+  and press Start in the overworld).
 - `-i SCRIPT` presses buttons at given frames, `-f N` stops after N frames,
   `-o FILE` saves the last frame, `-a FILE` records the sound, and `--fast`
   runs unpaced. Together they give repeatable runs: comparing the frame or

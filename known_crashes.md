@@ -4,6 +4,59 @@ None open.
 
 ## Fixed
 
+### Entering the Battle Dome lobby
+Found by visiting every map (`--visit-maps`, PLAN.md, Phase 19c); fixed by
+`platform/patches/battle_gimmick.c.patch`. The lobby's on-resume script
+(`dome_initresultstree`, `InitRandomTourneyTreeResults`) fills a random
+tournament tree when the Dome has no results yet, so on the player's first
+visit. To decide the simulated winners, it compares party Pokémon's types
+through battle code (`CalcPartyMonTypeEffectivenessMultiplier`, down to
+`GetActiveGimmick`), which reads `gBattleStruct`: NULL outside a battle.
+The GBA reads BIOS junk through NULL; the host crashed on entering the
+lobby. `GetActiveGimmick` now returns `GIMMICK_NONE` when there is no
+battle; in battle nothing changes.
+
+### Moves that shake the screen (Rock Slide, Ancient Power, Snore and others)
+Found by upstream's move animation tests after unrelated changes;
+fixed by `platform/patches/battle_anim_normal.c.patch`.
+`AnimShakeMonOrBattlePlatforms` keeps a pointer (to `gBattle_BG3_X/Y` or
+`gSpriteCoordOffsetX/Y`) as two halves in the sprite's signed `data`, and
+rebuilt it by ORing in the signed low half: a low half of 0x8000 or more
+sign-extends and sets the top 16 bits. On the GBA those variables are in
+IWRAM (`0x0300xxxx`, 32 KiB), where the low half never gets that high; on
+the host they are wherever the linker puts them, and once `gBattle_BG3_Y`
+moved to `0x0A35BB52` the animation wrote through `0xFFFFBB52`: a crash in
+the game too, whichever build's layout does that. The low half is now read
+as unsigned, as `SetCallbackToStoredInData6` already does.
+
+### Moving an object that isn't on the map (`applymovement`)
+Found by visiting every map under UBSan (the Battle Dome corridor's script
+moves an attendant who isn't there when warped in); fixed by
+`platform/patches/scrcmd.c.patch`. For an object that isn't on the map,
+`GetObjectEventIdByLocalId` returns `OBJECT_EVENTS_COUNT`, and
+`ScrCmd_applymovement` and `ScrCmd_applymovementat` (expansion's follower
+and overworld-Pokémon handling) read and wrote the entry one past the end of
+`gObjectEvents`: on the GBA, whatever follows it in memory. Such an object is
+now left alone, as `ScriptMovement_StartObjectMovementScript` already does;
+objects that are there are handled as before.
+
+### Uncompressed tilesets (secret bases, Cable Club)
+Found by visiting every map under AddressSanitizer (a secret base);
+fixed by `platform/patches/fieldmap.c.patch` and
+`platform/patches/tilesets.c.patch`. `CopyTilesetToVram` copies an
+uncompressed tileset's whole VRAM slot (all of the secondary tiles, say),
+but the secret base and Cable Club images are smaller (83 tiles for a
+secret base), so it read past them into whatever follows. The GBA copies
+that ROM data into tiles the map never uses. Only the image is copied now;
+`Host_GetUncompressedTilesetSize` (tilesets.c, where the arrays' sizes are
+known) gives its size.
+
+### The map name popup's frame (underwater maps)
+Found by visiting every map under AddressSanitizer; fixed by
+`platform/patches/map_name_popup.c.patch`. The popup loads 0x400 bytes (32
+tiles) of frame graphics from a 960-byte (30-tile) image, so 64 bytes past
+it: into the next theme's image, and past the table for the last theme. The
+frame only uses its 30 tiles, so only those are loaded now.
 ### Closing the fly map (Fly, and the debug menu's "Fly to map")
 Found while playtesting with upstream's debug menu; fixed by
 `platform/patches/region_map.c.patch`. `CB2_FlyMap` runs the fly map's

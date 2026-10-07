@@ -1,0 +1,38 @@
+--- a/src/tilesets.c
++++ b/src/tilesets.c
+@@ -5,3 +5,35 @@
+ #include "data/tilesets/graphics.h"
+ #include "data/tilesets/metatiles.h"
+ #include "data/tilesets/headers.h"
++
++#ifdef HOST_BUILD
++// PC port: the size of an uncompressed tileset's tile image, for fieldmap.c
++// (CopyTilesetToVram), which copies the tileset's whole VRAM slot: past the
++// end of these images, which are smaller (found by AddressSanitizer). 0 for
++// any other tileset.
++u32 Host_GetUncompressedTilesetSize(const struct Tileset *tileset)
++{
++    static const struct { const u32 *tiles; u32 size; } sSizes[] =
++    {
++        { gTilesetTiles_SecretBase, sizeof(gTilesetTiles_SecretBase) },
++        { gTilesetTiles_SecretBaseBlueCave, sizeof(gTilesetTiles_SecretBaseBlueCave) },
++        { gTilesetTiles_SecretBaseBrownCave, sizeof(gTilesetTiles_SecretBaseBrownCave) },
++        { gTilesetTiles_SecretBaseRedCave, sizeof(gTilesetTiles_SecretBaseRedCave) },
++        { gTilesetTiles_SecretBaseShrub, sizeof(gTilesetTiles_SecretBaseShrub) },
++        { gTilesetTiles_SecretBaseTree, sizeof(gTilesetTiles_SecretBaseTree) },
++        { gTilesetTiles_SecretBaseYellowCave, sizeof(gTilesetTiles_SecretBaseYellowCave) },
++        { gTilesetTiles_CableClub, sizeof(gTilesetTiles_CableClub) },
++#if IS_FRLG
++        { gTilesetTiles_CableClub_Frlg, sizeof(gTilesetTiles_CableClub_Frlg) },
++#endif
++    };
++    u32 i;
++
++    for (i = 0; i < ARRAY_COUNT(sSizes); i++)
++    {
++        if (tileset->tiles == sSizes[i].tiles)
++            return sSizes[i].size;
++    }
++    return 0;
++}
++#endif

@@ -1,0 +1,49 @@
+--- a/src/battle_anim_normal.c
++++ b/src/battle_anim_normal.c
+@@ -936,6 +936,13 @@
+ #define sType          data[5]
+ #define sShakePtrLo    data[6]
+ #define sShakePtrHi    data[7]
++// PC port: the pointer stored in sShakePtrLo/Hi (s16), rebuilt with the low
++// half read as unsigned, as SetCallbackToStoredInData6 does. Upstream ORs the
++// signed low half in: a half of 0x8000 or more sign-extends, setting the top
++// 16 bits. On the GBA these variables are in IWRAM (0x0300xxxx, 32 KiB), so
++// the low half never gets there; on the host it can (a crash in the move
++// animation tests, after unrelated changes moved gBattle_BG3_Y).
++#define sShakePtr      ((u16 *)((u16)sprite->sShakePtrLo | ((u32)(u16)sprite->sShakePtrHi << 16)))
+ 
+ static void AnimShakeMonOrBattlePlatforms(struct Sprite *sprite)
+ {
+@@ -963,7 +970,7 @@
+         break;
+     }
+ 
+-    sprite->sOriginalValue = *(u16 *)(sprite->sShakePtrLo | (sprite->sShakePtrHi << 16));
++    sprite->sOriginalValue = *sShakePtr;
+     sprite->sType = cmd->type;
+     if (sprite->sType == SHAKE_MON_X || sprite->sType == SHAKE_MON_Y)
+         AnimShakeMonOrBattlePlatforms_UpdateCoordOffsetEnabled();
+@@ -983,13 +990,13 @@
+         else
+         {
+             sprite->sShakeTimer = sprite->sShakeDuration;
+-            *(u16 *)(sprite->sShakePtrLo | (sprite->sShakePtrHi << 16)) += sprite->sShakeVelocity;
++            *sShakePtr += sprite->sShakeVelocity;
+             sprite->sShakeVelocity = -sprite->sShakeVelocity;
+         }
+     }
+     else
+     {
+-        *(u16 *)(sprite->sShakePtrLo | (sprite->sShakePtrHi << 16)) = sprite->sOriginalValue;
++        *sShakePtr = sprite->sOriginalValue;
+         if (sprite->sType == SHAKE_MON_X || sprite->sType == SHAKE_MON_Y)
+         {
+             for (enum BattlerId i = 0; i < gBattlersCount; i++)
+@@ -1030,6 +1037,7 @@
+ #undef sType
+ #undef sShakePtrLo
+ #undef sShakePtrHi
++#undef sShakePtr
+ 
+ // Task data for AnimTask_ShakeBattlePlatforms
+ #define tXOffset     data[0]

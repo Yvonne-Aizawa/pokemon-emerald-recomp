@@ -1,0 +1,15 @@
+--- a/src/map_name_popup.c
++++ b/src/map_name_popup.c
+@@ -710,7 +710,11 @@
+     else
+     {
+         popUpThemeId = sMapSectionToThemeId[regionMapSectionId];
+-        LoadBgTiles(GetWindowAttribute(popupWindowId, WINDOW_BG), sMapPopUp_OutlineTable[popUpThemeId], 0x400, 0x21D);
++        // PC port: 0x400 bytes (32 tiles) from a 960-byte (30-tile) outline
++        // read past it, and past the table for the last theme (found by
++        // AddressSanitizer). The frame uses only its 30 tiles
++        // (TILE_TOP_EDGE_START to TILE_BOT_EDGE_END).
++        LoadBgTiles(GetWindowAttribute(popupWindowId, WINDOW_BG), sMapPopUp_OutlineTable[popUpThemeId], sizeof(sMapPopUp_OutlineTable[0]), 0x21D);
+         CallWindowFunction(popupWindowId, DrawMapNamePopUpFrame);
+         PutWindowTilemap(popupWindowId);
+         if (gMapHeader.weather == WEATHER_UNDERWATER_BUBBLES)
