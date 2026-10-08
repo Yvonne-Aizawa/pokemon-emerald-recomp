@@ -1,0 +1,12 @@
+--- a/test/battle/gimmick/dynamax.c
++++ b/test/battle/gimmick/dynamax.c
+@@ -125,7 +125,8 @@
+ {
+     u32 dynamaxLevel, dynamax;
+     u16 capturedHP, finalHP;
+-    s16 capturedDamage;
++    // The non-Dynamax parameter records the baseline for later parameters.
++    static s16 capturedDamage;
+     PARAMETRIZE { dynamaxLevel = 0; dynamax = GIMMICK_NONE; }
+     PARAMETRIZE { dynamaxLevel = 0; dynamax = GIMMICK_DYNAMAX; }
+     PARAMETRIZE { dynamaxLevel = 1; dynamax = GIMMICK_DYNAMAX; }

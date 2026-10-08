@@ -1,6 +1,15 @@
 --- a/src/battle_util.c
 +++ b/src/battle_util.c
-@@ -1007,6 +1007,11 @@ void HandleAction_ActionFinished(void)
+@@ -1001,16 +1001,22 @@
+ void HandleAction_NothingIsFainted(void)
+ {
+     gCurrentTurnActionNumber++;
+-    gCurrentActionFuncId = gActionsByTurnOrder[gCurrentTurnActionNumber];
++    gCurrentActionFuncId = gCurrentTurnActionNumber < gBattlersCount
++        ? gActionsByTurnOrder[gCurrentTurnActionNumber] : B_ACTION_FINISHED;
+ }
+
+ void HandleAction_ActionFinished(void)
  {
      u32 i, j;
 -    bool32 afterYouActive = gSpecialStatuses[gBattlerByTurnOrder[gCurrentTurnActionNumber + 1]].afterYou;
@@ -14,7 +23,19 @@
 +        gCurrentActionFuncId = gActionsByTurnOrder[gCurrentTurnActionNumber];
 +    else
 +        gCurrentActionFuncId = B_ACTION_FINISHED;
-@@ -6271,7 +6271,8 @@
+     memset(&gSpecialStatuses, 0, sizeof(gSpecialStatuses));
+
+     gCurrentMove = MOVE_NONE;
+@@ -1841,7 +1847,7 @@
+             {
+                 gBattlerFainted = gBattlerTarget = gBattleStruct->eventState.faintedActionBattler;
+                 if (gBattleMons[gBattlerFainted].hp == 0
+-                 && !(gBattleStruct->givenExpMons[GetBattlerTrainer(gBattlerFainted) & BIT_FLANK] & (1u << gBattlerPartyIndexes[gBattlerFainted]))
++                 && !(gBattleStruct->givenExpMons[(GetBattlerTrainer(gBattlerFainted) & BIT_FLANK) >> 1] & (1u << gBattlerPartyIndexes[gBattlerFainted]))
+                  && !(gAbsentBattlerFlags & (1u << gBattlerFainted)))
+                 {
+                     BattleScriptExecute(BattleScript_GiveExp);
+@@ -6271,7 +6277,8 @@
      case EFFECT_DOUBLE_POWER_ON_ARG_STATUS:
          // Comatose targets treated as if asleep
          if ((gBattleMons[battlerDef].status1 | (STATUS1_SLEEP * (ctx->abilities[ctx->battlerDef] == ABILITY_COMATOSE))) & GetMoveEffectArg_Status(move)
@@ -24,7 +45,7 @@
              basePower *= 2;
          break;
      case EFFECT_POWER_BASED_ON_TARGET_HP:
-@@ -8881,6 +8882,11 @@
+@@ -8881,6 +8888,11 @@
  
  struct Pokemon *GetIllusionMonPtr(enum BattlerId battler)
  {

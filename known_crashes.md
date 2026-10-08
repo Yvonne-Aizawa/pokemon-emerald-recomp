@@ -1,12 +1,34 @@
 # Known crashes
 
-The broader 64-bit sanitizer battle suite still stops early. Its latest run
-reported a 30-byte Tatsugiri palette loaded as 32 bytes, division by zero in
-`ComputeBallShakeOdds`, a null byte-array operand in a comparison command,
-and further out-of-range battler-order/trainer indexes in `battle_util.c`.
-These remain open; the focused battle-runner checks pass.
+The broader 64-bit sanitizer battle suite remains unvalidated. The latest
+scan found a terrain-message table overread in `Cmd_printfromtable`, a
+pledge turn-order loop reading `newTurnOrder[2]` before checking its bound,
+and an AI critical-hit odds lookup using index `UINT_MAX`.
+The drawing check also reads before an affine-animation command array in
+`JumpToTopOfAffineAnimLoop`. These remain open. The broad scan ended after
+1,000 reported tests (939 passes, 5 known failures, 56 TODOs) when sanitizer
+errors terminated its shards; this is not a complete battle-suite pass.
 
 ## Fixed
+
+### Short monster palettes, zero catch odds, and battle turn boundaries
+Monster palette loads always copy 16 colors, but 76 normal/shiny palettes
+contained fewer entries. Host preprocessing now declares these arrays with
+16 entries, zero-filling missing colors. All 2,883 linked monster palettes
+have 32-byte allocations.
+
+Zero capture odds now return a zero shake threshold before dividing.
+The Dynamax message script passes Boolean constants to a byte-pointer
+comparison; the host handles that one-byte immediate comparison explicitly.
+Experience masks normalize trainer flank bits to indexes 0 and 1, in both
+the lookup and update paths. Turn completion avoids reading a nonexistent
+next action, and the dispatcher finishes the turn if gimmick processing
+consumes its final action.
+
+The Dynamax HP test also now retains its baseline damage in static storage;
+later parameters previously read an automatic local without initializing it.
+Focused Ball Fetch, Commander, Dynamax, and experience checks complete with
+137 passes, no failures, and 4 TODOs under 64-bit ASan/UBSan and on 32-bit.
 
 ### Native battle command operands and item action tables
 Battle commands retain four-byte pointer operands and two-byte ability/species
