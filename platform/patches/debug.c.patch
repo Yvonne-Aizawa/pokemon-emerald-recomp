@@ -1,6 +1,23 @@
 --- a/src/debug.c
 +++ b/src/debug.c
-@@ -2249,6 +2249,13 @@
+@@ -1654,10 +1654,15 @@
+ {
+     const struct DebugMenuOption *options = Debug_GetCurrentCallbackMenu();
+     u32 input = ListMenu_ProcessInput(gTasks[taskId].tMenuTaskId);
+-    struct DebugMenuOption option = options[input];
+ 
+     if (JOY_NEW(A_BUTTON))
+     {
++        // PC port: read the option only once one is chosen. On other frames
++        // input is LIST_NOTHING_CHOSEN (-1, so 0xFFFFFFFF as a u32): the GBA's
++        // 32-bit address arithmetic wraps options[input] to just before the
++        // array, but on a 64-bit host it lands ~96 GB past it and segfaults.
++        struct DebugMenuOption option = options[input];
++
+         PlaySE(SE_SELECT);
+         if (option.action != NULL)
+         {
+@@ -2249,6 +2254,13 @@
  static u32 GetTrainerIdFromLocalId(u32 localId)
  {
      Debug_Trainers_ResetTrainersData();

@@ -6,6 +6,16 @@ reports. Nothing is open.
 
 ## Fixed
 
+### Opening the debug menu crashed on 64-bit
+In the 64-bit build, opening the overworld debug menu (R + Start) crashed in
+`DebugTask_HandleMenuInput_General`. Every frame it read
+`options[input]`, but with nothing chosen `ListMenu_ProcessInput` returns
+`LIST_NOTHING_CHOSEN` (-1), stored in a `u32`. On the GBA and 32-bit hosts the
+address arithmetic wraps to just before the table, a harmless stray read; on a
+64-bit host `0xFFFFFFFF` 24-byte entries is ~96 GB past it. `debug.c.patch`
+reads the option only once A chooses one. `debug-menu-open` opens the menu
+from a quick-started game and keeps it open for a few seconds.
+
 ### Trainer spotting the player crashed on 64-bit
 In the 64-bit build, a trainer that noticed the player crashed in
 `StringExpandPlaceholders` (via `ShowTrainerIntroSpeech`) with a NULL string.

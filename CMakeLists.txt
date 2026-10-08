@@ -821,6 +821,16 @@ foreach(_seed 1 2)
         PASS_REGULAR_EXPRESSION "ran ${MONKEY_FRAMES} frames")
 endforeach()
 
+# The overworld debug menu (R + Start), held open for a few seconds: its input
+# task once read an option for every frame with nothing chosen, past the end
+# of the option table (a 64-bit crash; known_crashes.md).
+add_test(NAME debug-menu-open
+    COMMAND pkmemerald --fast -f 3200 -s "${MONKEY_SAVES}/debug-menu"
+            -i "600:a,1300+10:select,2600+20:r,2610+5:r|start")
+set_tests_properties(debug-menu-open PROPERTIES
+    FIXTURES_REQUIRED monkey-saves ENVIRONMENT "${_monkey_env}"
+    PASS_REGULAR_EXPRESSION "ran 3200 frames")
+
 #-------------------------------------------------------------------------------
 # Upstream's test suite (reference/test/; PLAN.md, Phase 19b)
 #
