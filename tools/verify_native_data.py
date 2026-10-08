@@ -139,11 +139,13 @@ def verify_script_tables(ref, image):
         count += len(entries)
     text = (ref / 'data/event_scripts.s').read_text()
     text += '\n' + (ref / 'data/field_effect_scripts.s').read_text()
-    for table in ['gSpecialVars', 'gStdScripts', 'gFieldEffectScriptPointers']:
+    text += '\n' + (ref / 'data/battle_scripts_2.s').read_text()
+    for table in ['gSpecialVars', 'gStdScripts', 'gFieldEffectScriptPointers',
+                  'gBattlescriptsForUsingItem', 'gBattlescriptsForSafariActions']:
         tail = text.split(table + '::')[1]
         entries = []
         for line in tail.splitlines():
-            if re.match(r'^[ \t]*\w+::', line) or '.include' in line:
+            if re.match(r'^[ \t]*\w+:', line) or '.include' in line:
                 break
             match = re.match(r'^[ \t]*\.4byte[ \t]+(\w+)(?:[ \t]*\+[ \t]*(\d+))?', line)
             if match:
@@ -151,7 +153,7 @@ def verify_script_tables(ref, image):
         for i, expected in enumerate(entries):
             assert image.unpack('<Q', image.symbol(table) + i * 8)[0] == expected, (table, i)
         count += len(entries)
-    print(f'native scripts: {count} command/special/variable/field-effect table pointers match source')
+    print(f'native scripts: {count} command/special/variable/field-effect/battle-action table pointers match source')
 
 
 def verify_audio(ref, image):

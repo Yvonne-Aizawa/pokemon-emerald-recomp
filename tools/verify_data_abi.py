@@ -205,7 +205,7 @@ def compare_native_bytecode(arm, host, kind, src, tmp):
         h_symbols["gMPlayTable"] = h_symbols["gMPlayTableGba"]
     ra = relocations(arm, "arm-none-eabi-objdump", "arm-none-eabi-objcopy", tmp)
     rh = relocations(host, HOST_OBJDUMP, HOST_OBJCOPY, tmp)
-    skipped = {"gSongTable", "gScriptCmdTable", "gSpecials", "gSpecialVars", "gStdScripts", "gFieldEffectScriptPointers"}
+    skipped = {"gSongTable", "gScriptCmdTable", "gSpecials", "gSpecialVars", "gStdScripts", "gFieldEffectScriptPointers", "gBattlescriptsForUsingItem", "gBattlescriptsForSafariActions"}
     if kind == "song":
         skipped.add(os.path.basename(src)[:-2])
     maps = {}
@@ -281,7 +281,7 @@ def check_data(refdir, asm_dir, tmp, host_cc=None):
         actual_host_obj = host_obj
         adapted = host_cc and (kind == "song" or src in (
                 "data/maps.s", "data/map_events.s", "data/sound_data.s",
-                "data/event_scripts.s", "data/field_effect_scripts.s"))
+                "data/event_scripts.s", "data/field_effect_scripts.s", "data/battle_scripts_2.s"))
         if adapted:
             # These files contain deliberately native metadata. Check their
             # original bytecode encoding through the 32-bit adapter; the actual

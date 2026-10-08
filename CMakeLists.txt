@@ -914,6 +914,10 @@ if(PKM_UPSTREAM_TESTS)
     # it to a normal exit(1), which cannot be resumed as a crashed test.
     if(PKM_SANITIZE MATCHES "address")
         set_property(TEST upstream-runner-crash APPEND PROPERTY ENVIRONMENT "ASAN_OPTIONS=handle_segv=0:detect_leaks=0")
+        # Battle captures encode addresses on the runner's low ucontext stack.
+        # ASan's fake stack moves those locals outside the encoded address range.
+        set_property(TEST upstream-battle upstream-runner-draw APPEND PROPERTY ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:detect_stack_use_after_return=0")
+        set_property(TEST upstream-runner-battle APPEND PROPERTY ENVIRONMENT "ASAN_OPTIONS=handle_segv=0:detect_leaks=0:detect_stack_use_after_return=0")
     endif()
     set_tests_properties(upstream-runner-crash upstream-runner-fatalf PROPERTIES
         PASS_REGULAR_EXPRESSION "1 tests: 0 passed, 0 failed, 0 known failing, 1 expected failures")

@@ -1,5 +1,19 @@
 --- a/src/battle_util.c
 +++ b/src/battle_util.c
+@@ -1007,6 +1007,11 @@ void HandleAction_ActionFinished(void)
+ {
+     u32 i, j;
+-    bool32 afterYouActive = gSpecialStatuses[gBattlerByTurnOrder[gCurrentTurnActionNumber + 1]].afterYou;
++    bool32 afterYouActive = FALSE;
++    if (gCurrentTurnActionNumber + 1 < gBattlersCount)
++        afterYouActive = gSpecialStatuses[gBattlerByTurnOrder[gCurrentTurnActionNumber + 1]].afterYou;
+     gBattleStruct->monToSwitchIntoId[gBattlerByTurnOrder[gCurrentTurnActionNumber]] = gSelectedMonPartyId = PARTY_SIZE;
+     gCurrentTurnActionNumber++;
+-    gCurrentActionFuncId = gActionsByTurnOrder[gCurrentTurnActionNumber];
++    if (gCurrentTurnActionNumber < gBattlersCount)
++        gCurrentActionFuncId = gActionsByTurnOrder[gCurrentTurnActionNumber];
++    else
++        gCurrentActionFuncId = B_ACTION_FINISHED;
 @@ -6271,7 +6271,8 @@
      case EFFECT_DOUBLE_POWER_ON_ARG_STATUS:
          // Comatose targets treated as if asleep

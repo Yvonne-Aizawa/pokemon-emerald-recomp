@@ -24,12 +24,14 @@ if mode == 'song':
                 first_pointer = False
             line = re.sub(r'\.(word|4byte)\b', '.8byte', line)
         sys.stdout.write(line)
-elif len(sys.argv) > 2 and sys.argv[2] == 'data/field_effect_scripts.s':
+elif len(sys.argv) > 2 and sys.argv[2] in ('data/field_effect_scripts.s', 'data/battle_scripts_2.s'):
     table = False
     for line in lines:
         match = re.match(r'\s*(\w+):(?::)?\s*$', line)
         if match:
-            table = match[1] == 'gFieldEffectScriptPointers'
+            table = match[1] in ('gFieldEffectScriptPointers',
+                                 'gBattlescriptsForUsingItem',
+                                 'gBattlescriptsForSafariActions')
             if table:
                 print('\t.p2align 3')
         if table:

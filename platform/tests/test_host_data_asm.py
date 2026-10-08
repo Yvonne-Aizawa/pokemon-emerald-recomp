@@ -51,6 +51,15 @@ class DataAssemblyTest(unittest.TestCase):
         self.assertIn('.4byte \\flags', output)
         self.assertIn('.4byte \\jumpInstr', output)
 
+    def test_battle_action_tables_use_native_pointers(self):
+        source = ('gBattlescriptsForUsingItem::\n.4byte heal\n'
+                  'gBattlescriptsForSafariActions::\n.4byte watch\n'
+                  'heal:\n.byte 4\n.4byte target\n')
+        output = transform('data', source, 'data/battle_scripts_2.s')
+        self.assertIn('.8byte heal', output)
+        self.assertIn('.8byte watch', output)
+        self.assertIn('heal:\n.byte 4\n.4byte target', output)
+
     def test_coord_event_pointer_alignment(self):
         source = '.macro coord_event script\n.2byte 1, 2\n.byte 3\n.space 1\n.2byte 4, 5\n.space 2\n.4byte \\script\n.endm\n'
         output = transform('data', source, 'data/map_events.s')

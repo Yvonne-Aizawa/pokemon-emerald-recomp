@@ -1,8 +1,29 @@
 # Known crashes
 
-None open.
+The broader 64-bit sanitizer battle suite still stops early. Its latest run
+reported a 30-byte Tatsugiri palette loaded as 32 bytes, division by zero in
+`ComputeBallShakeOdds`, a null byte-array operand in a comparison command,
+and further out-of-range battler-order/trainer indexes in `battle_util.c`.
+These remain open; the focused battle-runner checks pass.
 
 ## Fixed
+
+### Native battle command operands and item action tables
+Battle commands retain four-byte pointer operands and two-byte ability/species
+operands in assembly. Native command views now read those encoded widths,
+including the function address prepended to native calls, then widen pointers
+when consuming them. Animation commands with no argument pointer use a zero
+argument. Item-use and Safari action pointer tables now use native pointer
+width, while their scripts retain fixed-width operands. Turn completion also
+checks for the end of the battler order before reading the next action.
+Recorded player, partner, and opponent controllers mask the gimmick flag
+before indexing their four move slots. All five Adaptability/Tera checks pass
+under ASan after this correction.
+
+The 64-bit sanitizer runner checks complete with 14 passes and 9 expected
+failures. Its low-address coroutine stack requires disabling ASan's fake stack
+for battle captures; intentional-crash checks also disable ASan's SIGSEGV
+handler so the runner can resume them.
 
 ### 64-bit overworld, scripts, and save compatibility
 The full 64-bit suite crashed loading maps, running script commands, and
