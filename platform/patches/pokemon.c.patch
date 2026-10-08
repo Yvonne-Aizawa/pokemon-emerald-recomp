@@ -3,18 +3,18 @@
 @@ -3902,7 +3902,9 @@
  {
      u32 status = GetMonData(mon, MON_DATA_STATUS, 0);
-
+ 
 -    PREPARE_MON_NICK_BUFFER(gBattleTextBuff1, battler, gBattlerPartyIndexes[battler]);
 +    // Party items use MAX_BATTLERS_COUNT when the mon is not on the field.
 +    if (battler < MAX_BATTLERS_COUNT)
 +        PREPARE_MON_NICK_BUFFER(gBattleTextBuff1, battler, gBattlerPartyIndexes[battler]);
-
+ 
      if (status & healMask)
      {
-@@ -6271,5 +6271,11 @@
+@@ -6271,6 +6273,12 @@
  {
      struct Pokemon *party = GetTrainerParty(trainer);
-
+ 
 +    // PC port: outside a battle gBattleStruct is NULL, and the loop below
 +    // returned a pointer into it anyway (found by UBSan; the overworld calls
 +    // this every frame via FormChangeTimeUpdate). Callers check for NULL.

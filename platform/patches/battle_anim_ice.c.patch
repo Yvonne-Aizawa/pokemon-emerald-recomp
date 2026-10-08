@@ -1,10 +1,15 @@
 --- a/src/battle_anim_ice.c
 +++ b/src/battle_anim_ice.c
-@@ -1622,7 +1622,7 @@
+@@ -1622,7 +1622,11 @@
  // arg 5: arc height (negative)
  static void InitIceBallAnim(struct Sprite *sprite)
  {
 -    u32 animNum = gAnimDisableStructPtr->rolloutTimer + 1;
++    // PC port: clamp to the affine-anim table. rolloutTimer + 1 may exceed
++    // ARRAY_COUNT(sAffineAnims_IceBallChunk), so StartSpriteAffineAnim reads
++    // past the array. On the GBA the table is in ROM, so the read just
++    // returns neighbouring ROM data; on the host it is out of bounds (ASan).
 +    u32 animNum = min(gAnimDisableStructPtr->rolloutTimer + 1, ARRAY_COUNT(sAffineAnims_IceBallChunk) - 1);
+ 
      StartSpriteAffineAnim(sprite, animNum);
      InitSpritePosToAnimAttacker(sprite, TRUE);

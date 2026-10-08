@@ -16,6 +16,20 @@ pass. Newly observed reports remain open:
 
 ## Fixed
 
+### Moonlight end-fade hang from a miscounted patch hunk
+`Move Animations work 1`, `3` and `4` hung (killed after 60 s) on 32- and
+64-bit hosts. The hand-edited hunk in `battle_anim_effects_1.c.patch` had six
+new lines but an `@@` header claiming five, so `patch` silently stopped after
+five: the `BeginNormalPaletteFade` call was dropped, and the `if (d != 0xFF)`
+guard captured the `gTasks[taskId].func` assignment instead. When the
+green-sparkle palette wasn't loaded, `AnimTask_MoonlightEndFade` re-ran every
+frame and never finished. The patch was regenerated with `diff -u`; a missing
+palette tag now just leaves its bit out of the fade mask (on the GBA a shift by
+0xFF gives 0). `tools/check_patches.sh` now fails any patch whose hunk line
+counts don't match its headers, and covers `platform/patches/test/` too;
+`battle_anim_effects_3.c.patch` and `pokemon.c.patch` had harmless miscounts
+(trailing context lines only) and were regenerated, with identical output.
+
 ### Evolution tracking, recorded actions, and animation assets
 Evolution tracking now passes a four-byte value to the four-byte monster-data
 setter. Recorded-action cleanup checks for an empty buffer before decrementing

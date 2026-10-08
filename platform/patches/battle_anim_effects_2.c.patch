@@ -1,16 +1,17 @@
 --- a/src/battle_anim_effects_2.c
 +++ b/src/battle_anim_effects_2.c
-@@ -2977,9 +2977,10 @@
-     paletteNums[0] = IndexOfSpritePaletteTag(ANIM_TAG_MUSIC_NOTES_2);
-     for (i = 1; i < NUM_MUSIC_NOTE_PAL_TAGS; i++)
-        paletteNums[i] = AllocSpritePalette(ANIM_SPRITES_START - i);
--
-+
+@@ -2979,7 +2979,13 @@
+         paletteNums[i] = AllocSpritePalette(ANIM_SPRITES_START - i);
+ 
      for (i = 0; i < NUM_MUSIC_NOTE_PAL_TAGS; i++)
 -        LoadPalette(&gBattleAnimSpritePal_MusicNotes2[i * 32], (u16)(OBJ_PLTT_ID(paletteNums[i])), PLTT_SIZE_4BPP);
++        // PC port: AllocSpritePalette returns 0xFF when no sprite palette is
++        // free, and OBJ_PLTT_ID(0xFF) is 0x10F0, far past the 512-entry
++        // palette buffers. On the GBA the load silently overwrites whatever
++        // follows them in RAM; the host's palette range check asserts. Skip
++        // the load then.
 +        if (paletteNums[i] != 0xFF)
 +            LoadPalette(&gBattleAnimSpritePal_MusicNotes2[i * 32], (u16)(OBJ_PLTT_ID(paletteNums[i])), PLTT_SIZE_4BPP);
--
-+
-        DestroyAnimVisualTask(taskId);
+ 
+     DestroyAnimVisualTask(taskId);
  }
