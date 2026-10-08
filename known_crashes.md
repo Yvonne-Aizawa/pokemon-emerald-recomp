@@ -1,22 +1,21 @@
 # Known crashes
 
-The latest 64-bit sanitizer battle scan (2026-10-08) ran the whole battle
-suite: 5,539 tests, 5,096 passes, 4 failures, 18 upstream known failures and
-421 TODOs. The four failures are sanitizer reports, all in move animations
-reading past `gSineTable`'s 320 entries; they remain open:
-
-- `AnimTask_ExtrasensoryDistortion_Step` (`battle_anim_psychic.c:1214`)
-  indexes `gSineTable` directly (ASan, two of the four).
-- `AnimZapCannonSpark_Step` (`battle_anim_electric.c:726`) calls `Cos` with
-  index 336.
-- `AnimPoltergeistItem` (`battle_anim_ghost.c:1450`) calls `Cos` with index
-  320.
-
-The previous scan's open reports (`HealStatusConditions`, `Sin` from
-`AnimSparkElectricityFlashing_Step`, `sAffineAnims_IceBallChunk`,
-`LoadSpriteSheetWithOffset`) didn't recur.
+The latest 64-bit sanitizer scan (2026-10-08) ran every ctest entry,
+including the whole upstream battle suite (5,539 tests), with no sanitizer
+reports. Nothing is open.
 
 ## Fixed
+
+### Move animations reading past `gSineTable`
+A complete 64-bit ASan/UBSan battle scan found three animations indexing the
+320-entry sine table out of bounds. Techno Blast, Pollen Puff and Photon
+Geyser sparks reuse `AnimZapCannonSpark` with start angles of 256-288, which
+it only wraps after the first `Sin`/`Cos`; Poltergeist's item calls `Cos(256)`
+on its last frame; Extrasensory's distortion (`gBattleAnimArgs[0] == 1`)
+indexes `gSineTable` from 192 up to 320. The GBA reads neighbouring ROM data
+there. `trig.c.patch` wraps the angle in `Sin` and `Cos`, and
+`battle_anim_psychic.c.patch` wraps Extrasensory's index; indexes 256-319
+already repeat 0-63, so in-range results are unchanged.
 
 ### Sanitizer reports skipped the rest of a test shard
 ASan and UBSan end the process with `exit(1)` after a report, not a signal.

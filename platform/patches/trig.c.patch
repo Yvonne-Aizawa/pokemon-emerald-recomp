@@ -1,0 +1,27 @@
+--- a/src/trig.c
++++ b/src/trig.c
+@@ -511,16 +511,22 @@
+     Q_4_12(0.017333984375), // sin(179°)
+ };
+ 
++// PC port: the index is an angle in 256ths of a turn, but some callers pass
++// one outside 0-255 (Techno Blast's sparks start at 256-288 through
++// AnimZapCannonSpark; Poltergeist's item ends at 256), reading past the
++// table: on the GBA neighbouring ROM data, out of bounds on the host (found
++// by ASan/UBSan). Wrap it to the same angle.
++
+ // amplitude * sin(index*(π/128))
+ s16 Sin(s16 index, s16 amplitude)
+ {
+-    return (amplitude * gSineTable[index]) >> 8;
++    return (amplitude * gSineTable[index & 0xFF]) >> 8;
+ }
+ 
+ // amplitude * cos(index*(π/128))
+ s16 Cos(s16 index, s16 amplitude)
+ {
+-    return (amplitude * gSineTable[index + 64]) >> 8;
++    return (amplitude * gSineTable[(index & 0xFF) + 64]) >> 8;
+ }
+ 
+ // angle in degrees
