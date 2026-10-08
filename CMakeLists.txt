@@ -894,6 +894,7 @@ if(PKM_UPSTREAM_TESTS)
     # with upstream's message.
     add_test(NAME upstream-runner-crash COMMAND pkmemerald-tests -j 1 "Tests resume after CRASH")
     add_test(NAME upstream-runner-fatalf COMMAND pkmemerald-tests -j 1 "fatalf counts as CRASH")
+    add_test(NAME upstream-runner-exit COMMAND pkmemerald-tests -j 1 "Host runner: exit(1) counts as CRASH")
     add_test(NAME upstream-runner-player-name COMMAND pkmemerald-tests -j 1 "Tests initialize a terminated player name")
     add_test(NAME upstream-runner-detects-failure COMMAND pkmemerald-tests -j 1 "Host runner self-test")
     # Battles (19b-3, 19b-4): the framework's own tests, and the battle tests
@@ -910,7 +911,7 @@ if(PKM_UPSTREAM_TESTS)
     # The tests don't draw their frames (too slow), so this one does, to put
     # the renderer through every species' front animation (host_render.c).
     add_test(NAME upstream-runner-draw COMMAND pkmemerald-tests -j 1 --draw test/battle/front_anim.c)
-    set_tests_properties(${_upstream_test_names} upstream-runner-crash upstream-runner-fatalf
+    set_tests_properties(${_upstream_test_names} upstream-runner-crash upstream-runner-fatalf upstream-runner-exit
                          upstream-runner-player-name upstream-runner-detects-failure
                          upstream-runner-battle upstream-battle upstream-runner-draw
         PROPERTIES ENVIRONMENT "${HEADLESS_TEST_ENV}")
@@ -923,7 +924,11 @@ if(PKM_UPSTREAM_TESTS)
         set_property(TEST upstream-battle upstream-runner-draw APPEND PROPERTY ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:detect_stack_use_after_return=0")
         set_property(TEST upstream-runner-battle APPEND PROPERTY ENVIRONMENT "ASAN_OPTIONS=handle_segv=0:detect_leaks=0:detect_stack_use_after_return=0")
     endif()
-    set_tests_properties(upstream-runner-crash upstream-runner-fatalf PROPERTIES
+    if(PKM_SANITIZE)
+        set_property(TEST upstream-battle upstream-runner-battle upstream-runner-draw
+                     APPEND PROPERTY ENVIRONMENT "UBSAN_OPTIONS=print_stacktrace=1")
+    endif()
+    set_tests_properties(upstream-runner-crash upstream-runner-fatalf upstream-runner-exit PROPERTIES
         PASS_REGULAR_EXPRESSION "1 tests: 0 passed, 0 failed, 0 known failing, 1 expected failures")
     set_tests_properties(upstream-runner-detects-failure PROPERTIES
         PASS_REGULAR_EXPRESSION "a failing EXPECT_EQ fails: [^\n]*FAIL.*host_runner_selftest.c:[0-9]+: EXPECT_EQ\\(1, 2\\) failed.*1 tests: 0 passed, 1 failed")

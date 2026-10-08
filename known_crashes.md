@@ -1,20 +1,31 @@
 # Known crashes
 
-The latest 64-bit sanitizer battle scan reported 3,636 completed tests:
-3,394 passes, zero ordinary failures, 14 upstream known failures, and 228
-TODOs. Sanitizer errors terminated shards, so this is not a complete suite
-pass. Newly observed reports remain open:
+The latest 64-bit sanitizer battle scan (2026-10-08) ran the whole battle
+suite: 5,539 tests, 5,096 passes, 4 failures, 18 upstream known failures and
+421 TODOs. The four failures are sanitizer reports, all in move animations
+reading past `gSineTable`'s 320 entries; they remain open:
 
-- `HealStatusConditions` reads index 4 from a four-entry move array
-  (`pokemon.c:3905` in the generated patched source).
-- `Sin` receives a negative index (-64) from
-  `AnimSparkElectricityFlashing_Step`.
-- `GetAffineAnimFrame` reads past `sAffineAnims_IceBallChunk`.
-- Sprite-sheet loading reads poisoned memory in
-  `LoadSpriteSheetWithOffset`, called by `LoadCompressedSpriteSheetUsingHeap`.
-  Two reports copy 3,072 and 3,584 bytes; their root cause needs investigation.
+- `AnimTask_ExtrasensoryDistortion_Step` (`battle_anim_psychic.c:1214`)
+  indexes `gSineTable` directly (ASan, two of the four).
+- `AnimZapCannonSpark_Step` (`battle_anim_electric.c:726`) calls `Cos` with
+  index 336.
+- `AnimPoltergeistItem` (`battle_anim_ghost.c:1450`) calls `Cos` with index
+  320.
+
+The previous scan's open reports (`HealStatusConditions`, `Sin` from
+`AnimSparkElectricityFlashing_Step`, `sAffineAnims_IceBallChunk`,
+`LoadSpriteSheetWithOffset`) didn't recur.
 
 ## Fixed
+
+### Sanitizer reports skipped the rest of a test shard
+ASan and UBSan end the process with `exit(1)` after a report, not a signal.
+`host_test_runner.c` took any normal exit as the shard having finished, so it
+neither reported CRASH nor restarted: the remaining tests of that shard never
+ran (407 of 5,539 battle tests in one 64-bit sanitizer scan) while the summary
+showed 0 failed. The child now sets a `finished` flag in `HostTest_Exit`; any
+other exit is handled like a crash. `upstream-runner-exit` checks it, and the
+upstream battle tests now get `UBSAN_OPTIONS=print_stacktrace=1` like the rest.
 
 ### Moonlight end-fade hang from a miscounted patch hunk
 `Move Animations work 1`, `3` and `4` hung (killed after 60 s) on 32- and

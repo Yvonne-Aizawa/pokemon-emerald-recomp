@@ -3,8 +3,11 @@
  *
  * A test that must fail, built into pkmemerald-tests: the upstream-detects-
  * failure test (CMakeLists.txt) checks that the host runner reports it as a
- * failure, with upstream's message, and exits 1.
+ * failure, with upstream's message, and exits 1. Also the runner's other
+ * self-checks.
  */
+
+#include <stdlib.h>  /* before global.h, whose macros clash with it */
 
 #include "global.h"
 #include "test/test.h"
@@ -12,6 +15,14 @@
 TEST("Host runner self-test: a failing EXPECT_EQ fails")
 {
     EXPECT_EQ(1, 2);
+}
+
+// ASan and UBSan end the process with exit(1) after a report, not a signal:
+// upstream-runner-exit checks that the runner still counts that as CRASH.
+TEST("Host runner: exit(1) counts as CRASH")
+{
+    KNOWN_CRASHING;
+    exit(1);
 }
 
 // Regression checks for host crashes found by the broad sanitizer battle scan.
