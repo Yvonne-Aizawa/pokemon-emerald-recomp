@@ -44,6 +44,13 @@ class DataAssemblyTest(unittest.TestCase):
         self.assertIn('gStdScripts:\n.8byte script', output)
         self.assertIn('script:\n.byte 4\n.4byte target', output)
 
+    def test_battle_script_keeps_fixed_width_operands(self):
+        source = ('.macro jumpifstatus battler, flags, jumpInstr\n'
+                  '.byte 1\n.4byte \\flags\n.4byte \\jumpInstr\n.endm\n')
+        output = transform('data', source, 'data/battle_scripts_1.s')
+        self.assertIn('.4byte \\flags', output)
+        self.assertIn('.4byte \\jumpInstr', output)
+
     def test_coord_event_pointer_alignment(self):
         source = '.macro coord_event script\n.2byte 1, 2\n.byte 3\n.space 1\n.2byte 4, 5\n.space 2\n.4byte \\script\n.endm\n'
         output = transform('data', source, 'data/map_events.s')
