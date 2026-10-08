@@ -1,0 +1,25 @@
+--- a/src/battle_controllers.c
++++ b/src/battle_controllers.c
+@@ -1782,7 +1782,6 @@
+ static void SetBattlerMonData(enum BattlerId battler, struct Pokemon *party, u32 monId)
+ {
+     struct BattlePokemon *battlePokemon = (struct BattlePokemon *)&gBattleResources->bufferA[battler][3];
+-    struct MovePPInfo *moveData = (struct MovePPInfo *)&gBattleResources->bufferA[battler][3];
+     s32 i;
+-
++
+     switch (gBattleResources->bufferA[battler][1])
+@@ -1834,8 +1833,10 @@
+     case REQUEST_MOVES_PP_BATTLE:
+         for (i = 0; i < MAX_MON_MOVES; i++)
+         {
+-            SetMonData(&party[monId], MON_DATA_MOVE1 + i, &moveData->moves[i]);
+-            SetMonData(&party[monId], MON_DATA_PP1 + i, &moveData->pp[i]);
++            u16 move;
++            memcpy(&move, &gBattleResources->bufferA[battler][3 + i * sizeof(move)], sizeof(move));
++            SetMonData(&party[monId], MON_DATA_MOVE1 + i, &move);
++            SetMonData(&party[monId], MON_DATA_PP1 + i, &gBattleResources->bufferA[battler][3 + MAX_MON_MOVES * sizeof(move) + i]);
+         }
+-        SetMonData(&party[monId], MON_DATA_PP_BONUSES, &moveData->ppBonuses);
++        SetMonData(&party[monId], MON_DATA_PP_BONUSES, &gBattleResources->bufferA[battler][3 + MAX_MON_MOVES * (sizeof(u16) + sizeof(u8))]);
+         break;

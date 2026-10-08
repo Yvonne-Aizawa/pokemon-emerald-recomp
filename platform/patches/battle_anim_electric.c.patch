@@ -1,8 +1,18 @@
 --- a/src/battle_anim_electric.c
 +++ b/src/battle_anim_electric.c
+@@ -777,7 +777,8 @@
+     sprite->data[4] = gBattleAnimArgs[7] & 0x7FFF;
+     sprite->data[5] = gBattleAnimArgs[2];
+     sprite->data[6] = gBattleAnimArgs[5];
+-    sprite->data[7] = gBattleAnimArgs[4];
++    // Angles are eight-bit indexes; negative script arguments wrap on GBA.
++    sprite->data[7] = gBattleAnimArgs[4] & 0xFF;
+
+     sprite->oam.tileNum += gBattleAnimArgs[6] * 4;
+     sprite->callback = AnimSparkElectricityFlashing_Step;
 @@ -790,7 +790,11 @@
      sprite->y2 = Cos(sprite->data[7], sprite->data[5]);
- 
+
      sprite->data[7] = (sprite->data[7] + sprite->data[6]) & 0xFF;
 -    if (sprite->data[7] % sprite->data[4] == 0)
 +    // PC port: scripts that pass 0 as the flashing interval (args[7]) made
@@ -11,5 +21,5 @@
 +    // remainder, so the spark flashes every frame; x86 raises SIGFPE.
 +    if (sprite->data[4] == 0 || sprite->data[7] % sprite->data[4] == 0)
          sprite->invisible ^= TRUE;
- 
+
      if (sprite->data[0]-- <= 0)

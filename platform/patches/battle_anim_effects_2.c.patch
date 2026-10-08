@@ -1,0 +1,16 @@
+--- a/src/battle_anim_effects_2.c
++++ b/src/battle_anim_effects_2.c
+@@ -2977,9 +2977,10 @@
+     paletteNums[0] = IndexOfSpritePaletteTag(ANIM_TAG_MUSIC_NOTES_2);
+     for (i = 1; i < NUM_MUSIC_NOTE_PAL_TAGS; i++)
+        paletteNums[i] = AllocSpritePalette(ANIM_SPRITES_START - i);
+-
++
+     for (i = 0; i < NUM_MUSIC_NOTE_PAL_TAGS; i++)
+-        LoadPalette(&gBattleAnimSpritePal_MusicNotes2[i * 32], (u16)(OBJ_PLTT_ID(paletteNums[i])), PLTT_SIZE_4BPP);
++        if (paletteNums[i] != 0xFF)
++            LoadPalette(&gBattleAnimSpritePal_MusicNotes2[i * 32], (u16)(OBJ_PLTT_ID(paletteNums[i])), PLTT_SIZE_4BPP);
+-
++
+        DestroyAnimVisualTask(taskId);
+ }

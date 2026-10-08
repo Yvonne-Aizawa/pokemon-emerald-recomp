@@ -1,0 +1,10 @@
+--- a/src/battle_anim_ice.c
++++ b/src/battle_anim_ice.c
+@@ -1622,7 +1622,7 @@
+ // arg 5: arc height (negative)
+ static void InitIceBallAnim(struct Sprite *sprite)
+ {
+-    u32 animNum = gAnimDisableStructPtr->rolloutTimer + 1;
++    u32 animNum = min(gAnimDisableStructPtr->rolloutTimer + 1, ARRAY_COUNT(sAffineAnims_IceBallChunk) - 1);
+     StartSpriteAffineAnim(sprite, animNum);
+     InitSpritePosToAnimAttacker(sprite, TRUE);

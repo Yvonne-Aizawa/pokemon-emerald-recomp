@@ -1748,6 +1748,13 @@
      u32 targetBattler = MAX_BATTLERS_COUNT;
      bool32 statusChanged = FALSE;
      struct Pokemon *party = GetBattlerParty(gBattlerAttacker);
+@@ -9392,4 +9428,5 @@
+         statusChanged = TRUE;
+         if (GetItemStatus1Mask(gLastUsedItem) & STATUS1_SLEEP)
+-            gBattleMons[targetBattler].volatiles.nightmare = FALSE;
++            if (targetBattler < MAX_BATTLERS_COUNT)
++                gBattleMons[targetBattler].volatiles.nightmare = FALSE;
+     }
 @@ -9396,7 +9432,7 @@
  
      if (!statusChanged)
