@@ -506,6 +506,10 @@ set(REFERENCE_ASM_OBJS)
 foreach(_src ${REFERENCE_DATA_ASM})
     get_filename_component(_name "${_src}" NAME_WE)
     set(_out "${ASM_DIR}/data/${_name}.o")
+    set(_asm_patch_deps)
+    if(EXISTS "${PATCH_DIR}/${_src}.patch")
+        list(APPEND _asm_patch_deps "${PATCH_DIR}/${_src}.patch")
+    endif()
     add_custom_command(
         OUTPUT "${_out}"
         COMMAND ${CMAKE_COMMAND} -E env HOST_NM=${CMAKE_NM} HOST_OBJCOPY=${CMAKE_OBJCOPY}
@@ -513,7 +517,7 @@ foreach(_src ${REFERENCE_DATA_ASM})
                 "${REFERENCE_DIR}" "${PREPROC_TOOL}" "${_out}" "${_out}.d" "${_src}"
                 -- ${CMAKE_C_COMPILER} ${REFERENCE_ASM_CPPFLAGS}
                 -- ${CMAKE_C_COMPILER} ${HOST_ASFLAGS}
-        DEPENDS "${REFERENCE_DIR}/${_src}" "${PREPARE_STAMP}" "${TOOLS_DIR}/host_assemble.sh" "${TOOLS_DIR}/host_data_asm.py"
+        DEPENDS "${REFERENCE_DIR}/${_src}" "${PREPARE_STAMP}" "${TOOLS_DIR}/host_assemble.sh" "${TOOLS_DIR}/host_data_asm.py" ${_asm_patch_deps}
         DEPFILE "${_out}.d"
         COMMENT "Assembling ${_src}"
         VERBATIM

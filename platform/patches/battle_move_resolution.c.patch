@@ -1,0 +1,11 @@
+--- a/src/battle_move_resolution.c
++++ b/src/battle_move_resolution.c
+@@ -1639,7 +1639,7 @@
+
+         gBattlerByTurnOrder[currPledgeUser++] = partner;
+
+-        for (u32 i = 0; newTurnOrder[i] != 0xFF && i < 2; i++)
++        for (u32 i = 0; i < k; i++)
+             gBattlerByTurnOrder[currPledgeUser++] = newTurnOrder[i];
+
+         gBattleStruct->pledgeState = PLEDGE_COMBO_WAITING;

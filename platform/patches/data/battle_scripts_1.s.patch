@@ -1,0 +1,10 @@
+--- a/data/battle_scripts_1.s
++++ b/data/battle_scripts_1.s
+@@ -5692,6 +5692,7 @@
+ 	waitmessage B_WAIT_TIME_LONG
+ 	call BattleScript_ActivateWeatherAbilities
+ 	jumpifterrain CMP_NOT_EQUAL, B_TERRAIN_NONE, BattleScript_ActivateTeraformZero_RemoveTerrain
++	goto BattleScript_ActivateTeraformZeroEffects
+ BattleScript_ActivateTeraformZero_RemoveTerrain:
+ 	removeterrain
+ 	playanimation BS_ATTACKER, B_ANIM_RESTORE_BG

@@ -113,7 +113,14 @@ data)
     target_is_windows "$@" && windows=1
     if [[ $("$@" -dM -E -x c /dev/null) == *"#define __SIZEOF_POINTER__ 8"* ]]; then pointer64=1; fi
     cd "$refdir"
-    "$preproc" "$src" charmap.txt \
+    input=$src
+    source_patch="$(dirname "$data_asm_tool")/../platform/patches/$src.patch"
+    if [[ -f $source_patch ]]; then
+        input="$out.input.s"
+        trap 'rm -f "$input"' EXIT
+        patch --quiet --force -o "$input" "$src" "$source_patch"
+    fi
+    "$preproc" "$input" charmap.txt \
         | "${cpp_cmd[@]}" -E -x assembler-with-cpp -MD -MF "$depfile" -MT "$out" - \
         | "$preproc" -ie "$src" charmap.txt \
         | arm_to_host \

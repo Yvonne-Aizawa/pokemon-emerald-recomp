@@ -1,0 +1,17 @@
+--- a/test/battle/move_effect/pledge.c
++++ b/test/battle/move_effect/pledge.c
+@@ -10,8 +10,12 @@
+
+ DOUBLE_BATTLE_TEST("Water and Fire Pledge create a rainbow on the user's side of the field for four turns")
+ {
+-    GIVEN {
+-        PLAYER(SPECIES_WOBBUFFET) { Speed(4); }
++    u32 initiatorSpeed;
++    PARAMETRIZE { initiatorSpeed = 4; }
++    // Acting first leaves both opponents in the two-entry reorder buffer.
++    PARAMETRIZE { initiatorSpeed = 9; }
++    GIVEN {
++        PLAYER(SPECIES_WOBBUFFET) { Speed(initiatorSpeed); }
+         PLAYER(SPECIES_WYNAUT) { Speed(3); }
+         OPPONENT(SPECIES_WOBBUFFET) { Speed(8); }
+         OPPONENT(SPECIES_WYNAUT) { Speed(5); }

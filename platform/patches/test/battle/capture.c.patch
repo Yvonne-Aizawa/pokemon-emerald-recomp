@@ -1,0 +1,12 @@
+--- a/test/battle/capture.c
++++ b/test/battle/capture.c
+@@ -254,7 +254,8 @@
+
+     GIVEN {
+         PLAYER(SPECIES_WOBBUFFET);
+-        OPPONENT(SPECIES_WOBBUFFET);
++        // Keep every ball's odds positive despite Heavy Ball and badge penalties.
++        OPPONENT(SPECIES_WOBBUFFET) { Level(1); HP(1); }
+     } WHEN {
+         TURN { USE_ITEM(player, item, WITH_RNG(RNG_BALLTHROW_SHAKE, 0)); }
+     } SCENE {

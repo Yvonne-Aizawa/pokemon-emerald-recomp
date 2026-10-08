@@ -21,6 +21,8 @@ canonical 32-bit adapter is checked against ARM; the actual adapted bytecode
 and ROM voice bytes are also compared through shared labels and relocations.
 Native C offsets are checked against explicit schemas, and linked map, song,
 and function-pointer metadata is verified against upstream JSON/assembly.
+Source-level script fixes in platform/patches/data are applied to both the
+ARM reference pipeline and the host pipeline before comparing encodings.
 
 Windows (PE/COFF) host objects are compared too: COFF has no empty .data,
 pads section sizes to their alignment (with zeros) and prefixes C symbol
@@ -32,6 +34,7 @@ The host binutils are HOST_OBJDUMP and HOST_OBJCOPY from the environment
 """
 
 import os
+import shlex
 import bisect
 import re
 import subprocess
@@ -269,8 +272,16 @@ def check_data(refdir, asm_dir, tmp, host_cc=None):
     for kind, src, host_obj in jobs:
         arm_obj = os.path.join(tmp, "arm.o")
         if kind == "data":
+            # Apply semantic host script fixes to both encodings. Pointer
+            # width conversion is still checked independently against ARM.
+            arm_source = src
+            source_patch = os.path.join(os.path.dirname(__file__), "..", "platform", "patches", src + ".patch")
+            if os.path.exists(source_patch):
+                arm_source = os.path.join(tmp, "patched.s")
+                run(["patch", "--quiet", "--force", "-o", arm_source,
+                     os.path.join(refdir, src), source_patch])
             pipeline = (
-                f"tools/preproc/preproc {src} charmap.txt"
+                f"tools/preproc/preproc {shlex.quote(arm_source)} charmap.txt"
                 f" | arm-none-eabi-cpp {' '.join(ARM_CPPFLAGS)} -"
                 f" | tools/preproc/preproc -ie {src} charmap.txt"
                 f" | arm-none-eabi-as {' '.join(ARM_ASFLAGS)} -o {arm_obj}"

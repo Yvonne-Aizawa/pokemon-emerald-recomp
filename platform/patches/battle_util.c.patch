@@ -45,8 +45,21 @@
              basePower *= 2;
          break;
      case EFFECT_POWER_BASED_ON_TARGET_HP:
-@@ -8881,6 +8888,11 @@
- 
+@@ -6325,7 +6332,11 @@
+         basePower += (CountBattlerStatIncreases(battlerAtk, TRUE) * 20);
+         break;
+     case EFFECT_ELECTRO_BALL:
+-        speed = GetBattlerTotalSpeedStat(battlerAtk, ctx->abilities[battlerAtk], ctx->holdEffects[battlerAtk]) / GetBattlerTotalSpeedStat(battlerDef, ctx->abilities[battlerDef], ctx->holdEffects[battlerDef]);
++        speed = GetBattlerTotalSpeedStat(battlerDef, ctx->abilities[battlerDef], ctx->holdEffects[battlerDef]);
++        if (speed == 0)
++            speed = ARRAY_COUNT(sSpeedDiffPowerTable) - 1;
++        else
++            speed = GetBattlerTotalSpeedStat(battlerAtk, ctx->abilities[battlerAtk], ctx->holdEffects[battlerAtk]) / speed;
+         if (speed >= ARRAY_COUNT(sSpeedDiffPowerTable))
+             speed = ARRAY_COUNT(sSpeedDiffPowerTable) - 1;
+         basePower = sSpeedDiffPowerTable[speed];
+@@ -8881,6 +8892,11 @@
+
  struct Pokemon *GetIllusionMonPtr(enum BattlerId battler)
  {
 +    // PC port: battle strings can be expanded outside a battle (upstream's
@@ -57,3 +70,12 @@
      if (gBattleStruct->illusion[battler].state == ILLUSION_NOT_SET)
          SetIllusionMon(GetBattlerMon(battler), battler);
      if (gBattleStruct->illusion[battler].state != ILLUSION_ON)
+@@ -10986,7 +11002,7 @@
+                 struct Pokemon *monAtk = GetBattlerMon(gBattlerAttacker);
+                 struct Pokemon *monDef = GetBattlerMon(gBattlerTarget);
+                 // We only have 10 bits to use
+-                u16 val = min(1023, GetMonData(monAtk, MON_DATA_EVOLUTION_TRACKER) + upAmount);
++                u32 val = min(1023, GetMonData(monAtk, MON_DATA_EVOLUTION_TRACKER) + upAmount);
+                 // Reset progress if you faint for the recoil method.
+                 switch (evolutionCondition)
+                 {

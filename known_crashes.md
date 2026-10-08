@@ -1,15 +1,61 @@
 # Known crashes
 
-The broader 64-bit sanitizer battle suite remains unvalidated. The latest
-scan found a terrain-message table overread in `Cmd_printfromtable`, a
-pledge turn-order loop reading `newTurnOrder[2]` before checking its bound,
-and an AI critical-hit odds lookup using index `UINT_MAX`.
-The drawing check also reads before an affine-animation command array in
-`JumpToTopOfAffineAnimLoop`. These remain open. The broad scan ended after
-1,000 reported tests (939 passes, 5 known failures, 56 TODOs) when sanitizer
-errors terminated its shards; this is not a complete battle-suite pass.
+The latest 64-bit sanitizer battle scan reported 3,636 completed tests:
+3,394 passes, zero ordinary failures, 14 upstream known failures, and 228
+TODOs. Sanitizer errors terminated shards, so this is not a complete suite
+pass. Newly observed reports remain open:
+
+- `HealStatusConditions` reads index 4 from a four-entry move array
+  (`pokemon.c:3905` in the generated patched source).
+- `Sin` receives a negative index (-64) from
+  `AnimSparkElectricityFlashing_Step`.
+- `GetAffineAnimFrame` reads past `sAffineAnims_IceBallChunk`.
+- Sprite-sheet loading reads poisoned memory in
+  `LoadSpriteSheetWithOffset`, called by `LoadCompressedSpriteSheetUsingHeap`.
+  Two reports copy 3,072 and 3,584 bytes; their root cause needs investigation.
 
 ## Fixed
+
+### Evolution tracking, recorded actions, and animation assets
+Evolution tracking now passes a four-byte value to the four-byte monster-data
+setter. Recorded-action cleanup checks for an empty buffer before decrementing
+its position. Gust palette rotation skips an unavailable palette while still
+advancing the task's lifetime, avoiding invalid palette indexes and hangs.
+Eight short battle-animation sprite palettes now have explicit 16-color
+allocations with zero-filled tails. All 381 linked palettes in this family
+have at least 32 bytes; larger multi-palette arrays keep their original size.
+
+The capture ball-data test failed specifically for Heavy Ball because the
+default full-health, level-50 target and missing-badge penalty rounded its
+capture odds down to zero. The regression now uses a level-1 target at 1 HP,
+so every ball can catch it and the test checks the stored ball identity.
+Gameplay capture calculations are unchanged by this test correction.
+
+Regular 64-bit, sanitizer 64-bit, and 32-bit builds succeed. Eight focused
+suites pass 95 tests under ASan/UBSan and on 32-bit, covering evolution,
+capture, Mega Evolution, Hurricane, Protect/Feint, Trump Card, Eject Pack,
+and two explicit empty-record/missing-palette regressions. Hurricane also
+passes all four checks with drawing enabled. The broader scan no longer
+reports this batch's blockers, but finds the open reports above.
+
+### Animation loops, pledge ordering, critical odds, and terrain cleanup
+Ordinary and affine animation loops check the command index before looking
+back one command. Pledge ordering copies only populated entries from its
+small temporary turn-order array. AI critical damage rejects blocked critical
+hits and keeps Gen 1 thresholds out of the later-generation odds table.
+Teraform Zero skips terrain removal when only weather was active, preventing
+an invalid terrain-message index.
+
+Electro Ball's zero modified target Speed was reproduced as division by zero;
+it now selects maximum power without dividing. Early terrain removal clears
+its timer, preventing the reproduced ghost terrain-expiration message.
+Regression tests cover these cases, including the animation-loop siblings.
+
+Both regular 64-bit and 32-bit builds succeed. Focused 64-bit ASan/UBSan
+checks pass 80 tests; selected 32-bit compatibility suites pass 69 tests.
+The full front-animation drawing check passes, and runner checks report
+14 passes and 9 expected failures. ARM/native data ABI verification passes;
+semantic assembly patches are applied to both sides of that comparison.
 
 ### Short monster palettes, zero catch odds, and battle turn boundaries
 Monster palette loads always copy 16 colors, but 76 normal/shiny palettes
