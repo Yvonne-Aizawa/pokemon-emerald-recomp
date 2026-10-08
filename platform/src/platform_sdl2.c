@@ -63,7 +63,14 @@ int Platform_Init(const struct PlatformConfig *config)
         return -1;
     }
 
-    /* No vsync: the main loop paces frames at the GBA's 59.73 Hz itself. */
+    /* SDL2 starts with text input on, which on Linux sends every key press
+     * through the input method (IBus, Fcitx) first and drops the keys it
+     * claims. After a focus change the IME can start claiming some of them
+     * (X and the arrows, say), and those buttons stop working. The game
+     * never needs text, so keep it off. */
+    SDL_StopTextInput();
+
+    /* No vsync:the main loop paces frames at the GBA's 59.73 Hz itself. */
     sRenderer = SDL_CreateRenderer(sWindow, -1, 0);
     if (sRenderer == NULL)
         sRenderer = SDL_CreateRenderer(sWindow, -1, SDL_RENDERER_SOFTWARE);
