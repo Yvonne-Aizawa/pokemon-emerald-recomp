@@ -62,3 +62,26 @@ TEST("Host regression: Gust palette task finishes when its palette is absent")
     EXPECT_EQ(gTasks[taskId].isActive, FALSE);
     EXPECT_EQ(gAnimVisualTaskCount, 0);
 }
+
+#include "battle_setup.h"
+#include "constants/opponents.h"
+
+extern const u8 Route102_EventScript_Calvin[];
+extern const u8 Route102_EventScript_CalvinRegisterMatchCallAfterBattle[];
+
+TEST("Host regression: trainerbattle arguments decode with four-byte pointers")
+{
+    // The script's first command is trainerbattle_single (Route102/scripts.inc).
+    TrainerBattleLoadArgs(Route102_EventScript_Calvin + 1);
+    EXPECT_EQ(TRAINER_BATTLE_PARAM.opponentA, TRAINER_CALVIN_1);
+    EXPECT_EQ((const u8 *)TRAINER_BATTLE_PARAM.battleScriptRetAddrA, Route102_EventScript_CalvinRegisterMatchCallAfterBattle);
+    // Copied as eight-byte pointers, the texts were two four-byte ones fused.
+    EXPECT_NE(TRAINER_BATTLE_PARAM.introTextA, NULL);
+    EXPECT_LT((uint64_t)(uintptr_t)TRAINER_BATTLE_PARAM.introTextA, 0x100000000ull);
+    EXPECT_NE(TRAINER_BATTLE_PARAM.defeatTextA, NULL);
+    EXPECT_LT((uint64_t)(uintptr_t)TRAINER_BATTLE_PARAM.defeatTextA, 0x100000000ull);
+    EXPECT_NE(TRAINER_BATTLE_PARAM.introTextA, TRAINER_BATTLE_PARAM.defeatTextA);
+    EXPECT_EQ(TRAINER_BATTLE_PARAM.opponentB, TRAINER_NONE);
+    EXPECT_EQ(TRAINER_BATTLE_PARAM.introTextB, NULL);
+    EXPECT_EQ(TRAINER_BATTLE_PARAM.cannotBattleText, NULL);
+}

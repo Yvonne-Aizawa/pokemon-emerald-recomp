@@ -895,6 +895,7 @@ if(PKM_UPSTREAM_TESTS)
     add_test(NAME upstream-runner-crash COMMAND pkmemerald-tests -j 1 "Tests resume after CRASH")
     add_test(NAME upstream-runner-fatalf COMMAND pkmemerald-tests -j 1 "fatalf counts as CRASH")
     add_test(NAME upstream-runner-exit COMMAND pkmemerald-tests -j 1 "Host runner: exit(1) counts as CRASH")
+    add_test(NAME upstream-host-regressions COMMAND pkmemerald-tests -j 1 "Host regression")
     add_test(NAME upstream-runner-player-name COMMAND pkmemerald-tests -j 1 "Tests initialize a terminated player name")
     add_test(NAME upstream-runner-detects-failure COMMAND pkmemerald-tests -j 1 "Host runner self-test")
     # Battles (19b-3, 19b-4): the framework's own tests, and the battle tests
@@ -913,7 +914,7 @@ if(PKM_UPSTREAM_TESTS)
     add_test(NAME upstream-runner-draw COMMAND pkmemerald-tests -j 1 --draw test/battle/front_anim.c)
     set_tests_properties(${_upstream_test_names} upstream-runner-crash upstream-runner-fatalf upstream-runner-exit
                          upstream-runner-player-name upstream-runner-detects-failure
-                         upstream-runner-battle upstream-battle upstream-runner-draw
+                         upstream-runner-battle upstream-battle upstream-runner-draw upstream-host-regressions
         PROPERTIES ENVIRONMENT "${HEADLESS_TEST_ENV}")
     # Let the intentional SIGSEGV reach the parent instead of ASan converting
     # it to a normal exit(1), which cannot be resumed as a crashed test.

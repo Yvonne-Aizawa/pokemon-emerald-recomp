@@ -6,6 +6,21 @@ reports. Nothing is open.
 
 ## Fixed
 
+### Trainer spotting the player crashed on 64-bit
+In the 64-bit build, a trainer that noticed the player crashed in
+`StringExpandPlaceholders` (via `ShowTrainerIntroSpeech`) with a NULL string.
+The `trainerbattle` script command's arguments are bytecode with four-byte
+pointers (`event.inc`), but `battle_setup.c` copied them straight into
+`TrainerBattleParameter`, whose pointer fields are eight bytes on a 64-bit
+host: the intro text, defeat text and script pointers came out wrong, and the
+end-of-arguments pointer landed 32 bytes too far. `battle_setup.c.patch`
+decodes the 40 argument bytes field by field (the same struct as before on
+32-bit, which a static assert checks), for trainer A and for the second
+trainer. The other casts of this struct only read its first four bytes, whose
+layout is the same. The upstream battle tests never run trainer scripts, so
+`upstream-host-regressions` now runs the host regression tests, including one
+that decodes Route 102 Calvin's `trainerbattle_single`.
+
 ### Move animations reading past `gSineTable`
 A complete 64-bit ASan/UBSan battle scan found three animations indexing the
 320-entry sine table out of bounds. Techno Blast, Pollen Puff and Photon
