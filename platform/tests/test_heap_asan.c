@@ -17,6 +17,7 @@
 /* By path: "malloc.h" would find libc's first (the game's headers are
  * searched after the system's; see CMakeLists.txt). */
 #include "../../reference/include/malloc.h"
+#include "load_save.h"
 
 static int sFailures;
 
@@ -53,6 +54,35 @@ int main(void)
     c = AllocZeroed(200);
     Check(!__asan_region_is_poisoned(c, 200) && c[199] == 0, "memory is usable again once reallocated");
     Free(c);
+
+    /* Odd request sizes exercise every split boundary, not just an aligned
+     * first allocation. UBSan also checks the allocator's header accesses. */
+    for (u32 size = 1; size <= 32; size++)
+    {
+        a = Alloc(size);
+        b = AllocZeroed(size + 1);
+        Check((uintptr_t)a % __alignof__(struct MemBlock) == 0
+              && (uintptr_t)b % __alignof__(struct MemBlock) == 0,
+              "odd-sized allocations preserve native alignment");
+        Free(a);
+        Free(b);
+    }
+
+    for (u16 offset = 0; offset < SAVEBLOCK_MOVE_RANGE; offset++)
+    {
+        SetSaveBlocksPointers(offset);
+        Check((uintptr_t)gSaveBlock1Ptr % __alignof__(struct SaveBlock1) == 0
+              && (uintptr_t)gSaveBlock2Ptr % __alignof__(struct SaveBlock2) == 0
+              && (uintptr_t)gPokemonStoragePtr % __alignof__(struct PokemonStorage) == 0,
+              "save relocation preserves native alignment");
+    }
+    ClearSav1();
+    ClearSav2();
+    gSaveBlock1Ptr->pos.x = 123;
+    gSaveBlock2Ptr->playerTrainerId[0] = 42;
+    MoveSaveBlocks_ResetHeap();
+    Check(gSaveBlock1Ptr->pos.x == 123 && gSaveBlock2Ptr->playerTrainerId[0] == 42,
+          "moving save blocks through heap scratch preserves data");
 
     printf(sFailures ? "heap_asan: %d FAILED\n" : "heap_asan: all tests passed\n", sFailures);
 #else

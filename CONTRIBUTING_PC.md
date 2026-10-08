@@ -71,7 +71,11 @@ picked up on the next build.
 - C17 with GNU extensions, in the style of the surrounding file.
 - Configure with `-DPKM_WERROR=ON` while working: warnings in `platform/` are
   then errors, as in CI. (Upstream's code keeps its own warnings.)
-- The game is built 32-bit and assumes 32-bit pointers (PLAN.md, Phase 18).
+- The default build is 32-bit. Native 64-bit Linux uses adapted map/audio
+  metadata and pointer tables (`tools/host_data_asm.py`); encoded scripts
+  retain their 32-bit words. Raw saves retain the original 32-bit layout and
+  are translated using both generated save schemas. Check both architectures
+  when changing these paths (README.md).
 - Upstream headers are included with quotes (`#include "global.h"`); they
   resolve through the host include tree in the build directory, which swaps in
   `platform/include/gba/`.

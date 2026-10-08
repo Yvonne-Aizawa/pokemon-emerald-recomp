@@ -1290,8 +1290,10 @@ static bool ReadFieldValue(struct Reader *r, const struct HostJsonValue *v, cons
     default:
     {
         unsigned bits = ScalarBits(f);
-        s64 min = f->kind == HOST_SAVE_SINT ? -((s64)1 << (bits - 1)) : 0;
-        s64 max = f->kind == HOST_SAVE_SINT ? ((s64)1 << (bits - 1)) - 1 : (s64)(((u64)1 << bits) - 1);
+        /* JSON integers are signed 64-bit; avoid shifting by 64 for native
+         * pointer fields (all game addresses fit below INT64_MAX). */
+        s64 min = f->kind == HOST_SAVE_SINT ? (bits == 64 ? INT64_MIN : -((s64)1 << (bits - 1))) : 0;
+        s64 max = bits == 64 ? INT64_MAX : (f->kind == HOST_SAVE_SINT ? ((s64)1 << (bits - 1)) - 1 : (s64)(((u64)1 << bits) - 1));
         int64_t value;
         if (v->type == HOST_JSON_STRING && f->names != 0)
         {

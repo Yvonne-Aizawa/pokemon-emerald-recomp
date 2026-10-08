@@ -35,6 +35,22 @@
  * calls it directly). */
 u32 MidiKeyToFreq(struct WaveData *wav, u8 key, u8 fineAdjust);
 
+#if __SIZEOF_POINTER__ == 8
+/* PC port: assembly uses 32-bit pointers and 0x50-byte track buffers. */
+extern struct MusicPlayerInfo gMPlayInfo_BGM, gMPlayInfo_SE1;
+extern struct MusicPlayerInfo gMPlayInfo_SE2, gMPlayInfo_SE3;
+static struct MusicPlayerTrack sHostBgmTracks[10];
+static struct MusicPlayerTrack sHostSe1Tracks[3];
+static struct MusicPlayerTrack sHostSe2Tracks[9];
+static struct MusicPlayerTrack sHostSe3Tracks[1];
+const struct MusicPlayer gMPlayTable[] = {
+    { &gMPlayInfo_BGM, sHostBgmTracks, 10, 0 },
+    { &gMPlayInfo_SE1, sHostSe1Tracks, 3, 1 },
+    { &gMPlayInfo_SE2, sHostSe2Tracks, 9, 1 },
+    { &gMPlayInfo_SE3, sHostSe3Tracks, 1, 0 },
+};
+#endif
+
 extern const u8 gClockTable[];
 extern const s8 gDeltaEncodingTable[];
 extern void *const gMPlayJumpTableTemplate[];
@@ -205,11 +221,24 @@ void ply_keysh(struct MusicPlayerInfo *mplayInfo, struct MusicPlayerTrack *track
     track->flags |= MPT_FLG_PITCHG;
 }
 
+static struct ToneData DecodeTone(const struct RomToneData *rom)
+{
+#if __SIZEOF_POINTER__ == 8
+    return (struct ToneData) {
+        rom->type, rom->key, rom->length, rom->pan_sweep,
+        (struct WaveData *)(uintptr_t)rom->wav,
+        rom->attack, rom->decay, rom->sustain, rom->release
+    };
+#else
+    return *rom;
+#endif
+}
+
 void ply_voice(struct MusicPlayerInfo *mplayInfo, struct MusicPlayerTrack *track)
 {
     u8 voice = ReadCmdByte(track);
 
-    memcpy(&track->tone, &mplayInfo->tone[voice], sizeof(struct ToneData));
+    track->tone = DecodeTone(&mplayInfo->tone[voice]);
 }
 
 void ply_vol(struct MusicPlayerInfo *mplayInfo, struct MusicPlayerTrack *track)
@@ -368,7 +397,8 @@ static void TrackTick(struct SoundInfo *soundInfo, struct MusicPlayerInfo *mplay
 
     if (track->flags & MPT_FLG_START)
     {
-        Clear64byte(track);
+        /* PC port: clear the state prefix, preserving the script pointers. */
+        memset(track, 0, offsetof(struct MusicPlayerTrack, cmdPtr));
         track->flags = MPT_FLG_EXIST;
         track->bendRange = 2;
         track->volX = 64;
@@ -614,6 +644,7 @@ static struct SoundChannel *AllocDirectSoundChannel(struct SoundInfo *soundInfo,
 
 void ply_note(u32 note_cmd, struct MusicPlayerInfo *mplayInfo, struct MusicPlayerTrack *track)
 {
+    struct ToneData decodedSubTone;
     struct SoundInfo *soundInfo = SOUND_INFO_PTR;
     struct ToneData *tone;
     struct SoundChannel *chan;
@@ -641,7 +672,7 @@ void ply_note(u32 note_cmd, struct MusicPlayerInfo *mplayInfo, struct MusicPlaye
     key = track->key;
     if (tone->type & (TONEDATA_TYPE_RHY | TONEDATA_TYPE_SPL))
     {
-        struct ToneData *subTone;
+        struct ToneData *subTone = &decodedSubTone;
         u32 index = track->key;
 
         if (tone->type & TONEDATA_TYPE_SPL)
@@ -651,7 +682,7 @@ void ply_note(u32 note_cmd, struct MusicPlayerInfo *mplayInfo, struct MusicPlaye
             memcpy(&keySplitTable, &tone->attack, sizeof(keySplitTable));
             index = ((const u8 *)(uintptr_t)keySplitTable)[track->key];
         }
-        subTone = &((struct ToneData *)tone->wav)[index];
+        decodedSubTone = DecodeTone(&((struct RomToneData *)tone->wav)[index]);
         if (subTone->type & (TONEDATA_TYPE_SPL | TONEDATA_TYPE_RHY))
             return;
         if (tone->type & TONEDATA_TYPE_RHY)

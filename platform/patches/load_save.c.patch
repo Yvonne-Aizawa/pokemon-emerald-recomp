@@ -9,10 +9,24 @@
  #include "global.h"
  #include "malloc.h"
  #include "berry_powder.h"
-@@ -106,12 +111,26 @@
+@@ -81,7 +86,13 @@
+ {
+     struct SaveBlock1 **sav1_LocalVar = &gSaveBlock1Ptr;
+
++#if defined(HOST_BUILD) && __SIZEOF_POINTER__ > 4
++    // PC port: SaveBlock1 contains native pointers, so random relocation
++    // must preserve eight-byte alignment instead of the GBA's four.
++    offset = (offset + Random()) & (SAVEBLOCK_MOVE_RANGE - __alignof__(struct SaveBlock1));
++#else
+     offset = (offset + Random()) & (SAVEBLOCK_MOVE_RANGE - 4);
++#endif
+
+     gSaveBlock2Ptr = (void *)(&gSaveblock2) + offset;
+     *sav1_LocalVar = (void *)(&gSaveblock1) + offset;
+@@ -106,12 +117,35 @@
      gMain.hblankCallback = NULL;
      gTrainerHillVBlankCounter = NULL;
- 
+
 +#if PKM_ASAN
 +    // PC port: the heap is used as scratch space below, on purpose; with
 +    // AddressSanitizer its unused memory is off-limits (malloc.c.patch).
@@ -20,9 +34,18 @@
 +    __asan_unpoison_memory_region(gHeap, HEAP_SIZE);
 +#endif
      saveBlock2Copy = (struct SaveBlock2 *)(gHeap);
++#if defined(HOST_BUILD) && __SIZEOF_POINTER__ > 4
++    // PC port: SaveBlock2's size need not be a multiple of SaveBlock1's
++    // native alignment. Pad the scratch copy before storing pointers in it.
++    saveBlock1Copy = (struct SaveBlock1 *)(gHeap +
++        ((sizeof(struct SaveBlock2) + __alignof__(struct SaveBlock1) - 1)
++         & ~(__alignof__(struct SaveBlock1) - 1)));
++    pokemonStorageCopy = (struct PokemonStorage *)((u8 *)saveBlock1Copy + sizeof(struct SaveBlock1));
++#else
      saveBlock1Copy = (struct SaveBlock1 *)(gHeap + sizeof(struct SaveBlock2));
      pokemonStorageCopy = (struct PokemonStorage *)(gHeap + sizeof(struct SaveBlock2) + sizeof(struct SaveBlock1));
- 
++#endif
+
      // backup the saves.
      *saveBlock2Copy = *gSaveBlock2Ptr;
 +#ifdef HOST_BUILD
@@ -35,4 +58,4 @@
 +#endif
      *saveBlock1Copy = *gSaveBlock1Ptr;
      *pokemonStorageCopy = *gPokemonStoragePtr;
- 
+

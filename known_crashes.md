@@ -4,6 +4,40 @@ None open.
 
 ## Fixed
 
+### 64-bit overworld, scripts, and save compatibility
+The full 64-bit suite crashed loading maps, running script commands, and
+starting field effects. Assembly map headers/layouts/events/connections and
+script/special/field-effect pointer tables still used GBA pointer widths and
+padding. The host data adapter now emits native metadata while retaining
+32-bit pointers inside encoded scripts. The ABI verifier checks unchanged
+bytecode against ARM output and independently validates native C offsets and
+linked map/audio metadata against upstream JSON and assembly.
+
+Raw saves also used 32-bit `ObjectEventTemplate` and `EnigmaBerry` layouts.
+A copy map generated from both checked save schemas translates complete raw
+save slots to native flash on import and back on export, preserving counters,
+sector rotation, and special sectors. Damaged slots remain untouched. Native
+JSON pointer fields avoid shifts by 64 when validating their range, and raw
+export rejects pointer truncation. Reviewed checkpoint state and byte-for-byte
+raw/JSON round trips pass.
+
+### 64-bit song playback fails and cries crash
+After repairing player initialization, `test_m4a_engine` produced no music
+and crashed starting a cry. Song-table entries and song headers still held
+32-bit assembly pointers while C expected native pointers; voice records also
+had a 12-byte ROM stride that differed from native `ToneData`. The assembly
+adapter now widens song metadata on 64-bit hosts while keeping command jumps
+32-bit. ROM voices retain their original format and are decoded into native
+runtime voices, including drum kits, key splits, and cries.
+
+### 64-bit boot crash in SoundMainBTM
+The 64-bit boot test crashed at frame 0 during `m4aSoundInit`: the assembly
+music-player table contains 32-bit pointers, which native C read as invalid
+64-bit pointers. The host now supplies a native C table and correctly sized
+track buffers on 64-bit builds. Player initialization clears the full native
+struct, and track initialization clears through `cmdPtr` rather than a fixed
+64-byte prefix, preserving the script pointers.
+
 ### Memory used after a screen frees it (found by a search, not playtesting)
 After two crashes of this kind on leaving a contest, upstream's 70 source
 files that free memory and change screens were searched. These fixes come
@@ -398,3 +432,25 @@ the result is unused there; x86's `idiv` raises SIGFPE. Only unoptimised
 uses it. Both functions now skip the division when `var6` is 0. Regression
 test: `platform/tests/test_mon_anim_vshake.c` (it shows the crash only in a
 Debug build).
+
+### Native 64-bit heap and save-block alignment
+UBSan reported misaligned `MemBlock` and `SaveBlock1` accesses in the native
+64-bit build. The GBA allocator rounded sizes to four bytes, leaving split
+headers and returned pointers misaligned for eight-byte native pointers.
+`malloc.c.patch` now aligns the heap and allocation sizes to the block header's
+native alignment. `load_save.c.patch` preserves native alignment when randomly
+relocating saves and pads the heap scratch copy between SaveBlock2 and
+SaveBlock1. The original four-byte behavior remains on 32-bit builds.
+`test_heap_asan` checks odd allocation sizes, save relocation, and data retained
+through `MoveSaveBlocks_ResetHeap` under the sanitizers.
+
+### Native 64-bit song headers and upstream test records
+UBSan found song headers aligned to four bytes despite containing native
+eight-byte pointers. `host_data_asm.py` now aligns the exported song header
+before its label; encoded track commands stay unchanged. The linked-data ABI
+check also verifies header alignment.
+
+The native upstream test runner read null strings because GCC placed 40-byte
+`Test` records at 32-byte boundaries, leaving gaps that the runner interpreted
+as records. CMake's host copies of `test.h` and `battle.h` now explicitly align
+these records to pointer size, making the linker-collected array contiguous.

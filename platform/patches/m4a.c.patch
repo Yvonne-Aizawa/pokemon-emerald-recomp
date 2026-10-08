@@ -1,9 +1,10 @@
 --- a/src/m4a.c
 +++ b/src/m4a.c
-@@ -6,6 +6,27 @@
- 
+@@ -5,6 +5,27 @@
+ extern const u8 gCgb3Vol[];
+
  #define BSS_CODE __attribute__((section(".bss.code")))
- 
++
 +#ifdef HOST_BUILD
 +// PC port: game code passes gMPlay_PokemonCry, which is NULL until the
 +// first cry plays. Through NULL the GBA reads BIOS junk, whose "ident" never
@@ -24,12 +25,11 @@
 +#define HOST_IGNORE_NULL_PLAYER(mplayInfo, ret)
 +#define HOST_IGNORE_BAD_SONG(n)
 +#endif
-+
+
  COMMON_DATA struct SoundInfo gSoundInfo = {0};
  COMMON_DATA struct PokemonCrySong gPokemonCrySongs[MAX_POKEMON_CRIES] = {0};
- COMMON_DATA struct MusicPlayerInfo gPokemonCryMusicPlayers[MAX_POKEMON_CRIES] = {0};
 @@ -46,6 +67,7 @@
- 
+
  void MPlayContinue(struct MusicPlayerInfo *mplayInfo)
  {
 +    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
@@ -37,7 +37,7 @@
      {
          mplayInfo->ident++;
 @@ -56,6 +78,7 @@
- 
+
  void MPlayFadeOut(struct MusicPlayerInfo *mplayInfo, u16 speed)
  {
 +    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
@@ -51,7 +51,7 @@
 +
 +    HOST_IGNORE_BAD_SONG(n)
      const struct MusicPlayer *mplay = &mplayTable[song->ms];
- 
+
      MPlayStart(mplay->info, song->header);
 @@ -116,6 +141,8 @@
      const struct MusicPlayer *mplayTable = gMPlayTable;
@@ -60,7 +60,7 @@
 +
 +    HOST_IGNORE_BAD_SONG(n)
      const struct MusicPlayer *mplay = &mplayTable[song->ms];
- 
+
      if (mplay->info->songHeader != song->header)
 @@ -137,6 +164,8 @@
      const struct MusicPlayer *mplayTable = gMPlayTable;
@@ -69,7 +69,7 @@
 +
 +    HOST_IGNORE_BAD_SONG(n)
      const struct MusicPlayer *mplay = &mplayTable[song->ms];
- 
+
      if (mplay->info->songHeader != song->header)
 @@ -152,6 +181,8 @@
      const struct MusicPlayer *mplayTable = gMPlayTable;
@@ -78,7 +78,7 @@
 +
 +    HOST_IGNORE_BAD_SONG(n)
      const struct MusicPlayer *mplay = &mplayTable[song->ms];
- 
+
      if (mplay->info->songHeader == song->header)
 @@ -163,6 +194,8 @@
      const struct MusicPlayer *mplayTable = gMPlayTable;
@@ -87,10 +87,10 @@
 +
 +    HOST_IGNORE_BAD_SONG(n)
      const struct MusicPlayer *mplay = &mplayTable[song->ms];
- 
+
      if (mplay->info->songHeader == song->header)
 @@ -192,6 +225,7 @@
- 
+
  void m4aMPlayFadeOutTemporarily(struct MusicPlayerInfo *mplayInfo, u16 speed)
  {
 +    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
@@ -98,7 +98,7 @@
      {
          mplayInfo->ident++;
 @@ -204,6 +238,7 @@
- 
+
  void m4aMPlayFadeIn(struct MusicPlayerInfo *mplayInfo, u16 speed)
  {
 +    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
@@ -106,7 +106,7 @@
      {
          mplayInfo->ident++;
 @@ -217,8 +252,17 @@
- 
+
  void m4aMPlayImmInit(struct MusicPlayerInfo *mplayInfo)
  {
 +#ifdef HOST_BUILD
@@ -120,85 +120,120 @@
      s32 trackCount = mplayInfo->trackCount;
      struct MusicPlayerTrack *track = mplayInfo->tracks;
 +#endif
- 
+
      while (trackCount > 0)
      {
-@@ -311,10 +355,12 @@
+@@ -226,7 +270,12 @@
+         {
+             if (track->flags & MPT_FLG_START)
+             {
++#ifdef HOST_BUILD
++                // PC port: preserve cmdPtr and patternStack after the state.
++                memset(track, 0, offsetof(struct MusicPlayerTrack, cmdPtr));
++#else
+                 Clear64byte(track);
++#endif
+                 track->flags = MPT_FLG_EXIST;
+                 track->bendRange = 2;
+                 track->volX = 64;
+@@ -311,10 +360,12 @@
      soundInfo->ident = ident;
  }
- 
+
 +#ifndef HOST_BUILD // PC port: ARM code (BIOS call); unused anyway.
  static void UNUSED MusicPlayerJumpTableCopy(void)
  {
      asm("swi 0x2A");
  }
 +#endif
- 
+
  void ClearChain(void *x)
  {
-@@ -406,11 +452,16 @@
- 
+@@ -406,11 +457,16 @@
+
      m4aSoundVSyncOn();
- 
+
 +#ifndef HOST_BUILD
 +    // PC port: syncs timer 0 (the sample clock) to the display. The host has
 +    // neither; REG_VCOUNT only changes while a frame is drawn, so this would
 +    // wait forever.
      while (*(vu8 *)REG_ADDR_VCOUNT == 159)
          ;
- 
+
      while (*(vu8 *)REG_ADDR_VCOUNT != 159)
          ;
 +#endif
- 
+
      REG_TM0CNT_H = TIMER_ENABLE | TIMER_1CLK;
  }
-@@ -617,6 +668,8 @@
+@@ -526,7 +582,12 @@
+
+     soundInfo->ident++;
+
++    #ifdef HOST_BUILD
++    // PC port: the host player can exceed the GBA's 64 bytes.
++    memset(mplayInfo, 0, sizeof(*mplayInfo));
++#else
+     Clear64byte(mplayInfo);
++#endif
+
+     mplayInfo->tracks = tracks;
+     mplayInfo->trackCount = trackCount;
+@@ -616,6 +677,8 @@
+ {
      s32 i;
      struct MusicPlayerTrack *track;
- 
-+    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
 +
++    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
+
      if (mplayInfo->ident != ID_NUMBER)
          return;
- 
-@@ -1180,6 +1233,7 @@
- 
+@@ -1180,6 +1243,7 @@
+
  void m4aMPlayTempoControl(struct MusicPlayerInfo *mplayInfo, u16 tempo)
  {
 +    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
      if (mplayInfo->ident == ID_NUMBER)
      {
          mplayInfo->ident++;
-@@ -1195,6 +1249,8 @@
+@@ -1194,6 +1258,8 @@
+     s32 i;
      u32 bit;
      struct MusicPlayerTrack *track;
- 
++
++    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
+
+     if (mplayInfo->ident != ID_NUMBER)
+         return;
+@@ -1228,6 +1294,8 @@
+     s32 i;
+     u32 bit;
+     struct MusicPlayerTrack *track;
++
++    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
+
+     if (mplayInfo->ident != ID_NUMBER)
+         return;
+@@ -1264,6 +1332,8 @@
+     u32 bit;
+     struct MusicPlayerTrack *track;
+
 +    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
 +
      if (mplayInfo->ident != ID_NUMBER)
          return;
- 
-@@ -1229,6 +1285,8 @@
-     u32 bit;
-     struct MusicPlayerTrack *track;
- 
-+    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
-+
-     if (mplayInfo->ident != ID_NUMBER)
-         return;
- 
-@@ -1264,6 +1322,8 @@
-     u32 bit;
-     struct MusicPlayerTrack *track;
- 
-+    HOST_IGNORE_NULL_PLAYER(mplayInfo, )
-+
-     if (mplayInfo->ident != ID_NUMBER)
-         return;
- 
-@@ -1609,7 +1669,14 @@
- 
+
+@@ -1532,7 +1602,7 @@
+ {
+ }
+
+-struct MusicPlayerInfo *SetPokemonCryTone(struct ToneData *tone)
++struct MusicPlayerInfo *SetPokemonCryTone(struct RomToneData *tone)
+ {
+     u32 maxClock = 0;
+     s32 maxClockIndex = 0;
+@@ -1609,7 +1679,14 @@
+
  bool32 IsPokemonCryPlaying(struct MusicPlayerInfo *mplayInfo)
  {
 +#ifdef HOST_BUILD
@@ -209,6 +244,6 @@
 +#else
      struct MusicPlayerTrack *track = mplayInfo->tracks;
 +#endif
- 
+
      if (track->chan && track->chan->track == track)
          return TRUE;

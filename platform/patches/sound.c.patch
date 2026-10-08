@@ -1,0 +1,14 @@
+--- a/src/sound.c
++++ b/src/sound.c
+@@ -30,8 +30,9 @@
+
+ COMMON_DATA bool8 gDisableMusic = 0;
+
+-extern struct ToneData gCryTable[];
+-extern struct ToneData gCryTable_Reverse[];
++// PC port: ROM voices keep their 12-byte layout on 64-bit hosts.
++extern struct RomToneData gCryTable[];
++extern struct RomToneData gCryTable_Reverse[];
+
+ static void Task_Fanfare(u8 taskId);
+ static void CreateFanfareTask(void);

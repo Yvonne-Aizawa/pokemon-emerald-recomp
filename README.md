@@ -31,6 +31,19 @@ cmake -S . -B build
 cmake --build build -j
 ```
 
+A native 64-bit Linux build can be configured separately (requires the native
+`libsdl2-dev:amd64` package):
+
+```sh
+cmake -S . -B build-64 -DPKM_HOST_32BIT=OFF
+cmake --build build-64 -j
+ctest --test-dir build-64
+```
+
+The 32-bit build remains the default. Raw `.sav` files retain their 32-bit
+layout; 64-bit builds translate them when importing/exporting. The ARM ABI
+check also uses the 32-bit compiler to validate the original bytecode encoding.
+
 This makes an optimised build with debug symbols (`RelWithDebInfo`); add `-DCMAKE_BUILD_TYPE=Debug` to the first `cmake` for an unoptimised one. When changing the port's own code (`platform/`), add `-DPKM_WERROR=ON`: warnings there are then errors, as in CI. (Upstream's code in `reference/` keeps its warnings; we don't edit it.)
 
 The first build also builds upstream's tools and converts its graphics into `reference/build/` (ignored by upstream's `.gitignore`). After changing upstream graphics or data, re-run that step with:

@@ -67,6 +67,31 @@ try:
             assert original[sector_id] == rebuilt[sector_id], f"{entry['id']}: sector id {sector_id} differs"
         print(entry['id'], 'loads the same from JSON, converts stably, and keeps every save block byte')
 
+    # Pointer-bearing EnigmaBerry fields have different alignment and widths.
+    # Exercise nonzero values, since normal checkpoints have no Enigma Berry.
+    pointer_document = json.loads(first.read_text())
+    pointer_document['game']['blocks']['save_block_1']['enigmaBerry'] = {
+        'berry': {'description1': 0x08001234, 'description2': 0x08005678,
+                  'size': 123, 'weedsBonus': 5, 'pestsBonus': 3, 'growthDuration': 7},
+        'itemEffect': [1, 2, 3], 'checksum': 12345,
+    }
+    pointer_json, pointer_raw, pointer_back = work / 'pointers.json', work / 'pointers.sav', work / 'pointers-back.json'
+    pointer_json.write_text(json.dumps(pointer_document))
+    convert(pointer_json, pointer_raw)
+    convert(pointer_raw, pointer_back)
+    assert json.loads(pointer_back.read_text())['game']['blocks']['save_block_1']['enigmaBerry'] == pointer_document['game']['blocks']['save_block_1']['enigmaBerry']
+    # Native JSON can represent wider pointers; raw export must reject them
+    # without creating a truncated save or altering its source.
+    if pointer_document['layout']['save_block_1'] > 15496:
+        pointer_document['game']['blocks']['save_block_1']['enigmaBerry']['berry']['description1'] = 1 << 40
+        pointer_json.write_text(json.dumps(pointer_document))
+        before = pointer_json.read_bytes()
+        output = work / 'too-wide.sav'
+        result = subprocess.run([str(binary.resolve()), '--convert-save', str(pointer_json), str(output)], capture_output=True, text=True)
+        assert result.returncode != 0 and 'does not fit the raw save format' in result.stderr
+        assert not output.exists() and pointer_json.read_bytes() == before
+    print('raw conversion preserves pointer-bearing berry fields and rejects truncation')
+
     # Edits to the readable fields reach the game's loader.
     last = output_dir / manifest['checkpoints'][-1]['id'] / 'pkmemerald.sav'
     base = work / 'base.json'

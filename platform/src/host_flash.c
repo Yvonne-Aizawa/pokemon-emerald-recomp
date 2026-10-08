@@ -25,6 +25,7 @@
 #include "platform/host_fs.h"
 #include "platform/host_save.h"
 #include "platform/host_save_json.h"
+#include "platform/host_save_abi.h"
 
 #define HOST_FLASH_SECTOR_SIZE  0x1000u
 #define HOST_FLASH_SECTOR_COUNT (FLASH_ROM_SIZE_1M / HOST_FLASH_SECTOR_SIZE)
@@ -164,7 +165,7 @@ static bool LoadSaveData(const char *data, size_t size, char *error, size_t erro
     if (size == sizeof(sFlash))
     {
         memcpy(sFlash, data, size);
-        return true;
+        return HostSave_ConvertFlashAbi(sFlash, true, error, errorSize);
     }
     snprintf(error, errorSize, "neither a JSON save nor a %u-byte flash image (size %lu)",
              (unsigned)sizeof(sFlash), (unsigned long)size);
@@ -310,7 +311,19 @@ static bool WriteSave(const char *path, bool raw, char *error, size_t errorSize)
     bool ok;
 
     if (raw)
-        return HostFs_WriteFileAtomic(path, sFlash, sizeof(sFlash), error, errorSize);
+    {
+        unsigned char *copy = malloc(sizeof(sFlash));
+        if (copy == NULL)
+        {
+            snprintf(error, errorSize, "out of memory exporting raw save");
+            return false;
+        }
+        memcpy(copy, sFlash, sizeof(sFlash));
+        ok = HostSave_ConvertFlashAbi(copy, false, error, errorSize)
+            && HostFs_WriteFileAtomic(path, copy, sizeof(sFlash), error, errorSize);
+        free(copy);
+        return ok;
+    }
     text = HostSaveJson_FromFlash(sFlash, &length);
     if (text == NULL)
     {
