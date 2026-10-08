@@ -199,6 +199,14 @@ foreach(_entry ${_ref_inc_entries})
                 file(CREATE_LINK "${_target}" "${HOST_INC}/test/${_header}" SYMBOLIC)
             endif()
         endforeach()
+    elseif(_entry STREQUAL "metaprogram.h")
+        # PC port: the null-dereference trick inside __builtin_constant_p
+        # triggers UBSan. choose_expr tests compile-time truth without UB.
+        file(READ "${REFERENCE_INC}/${_entry}" _metaprogram_text)
+        string(REPLACE "__builtin_constant_p((cond) ? 0 : *(int *)0)"
+            "__builtin_choose_expr(__builtin_constant_p(cond), (cond), 0)"
+            _metaprogram_text "${_metaprogram_text}")
+        file(WRITE "${HOST_INC}/${_entry}" "${_metaprogram_text}")
     else()
         file(CREATE_LINK "${REFERENCE_INC}/${_entry}" "${HOST_INC}/${_entry}" SYMBOLIC)
     endif()
@@ -902,6 +910,11 @@ if(PKM_UPSTREAM_TESTS)
                          upstream-runner-player-name upstream-runner-detects-failure
                          upstream-runner-battle upstream-battle upstream-runner-draw
         PROPERTIES ENVIRONMENT "${HEADLESS_TEST_ENV}")
+    # Let the intentional SIGSEGV reach the parent instead of ASan converting
+    # it to a normal exit(1), which cannot be resumed as a crashed test.
+    if(PKM_SANITIZE MATCHES "address")
+        set_property(TEST upstream-runner-crash APPEND PROPERTY ENVIRONMENT "ASAN_OPTIONS=handle_segv=0:detect_leaks=0")
+    endif()
     set_tests_properties(upstream-runner-crash upstream-runner-fatalf PROPERTIES
         PASS_REGULAR_EXPRESSION "1 tests: 0 passed, 0 failed, 0 known failing, 1 expected failures")
     set_tests_properties(upstream-runner-detects-failure PROPERTIES

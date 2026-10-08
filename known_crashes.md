@@ -454,3 +454,28 @@ The native upstream test runner read null strings because GCC placed 40-byte
 `Test` records at 32-byte boundaries, leaving gaps that the runner interpreted
 as records. CMake's host copies of `test.h` and `battle.h` now explicitly align
 these records to pointer size, making the linker-collected array contiguous.
+
+### Native task overlays, compile-time RNG checks, and max-level battle bars
+The native sanitizer suite found pointer arrays and cursor structs overlaid on
+unaligned task halfwords. Union Room pointers also overlapped the link-group
+halfwords on 64-bit hosts. `union_room.c.patch` and `list_menu.c.patch` keep
+pointer-bearing state in native arrays indexed by task ID, including the
+outline cursor that exceeds the task-data buffer on 64-bit hosts.
+
+The daycare RNG path exposed upstream's `if_comptime` null-dereference trick
+inside `__builtin_constant_p` to UBSan. The host copy of `metaprogram.h` uses
+`__builtin_choose_expr` to preserve compile-time branching without that trick.
+
+The battle display read experience-table entry 101 for a level-100 Pokémon.
+`battle_interface.c.patch` avoids the nonexistent entry and supplies a nonzero
+range to the bar math; the renderer still hides max-level experience progress.
+The intentional-crash runner check disables ASan's SIGSEGV handler for that
+check so the parent can observe and resume the expected crash.
+
+### Short egg nickname and Mega indicator palette buffers
+After the earlier sanitizer blockers were removed, daycare tests read beyond
+the four-byte Japanese egg nickname: `MON_DATA_NICKNAME` copies a full fixed
+name field. `daycare.c.patch` pads this constant to the required name length.
+Battle tests also exposed a 15-entry Mega indicator palette loaded as a full
+16-entry sprite palette. `battle_gimmick.c.patch` supplies a zero-padded local
+palette before loading it, without reading beyond the generated asset.

@@ -1,0 +1,15 @@
+--- a/src/battle_interface.c
++++ b/src/battle_interface.c
+@@ -2103,7 +2103,11 @@
+             exp = GetMonData(mon, MON_DATA_EXP);
+             currLevelExp = gExperienceTables[gSpeciesInfo[species].growthRate][level];
+             currExpBarValue = exp - currLevelExp;
+-            maxExpBarValue = gExperienceTables[gSpeciesInfo[species].growthRate][level + 1] - currLevelExp;
++            // PC port: level 100 has no next experience-table entry. The bar
++            // renderer already hides max-level progress; give it a safe range.
++            maxExpBarValue = level < MAX_LEVEL
++                ? gExperienceTables[gSpeciesInfo[species].growthRate][level + 1] - currLevelExp
++                : 1;
+             SetBattleBarStruct(battler, healthboxSpriteId, maxExpBarValue, currExpBarValue, isDoubles);
+             MoveBattleBar(battler, healthboxSpriteId, EXP_BAR, 0);
+         }

@@ -1,6 +1,16 @@
 --- a/src/daycare.c
 +++ b/src/daycare.c
-@@ -817,7 +817,9 @@
+@@ -107,7 +107,8 @@
+     gDaycareText_PlayOther
+ };
+
+-static const u8 sJapaneseEggNickname[] = _("タマゴ"); // "tamago" ("egg" in Japanese)
++// PC port: MON_DATA_NICKNAME copies a full fixed-width name, past the EOS.
++static const u8 sJapaneseEggNickname[POKEMON_NAME_LENGTH + 1] = _("タマゴ"); // "tamago" ("egg" in Japanese)
+
+ u8 *GetMonNicknameVanilla(struct Pokemon *mon, u8 *dest)
+ {
+@@ -817,7 +818,9 @@
      {
          if (sharedMoves[i] == MOVE_NONE)
              break;
