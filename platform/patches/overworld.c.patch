@@ -1,0 +1,23 @@
+--- a/src/overworld.c
++++ b/src/overworld.c
+@@ -829,8 +829,18 @@
+ const struct MapConnection *GetMapConnection(u8 dir)
+ {
+     s32 i;
+-    s32 count = gMapHeader.connections->count;
+-    const struct MapConnection *connection = gMapHeader.connections->connections;
++    s32 count;
++    const struct MapConnection *connection;
++
++    // PC port: maps with no connections (e.g. Underwater_SealedChamber) have
++    // connections == NULL. The GBA reads harmless BIOS bytes at address 0; the
++    // host segfaults (surfacing with Dive there crashed). Check it first, as
++    // fieldmap.c already does.
++    if (gMapHeader.connections == NULL)
++        return NULL;
++
++    count = gMapHeader.connections->count;
++    connection = gMapHeader.connections->connections;
+ 
+     if (connection == NULL)
+         return NULL;
