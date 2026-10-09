@@ -6,6 +6,7 @@ adapter and the C overlays, so wrong pointer widths/strides cannot agree with
 one another and silently pass.
 """
 import json
+import os
 import pathlib
 import re
 import struct
@@ -17,7 +18,7 @@ class Image:
     def __init__(self, binary):
         self.data = binary.read_bytes()
         self.symbols = {}
-        for line in subprocess.check_output(['nm', '-a', str(binary)], text=True).splitlines():
+        for line in subprocess.check_output([os.environ.get('HOST_NM') or 'nm', '-a', str(binary)], text=True).splitlines():
             fields = line.split()
             if len(fields) == 3:
                 try:
@@ -25,7 +26,7 @@ class Image:
                 except ValueError:
                     pass
         self.sections = []
-        for line in subprocess.check_output(['objdump', '-h', str(binary)], text=True).splitlines():
+        for line in subprocess.check_output([os.environ.get('HOST_OBJDUMP') or 'objdump', '-h', str(binary)], text=True).splitlines():
             fields = line.split()
             if len(fields) >= 7 and fields[0].isdigit():
                 self.sections.append((int(fields[3], 16), int(fields[2], 16), int(fields[5], 16)))

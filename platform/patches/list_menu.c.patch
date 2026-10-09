@@ -16,11 +16,10 @@
 
  // Cursors after this point are created using a sprite with their own task.
  // This allows them to have idle animations. Cursors prior to this are simply printed text.
-@@ -48,6 +56,18 @@
-     u16 tileTag;
+@@ -49,6 +57,18 @@
      u16 palTag;
  };
-+
+
 +// PC port: pointer-bearing cursor structs need native storage: task data
 +// is only two-byte aligned and the outline cursor also exceeds 32 bytes.
 +#if defined(HOST_BUILD) && __SIZEOF_POINTER__ > 4
@@ -32,9 +31,10 @@
 +#define SCROLL_PAIR_DATA(id) ((struct ScrollIndicatorPair *)gTasks[id].data)
 +#define OUTLINE_CURSOR_DATA(id) ((struct RedOutlineCursor *)gTasks[id].data)
 +#endif
-
++
  // this file's functions
  static u8 ListMenuInitInternal(struct ListMenuTemplate *listMenuTemplate, u16 scrollOffset, u16 selectedRow);
+ static void ListMenuPrintEntries(struct ListMenu *list, u16 startIndex, u16 yOffset, u16 count);
 @@ -368,7 +388,7 @@
 
  s32 ListMenu_ProcessInput(u8 listTaskId)
@@ -98,7 +98,21 @@
 
      list->template = *listMenuTemplate;
      list->scrollOffset = scrollOffset;
-@@ -841,7 +861,7 @@
+@@ -822,6 +842,13 @@
+     return FALSE;
+ }
+
++// PC port: callers outside this file reach a list by task ID, since on 64-bit
++// hosts its storage is sHostListMenus, not the task data.
++bool8 ListMenuChangeSelectionFullByTask(u8 taskId, bool32 updateCursor, bool32 callCallback, u8 count, bool8 movingDown)
++{
++    return ListMenuChangeSelectionFull(LIST_MENU_DATA(taskId), updateCursor, callCallback, count, movingDown);
++}
++
+ bool8 ListMenuChangeSelection(struct ListMenu *list, bool8 updateCursorAndCallCallback, u8 count, bool8 movingDown)
+ {
+     return ListMenuChangeSelectionFull(list, updateCursorAndCallCallback, updateCursorAndCallCallback, count, movingDown);
+@@ -841,7 +868,7 @@
 
  void ListMenuSetTemplateField(u8 taskId, u8 field, s32 value)
  {
@@ -107,7 +121,7 @@
 
      switch (field)
      {
-@@ -983,7 +1003,7 @@
+@@ -983,7 +1010,7 @@
      }
 
      taskId = CreateTask(Task_ScrollIndicatorArrowPair, 0);
@@ -116,7 +130,7 @@
 
      data->field_0 = 0;
      data->scrollOffset = scrollOffset;
-@@ -1035,7 +1055,7 @@
+@@ -1035,7 +1062,7 @@
 
  static void Task_ScrollIndicatorArrowPair(u8 taskId)
  {
@@ -125,7 +139,7 @@
      u16 currItem = (*data->scrollOffset);
 
      if (currItem == data->fullyUpThreshold && currItem != 0xFFFF)
-@@ -1054,7 +1074,7 @@
+@@ -1054,7 +1081,7 @@
  void Task_ScrollIndicatorArrowPairOnMainMenu(u8 taskId)
  {
      s16 *data = gTasks[taskId].data;
@@ -134,7 +148,7 @@
 
      if (tIsScrolled)
      {
-@@ -1072,7 +1092,7 @@
+@@ -1072,7 +1099,7 @@
 
  void RemoveScrollIndicatorArrowPair(u8 taskId)
  {
@@ -143,7 +157,7 @@
 
      if (data->tileTag != TAG_NONE)
          FreeSpriteTilesByTag(data->tileTag);
-@@ -1229,7 +1249,7 @@
+@@ -1229,7 +1256,7 @@
      }
 
      taskId = CreateTask(Task_RedOutlineCursor, 0);
@@ -152,7 +166,7 @@
 
      data->tileTag = cursor->tileTag;
      data->palTag = cursor->palTag;
-@@ -1257,7 +1277,7 @@
+@@ -1257,7 +1284,7 @@
 
  static void ListMenuUpdateRedOutlineCursorObject(u8 taskId, u16 x, u16 y)
  {
@@ -161,7 +175,7 @@
 
      gSprites[data->spriteId].x = x + 120;
      gSprites[data->spriteId].y = y + 120;
-@@ -1265,6 +1285,6 @@
+@@ -1265,7 +1292,7 @@
 
  static void ListMenuRemoveRedOutlineCursorObject(u8 taskId)
  {
@@ -169,3 +183,4 @@
 +    struct RedOutlineCursor *data = OUTLINE_CURSOR_DATA(taskId);
 
      Free(data->subspritesPtr);
+

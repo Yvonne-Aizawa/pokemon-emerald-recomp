@@ -13,7 +13,7 @@
  * that is blocked in a system call is unsafe, and those aren't re-entrant
  * anyway. Otherwise it is retried shortly after.
  *
- * 32-bit x86 only, like the rest of the port.
+ * 32-bit x86 and x86-64.
  */
 
 #define WIN32_LEAN_AND_MEAN
@@ -23,8 +23,15 @@
 
 #include <stdint.h>
 
-#if !defined(__i386__)
-#error "irq_timer_win32.c: the trampoline is 32-bit x86 only"
+#if !defined(__i386__) && !defined(__x86_64__)
+#error "irq_timer_win32.c: the trampoline is x86 only"
+#endif
+
+/* The instruction pointer in a CONTEXT. */
+#if defined(__i386__)
+#define CONTEXT_PC Eip
+#else
+#define CONTEXT_PC Rip
 #endif
 
 /* When the game thread isn't in game code, try again after this long. */
@@ -61,6 +68,7 @@ void IrqTimer_RunInterrupt(void)
  * irq_resume_address. The C call gets a 16-byte aligned stack; fxsave keeps
  * the SSE registers the game's floating-point code uses. */
 void IrqTrampoline(void) __asm__("irq_trampoline");
+#if defined(__i386__)
 __asm__(
     ".text\n"
     ".globl irq_trampoline\n"
@@ -80,6 +88,62 @@ __asm__(
     "    popfl\n"
     "    ret\n"
 );
+#else
+/* x86-64 has no pushal: every general register goes on the stack by hand
+ * (Windows x64 has no red zone, so the interrupted code keeps nothing below
+ * its rsp). %rbp holds the saved stack pointer across the call: it is
+ * callee-saved in the Windows x64 ABI. The call also gets the 32 bytes of
+ * shadow space that ABI requires. */
+__asm__(
+    ".text\n"
+    ".globl irq_trampoline\n"
+    "irq_trampoline:\n"
+    "    pushq irq_resume_address(%rip)\n"
+    "    pushfq\n"
+    "    pushq %rax\n"
+    "    pushq %rcx\n"
+    "    pushq %rdx\n"
+    "    pushq %rbx\n"
+    "    pushq %rbp\n"
+    "    pushq %rsi\n"
+    "    pushq %rdi\n"
+    "    pushq %r8\n"
+    "    pushq %r9\n"
+    "    pushq %r10\n"
+    "    pushq %r11\n"
+    "    pushq %r12\n"
+    "    pushq %r13\n"
+    "    pushq %r14\n"
+    "    pushq %r15\n"
+    "    movq %rsp, %rbp\n"
+    "    subq $512, %rsp\n"
+    "    andq $-16, %rsp\n"
+    "    fxsave (%rsp)\n"
+    "    subq $32, %rsp\n"
+    "    cld\n"
+    "    call irq_run_interrupt\n"
+    "    addq $32, %rsp\n"
+    "    fxrstor (%rsp)\n"
+    "    movq %rbp, %rsp\n"
+    "    popq %r15\n"
+    "    popq %r14\n"
+    "    popq %r13\n"
+    "    popq %r12\n"
+    "    popq %r11\n"
+    "    popq %r10\n"
+    "    popq %r9\n"
+    "    popq %r8\n"
+    "    popq %rdi\n"
+    "    popq %rsi\n"
+    "    popq %rbp\n"
+    "    popq %rbx\n"
+    "    popq %rdx\n"
+    "    popq %rcx\n"
+    "    popq %rax\n"
+    "    popfq\n"
+    "    ret\n"
+);
+#endif
 
 /* With the game thread suspended: true if the interrupt was injected. */
 static BOOL Inject(void)
@@ -89,10 +153,10 @@ static BOOL Inject(void)
     context.ContextFlags = CONTEXT_CONTROL;
     if (!GetThreadContext(sGameThread, &context))
         return FALSE;
-    if (context.Eip < (uintptr_t)sImageBase || context.Eip >= (uintptr_t)sTextEnd)
+    if (context.CONTEXT_PC < (uintptr_t)sImageBase || context.CONTEXT_PC >= (uintptr_t)sTextEnd)
         return FALSE;
-    gIrqResumeAddress = context.Eip;
-    context.Eip = (uintptr_t)IrqTrampoline;
+    gIrqResumeAddress = context.CONTEXT_PC;
+    context.CONTEXT_PC = (uintptr_t)IrqTrampoline;
     if (!SetThreadContext(sGameThread, &context))
         return FALSE;
     InterlockedExchange(&sPending, 1);

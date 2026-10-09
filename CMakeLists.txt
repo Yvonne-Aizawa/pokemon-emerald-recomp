@@ -496,6 +496,11 @@ set(REFERENCE_ASM_CPPFLAGS
 set(HOST_ASFLAGS)
 if(NOT WIN32)
     list(APPEND HOST_ASFLAGS -Wa,--noexecstack)   # ELF only
+else()
+    # COFF's assembler drops local labels starting with "L" (LilycoveCity,
+    # ...) from the symbol table; keep them for crash reports and
+    # verify_native_data.py, which finds map headers by name.
+    list(APPEND HOST_ASFLAGS -Wa,--keep-locals)
 endif()
 if(PKM_HOST_32BIT)
     list(APPEND REFERENCE_ASM_CPPFLAGS -m32)
@@ -958,7 +963,7 @@ if(ARM_NONE_EABI_GCC)
         list(APPEND _abi_flags -mno-ms-bitfields)
     endif()
     add_test(NAME data-abi-matches-gba
-        COMMAND ${CMAKE_COMMAND} -E env HOST_OBJDUMP=${CMAKE_OBJDUMP} HOST_OBJCOPY=${CMAKE_OBJCOPY}
+        COMMAND ${CMAKE_COMMAND} -E env HOST_OBJDUMP=${CMAKE_OBJDUMP} HOST_OBJCOPY=${CMAKE_OBJCOPY} HOST_NM=${CMAKE_NM}
                 ${Python3_EXECUTABLE} "${TOOLS_DIR}/verify_data_abi.py"
                 "${REFERENCE_DIR}" "${CMAKE_BINARY_DIR}" ${CMAKE_C_COMPILER} ${_abi_flags}
     )

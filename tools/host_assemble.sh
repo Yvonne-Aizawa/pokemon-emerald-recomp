@@ -46,6 +46,7 @@
 #   Symbol names    32-bit Windows C names carry a leading underscore, so every
 #                   global symbol the object defines or references is renamed
 #                   with HOST_OBJCOPY/HOST_NM (environment), after assembling.
+#                   64-bit Windows names have none, as on Linux.
 
 set -euo pipefail
 
@@ -86,6 +87,9 @@ add_symbol_underscores() {
 target_is_windows() {
     [[ $("$@" -dM -E -x c /dev/null) == *"#define _WIN32 "* ]]
 }
+target_prefixes_underscore() {
+    [[ $("$@" -dM -E -x c /dev/null) == *"#define __USER_LABEL_PREFIX__ _"* ]]
+}
 
 # Audio metadata uses native pointers; bytecode still uses GBA words.
 data_to_host() {
@@ -100,6 +104,7 @@ data_asm_tool="$(dirname "$(realpath "$0")")/host_data_asm.py"
 mode=$1
 shift
 windows=0
+underscore=0
 pointer64=0
 
 case $mode in
@@ -111,6 +116,7 @@ data)
     while [[ $1 != -- ]]; do cpp_cmd+=("$1"); shift; done
     shift
     target_is_windows "$@" && windows=1
+    target_prefixes_underscore "$@" && underscore=1
     if [[ $("$@" -dM -E -x c /dev/null) == *"#define __SIZEOF_POINTER__ 8"* ]]; then pointer64=1; fi
     cd "$refdir"
     input=$src
@@ -126,13 +132,14 @@ data)
         | arm_to_host \
         | data_to_host \
         | "$@" -c -x assembler -o "$out" -
-    if [[ $windows == 1 ]]; then add_symbol_underscores "$out"; fi
+    if [[ $underscore == 1 ]]; then add_symbol_underscores "$out"; fi
     ;;
 song)
     refdir=$1 host_sound=$2 out=$3 src=$4
     shift 4
     [[ $1 == -- ]] && shift
     target_is_windows "$@" && windows=1
+    target_prefixes_underscore "$@" && underscore=1
     if [[ $("$@" -dM -E -x c /dev/null) == *"#define __SIZEOF_POINTER__ 8"* ]]; then pointer64=1; fi
     cd "$refdir"
     if [[ ! -f $host_sound/MPlayDef.s || sound/MPlayDef.s -nt $host_sound/MPlayDef.s ]]; then
@@ -143,7 +150,7 @@ song)
     arm_to_host "$src" \
         | data_to_host \
         | "$@" -c -x assembler "-Wa,-I$host_sound" -Wa,-Isound -o "$out" -
-    if [[ $windows == 1 ]]; then add_symbol_underscores "$out"; fi
+    if [[ $underscore == 1 ]]; then add_symbol_underscores "$out"; fi
     ;;
 inc)
     refdir=$1 outdir=$2
