@@ -4,8 +4,8 @@
  * SDL2 implementation of platform.h: a window showing the 240x160
  * framebuffer at an integer scale, the OS event loop, input (via
  * input_sdl2.c), and timing. F11 or Alt+Enter switch between the window and
- * borderless fullscreen (the desktop's resolution, letterboxed); Tab switches
- * fast-forward (Platform_TakeFastForwardToggle).
+ * borderless fullscreen (the desktop's resolution, letterboxed); F10 saves a
+ * screenshot; Tab switches fast-forward (Platform_TakeFastForwardToggle).
  *
  * Runs without a display under SDL_VIDEODRIVER=dummy (the tests do this).
  */
@@ -173,6 +173,50 @@ static void ToggleFullscreen(void)
         fprintf(stderr, "video: could not switch fullscreen: %s\n", SDL_GetError());
 }
 
+/* Save the current GBA framebuffer in the working directory. */
+static void SaveScreenshot(void)
+{
+    SDL_Surface *surface;
+    char path[64];
+    unsigned index;
+
+    surface = SDL_CreateRGBSurfaceWithFormatFrom(sFramebuffer,
+                                                  PLATFORM_SCREEN_WIDTH,
+                                                  PLATFORM_SCREEN_HEIGHT,
+                                                  32,
+                                                  PLATFORM_SCREEN_WIDTH * sizeof(sFramebuffer[0]),
+                                                  SDL_PIXELFORMAT_XRGB8888);
+    if (surface == NULL)
+    {
+        fprintf(stderr, "screenshot: could not create image: %s\n", SDL_GetError());
+        return;
+    }
+
+    for (index = 1; index < 1000000; index++)
+    {
+        FILE *file;
+
+        snprintf(path, sizeof(path), "screenshot-%04u.bmp", index);
+        file = fopen(path, "rb");
+        if (file == NULL)
+            break;
+        fclose(file);
+    }
+    if (index == 1000000)
+        fprintf(stderr, "screenshot: no unused screenshot filename available\n");
+    else if (SDL_SaveBMP(surface, path) != 0)
+        fprintf(stderr, "screenshot: could not save %s: %s\n", path, SDL_GetError());
+    else
+        printf("screenshot: saved %s\n", path);
+    SDL_FreeSurface(surface);
+}
+
+static bool IsScreenshotKey(const SDL_Event *event)
+{
+    return event->type == SDL_KEYDOWN
+        && event->key.keysym.scancode == SDL_SCANCODE_F10;
+}
+
 /* F11 or Alt+Enter; these key presses don't reach the game. */
 static bool IsFullscreenToggle(const SDL_Event *event)
 {
@@ -203,6 +247,12 @@ void Platform_PollEvents(void)
         {
             if (!event.key.repeat)
                 ToggleFullscreen();
+            continue;
+        }
+        if (IsScreenshotKey(&event))
+        {
+            if (!event.key.repeat)
+                SaveScreenshot();
             continue;
         }
         if (IsFastForwardKey(&event))
