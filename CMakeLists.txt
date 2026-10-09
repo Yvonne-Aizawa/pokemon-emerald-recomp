@@ -72,6 +72,11 @@ endforeach()
 # sections, as on the GBA; a position-independent executable would need text
 # relocations for them.
 add_link_options(-no-pie)
+# Linux x86-64 defaults to 0x00400000; tagged script pointers require code
+# in the GBA ROM window, just as with the 32-bit executable.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+    add_link_options(-Wl,-Ttext-segment=0x08000000)
+endif()
 
 # Sanitizers (PLAN.md, Phase 19a): e.g. -DPKM_SANITIZE=address,undefined
 # reports reads through NULL or past an array -- which the GBA tolerates
@@ -183,8 +188,25 @@ foreach(_entry ${_ref_inc_entries})
             if(EXISTS "${PLATFORM_DIR}/upstream_tests/include/test/${_header}")
                 set(_target "${PLATFORM_DIR}/upstream_tests/include/test/${_header}")
             endif()
-            file(CREATE_LINK "${_target}" "${HOST_INC}/test/${_header}" SYMBOLIC)
+            if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND (_header STREQUAL "test.h" OR _header STREQUAL "battle.h"))
+                # PC port: GCC otherwise aligns the 40-byte Test records to
+                # 32 bytes, inserting gaps in the linker-collected array.
+                file(READ "${_target}" _test_header_text)
+                string(REPLACE "section(\".tests\"), used" "section(\".tests\"), aligned(sizeof(void *)), used"
+                    _test_header_text "${_test_header_text}")
+                file(WRITE "${HOST_INC}/test/${_header}" "${_test_header_text}")
+            else()
+                file(CREATE_LINK "${_target}" "${HOST_INC}/test/${_header}" SYMBOLIC)
+            endif()
         endforeach()
+    elseif(_entry STREQUAL "metaprogram.h")
+        # PC port: the null-dereference trick inside __builtin_constant_p
+        # triggers UBSan. choose_expr tests compile-time truth without UB.
+        file(READ "${REFERENCE_INC}/${_entry}" _metaprogram_text)
+        string(REPLACE "__builtin_constant_p((cond) ? 0 : *(int *)0)"
+            "__builtin_choose_expr(__builtin_constant_p(cond), (cond), 0)"
+            _metaprogram_text "${_metaprogram_text}")
+        file(WRITE "${HOST_INC}/${_entry}" "${_metaprogram_text}")
     else()
         file(CREATE_LINK "${REFERENCE_INC}/${_entry}" "${HOST_INC}/${_entry}" SYMBOLIC)
     endif()
@@ -484,6 +506,10 @@ set(REFERENCE_ASM_OBJS)
 foreach(_src ${REFERENCE_DATA_ASM})
     get_filename_component(_name "${_src}" NAME_WE)
     set(_out "${ASM_DIR}/data/${_name}.o")
+    set(_asm_patch_deps)
+    if(EXISTS "${PATCH_DIR}/${_src}.patch")
+        list(APPEND _asm_patch_deps "${PATCH_DIR}/${_src}.patch")
+    endif()
     add_custom_command(
         OUTPUT "${_out}"
         COMMAND ${CMAKE_COMMAND} -E env HOST_NM=${CMAKE_NM} HOST_OBJCOPY=${CMAKE_OBJCOPY}
@@ -491,7 +517,7 @@ foreach(_src ${REFERENCE_DATA_ASM})
                 "${REFERENCE_DIR}" "${PREPROC_TOOL}" "${_out}" "${_out}.d" "${_src}"
                 -- ${CMAKE_C_COMPILER} ${REFERENCE_ASM_CPPFLAGS}
                 -- ${CMAKE_C_COMPILER} ${HOST_ASFLAGS}
-        DEPENDS "${REFERENCE_DIR}/${_src}" "${PREPARE_STAMP}" "${TOOLS_DIR}/host_assemble.sh"
+        DEPENDS "${REFERENCE_DIR}/${_src}" "${PREPARE_STAMP}" "${TOOLS_DIR}/host_assemble.sh" "${TOOLS_DIR}/host_data_asm.py" ${_asm_patch_deps}
         DEPFILE "${_out}.d"
         COMMENT "Assembling ${_src}"
         VERBATIM
@@ -508,7 +534,7 @@ foreach(_mid ${_ref_mid})
                 bash "${TOOLS_DIR}/host_assemble.sh" song
                 "${REFERENCE_DIR}" "${ASM_DIR}/sound" "${_out}" "sound/songs/midi/${_name}.s"
                 -- ${CMAKE_C_COMPILER} ${HOST_ASFLAGS}
-        DEPENDS "${REFERENCE_DIR}/${_mid}" "${REFERENCE_DIR}/sound/MPlayDef.s" "${PREPARE_STAMP}" "${TOOLS_DIR}/host_assemble.sh"
+        DEPENDS "${REFERENCE_DIR}/${_mid}" "${REFERENCE_DIR}/sound/MPlayDef.s" "${PREPARE_STAMP}" "${TOOLS_DIR}/host_assemble.sh" "${TOOLS_DIR}/host_data_asm.py"
         COMMENT "Assembling song ${_name}"
         VERBATIM
     )
@@ -525,6 +551,13 @@ add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/save_symbols.inc"
     COMMAND ${Python3_EXECUTABLE} "${CMAKE_SOURCE_DIR}/platform/tools/save_symbols.py"
             "${REFERENCE_DIR}" "${CMAKE_BINARY_DIR}/save_symbols.inc"
     DEPENDS "${CMAKE_SOURCE_DIR}/platform/tools/save_symbols.py" ${SAVE_SYMBOL_HEADERS} "${REFERENCE_DIR}/charmap.txt"
+    VERBATIM)
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/save_abi.inc"
+    COMMAND ${Python3_EXECUTABLE} "${TOOLS_DIR}/save_abi.py"
+            "${PLATFORM_DIR}/src/host_save_layout.inc" "${PLATFORM_DIR}/src/host_save_layout_64.inc"
+            "${CMAKE_BINARY_DIR}/save_abi.inc"
+    DEPENDS "${TOOLS_DIR}/save_abi.py" "${PLATFORM_DIR}/src/host_save_layout.inc"
+            "${PLATFORM_DIR}/src/host_save_layout_64.inc"
     VERBATIM)
 # The map list for --visit-maps (host_visit_maps.c).
 add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/map_names.inc"
@@ -551,6 +584,7 @@ function(pkm_core_library target objects)
     add_library(${target} STATIC
         ${PLATFORM_SOURCES}
         "${CMAKE_BINARY_DIR}/save_symbols.inc"
+        "${CMAKE_BINARY_DIR}/save_abi.inc"
         "${CMAKE_BINARY_DIR}/map_names.inc"
         $<TARGET_OBJECTS:${objects}>
         ${REFERENCE_ASM_OBJS}
@@ -590,7 +624,12 @@ target_include_directories(save-layout-probe PRIVATE ${PLATFORM_INC})
 target_compile_options(save-layout-probe PRIVATE -g -idirafter "${HOST_INC}" -fno-canonical-system-headers)
 target_compile_definitions(save-layout-probe PRIVATE MODERN=1 HOST_BUILD=1)
 add_dependencies(save-layout-probe reference-objs)
-set(SAVE_LAYOUT_INC "${PLATFORM_DIR}/src/host_save_layout.inc")
+# Pointer-bearing save structs have different layouts on 32- and 64-bit hosts.
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(SAVE_LAYOUT_INC "${PLATFORM_DIR}/src/host_save_layout_64.inc")
+else()
+    set(SAVE_LAYOUT_INC "${PLATFORM_DIR}/src/host_save_layout.inc")
+endif()
 # A Python with pyelftools: CMake's own, else the system's python3.
 set(SAVE_LAYOUT_PYTHON "")
 find_program(_system_python3 NAMES python3 PATHS /usr/bin NO_DEFAULT_PATH)
@@ -629,6 +668,8 @@ if(WIN32 OR PKM_SANITIZE)
     list(FILTER PLATFORM_TEST_SOURCES EXCLUDE REGEX "/test_crash_handler\\.c$")
 endif()
 enable_testing()
+add_test(NAME host-data-assembly
+    COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tests/test_host_data_asm.py")
 add_test(NAME checkpoint-setup-regression
     COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tests/test_restore_checkpoints.py")
 
@@ -780,6 +821,16 @@ foreach(_seed 1 2)
         PASS_REGULAR_EXPRESSION "ran ${MONKEY_FRAMES} frames")
 endforeach()
 
+# The overworld debug menu (R + Start), held open for a few seconds: its input
+# task once read an option for every frame with nothing chosen, past the end
+# of the option table (a 64-bit crash; known_crashes.md).
+add_test(NAME debug-menu-open
+    COMMAND pkmemerald --fast -f 3200 -s "${MONKEY_SAVES}/debug-menu"
+            -i "600:a,1300+10:select,2600+20:r,2610+5:r|start")
+set_tests_properties(debug-menu-open PROPERTIES
+    FIXTURES_REQUIRED monkey-saves ENVIRONMENT "${_monkey_env}"
+    PASS_REGULAR_EXPRESSION "ran 3200 frames")
+
 #-------------------------------------------------------------------------------
 # Upstream's test suite (reference/test/; PLAN.md, Phase 19b)
 #
@@ -853,6 +904,8 @@ if(PKM_UPSTREAM_TESTS)
     # with upstream's message.
     add_test(NAME upstream-runner-crash COMMAND pkmemerald-tests -j 1 "Tests resume after CRASH")
     add_test(NAME upstream-runner-fatalf COMMAND pkmemerald-tests -j 1 "fatalf counts as CRASH")
+    add_test(NAME upstream-runner-exit COMMAND pkmemerald-tests -j 1 "Host runner: exit(1) counts as CRASH")
+    add_test(NAME upstream-host-regressions COMMAND pkmemerald-tests -j 1 "Host regression")
     add_test(NAME upstream-runner-player-name COMMAND pkmemerald-tests -j 1 "Tests initialize a terminated player name")
     add_test(NAME upstream-runner-detects-failure COMMAND pkmemerald-tests -j 1 "Host runner self-test")
     # Battles (19b-3, 19b-4): the framework's own tests, and the battle tests
@@ -869,19 +922,31 @@ if(PKM_UPSTREAM_TESTS)
     # The tests don't draw their frames (too slow), so this one does, to put
     # the renderer through every species' front animation (host_render.c).
     add_test(NAME upstream-runner-draw COMMAND pkmemerald-tests -j 1 --draw test/battle/front_anim.c)
-    set_tests_properties(${_upstream_test_names} upstream-runner-crash upstream-runner-fatalf
+    set_tests_properties(${_upstream_test_names} upstream-runner-crash upstream-runner-fatalf upstream-runner-exit
                          upstream-runner-player-name upstream-runner-detects-failure
-                         upstream-runner-battle upstream-battle upstream-runner-draw
+                         upstream-runner-battle upstream-battle upstream-runner-draw upstream-host-regressions
         PROPERTIES ENVIRONMENT "${HEADLESS_TEST_ENV}")
-    set_tests_properties(upstream-runner-crash upstream-runner-fatalf PROPERTIES
+    # Let the intentional SIGSEGV reach the parent instead of ASan converting
+    # it to a normal exit(1), which cannot be resumed as a crashed test.
+    if(PKM_SANITIZE MATCHES "address")
+        set_property(TEST upstream-runner-crash APPEND PROPERTY ENVIRONMENT "ASAN_OPTIONS=handle_segv=0:detect_leaks=0")
+        # Battle captures encode addresses on the runner's low ucontext stack.
+        # ASan's fake stack moves those locals outside the encoded address range.
+        set_property(TEST upstream-battle upstream-runner-draw APPEND PROPERTY ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:detect_stack_use_after_return=0")
+        set_property(TEST upstream-runner-battle APPEND PROPERTY ENVIRONMENT "ASAN_OPTIONS=handle_segv=0:detect_leaks=0:detect_stack_use_after_return=0")
+    endif()
+    if(PKM_SANITIZE)
+        set_property(TEST upstream-battle upstream-runner-battle upstream-runner-draw
+                     APPEND PROPERTY ENVIRONMENT "UBSAN_OPTIONS=print_stacktrace=1")
+    endif()
+    set_tests_properties(upstream-runner-crash upstream-runner-fatalf upstream-runner-exit PROPERTIES
         PASS_REGULAR_EXPRESSION "1 tests: 0 passed, 0 failed, 0 known failing, 1 expected failures")
     set_tests_properties(upstream-runner-detects-failure PROPERTIES
         PASS_REGULAR_EXPRESSION "a failing EXPECT_EQ fails: [^\n]*FAIL.*host_runner_selftest.c:[0-9]+: EXPECT_EQ\\(1, 2\\) failed.*1 tests: 0 passed, 1 failed")
 endif()
 
-# The host build must read upstream's assembled data exactly as the GBA does:
-# identical bytes and relocations, and identical struct layouts. Checked
-# against upstream's own ARM toolchain when it's installed.
+# Check GBA bytecode/ROM data against upstream's ARM build. Native 64-bit
+# metadata is additionally checked against source JSON/assembly and C offsets.
 find_program(ARM_NONE_EABI_GCC arm-none-eabi-gcc)
 if(ARM_NONE_EABI_GCC)
     # The flags that decide struct layout, as the game is compiled with.

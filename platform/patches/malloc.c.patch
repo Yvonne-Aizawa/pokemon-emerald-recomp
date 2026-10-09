@@ -1,6 +1,6 @@
 --- a/src/malloc.c
 +++ b/src/malloc.c
-@@ -1,9 +1,35 @@
+@@ -1,13 +1,46 @@
 +#if PKM_ASAN
 +#include <sanitizer/asan_interface.h>
 +#endif
@@ -28,31 +28,54 @@
  #if TESTING
  #include "test/test.h"
  #endif
- 
+
 +#ifdef HOST_BUILD
 +void Dma3_DetachRequestsFrom(const void *start, u32 size);  // dma3_manager.c.patch
 +#endif
 +
  static void *sHeapStart;
  static u32 sHeapSize;
- 
-@@ -66,6 +92,7 @@
+
+-ALIGNED(4) EWRAM_DATA u8 gHeap[HEAP_SIZE] = {0};
++// PC port: native block headers contain pointers; both the heap and every
++// split must preserve their alignment (four bytes on the GBA).
++#if defined(HOST_BUILD) && __SIZEOF_POINTER__ > 4
++#define HEAP_ALIGNMENT __alignof__(struct MemBlock)
++#else
++#define HEAP_ALIGNMENT 4
++#endif
++ALIGNED(HEAP_ALIGNMENT) EWRAM_DATA u8 gHeap[HEAP_SIZE] = {0};
+
+ void PutMemBlockHeader(void *block, struct MemBlock *prev, struct MemBlock *next, u32 size)
+ {
+@@ -35,8 +68,8 @@
+     u32 foundBlockSize;
+
+     // Alignment
+-    if (size & 3)
+-        size = 4 * ((size / 4) + 1);
++    if (size & (HEAP_ALIGNMENT - 1))
++        size = HEAP_ALIGNMENT * ((size / HEAP_ALIGNMENT) + 1);
+
+     for (;;)
+     {
+@@ -66,6 +99,7 @@
                      pos->allocated = TRUE;
                      pos->size = size;
- 
+
 +                    HEAP_UNPOISON(splitBlock, sizeof(struct MemBlock));
                      PutMemBlockHeader(splitBlock, pos, pos->next, foundBlockSize);
- 
+
                      pos->next = splitBlock;
-@@ -77,6 +104,7 @@
+@@ -77,6 +111,7 @@
                  pos->locationHi = ((uintptr_t)location) >> 14;
                  pos->locationLo = (uintptr_t)location;
- 
+
 +                HEAP_UNPOISON(pos->data, size);
                  return pos->data;
              }
          }
-@@ -96,6 +124,12 @@
+@@ -96,6 +131,12 @@
          struct MemBlock *block = (struct MemBlock *)((u8 *)pointer - sizeof(struct MemBlock));
          AGB_ASSERT(block->magic == MALLOC_SYSTEM_ID);
          AGB_ASSERT(block->allocated == TRUE);
@@ -63,10 +86,10 @@
 +        Dma3_DetachRequestsFrom(pointer, block->size);
 +#endif
          block->allocated = FALSE;
- 
+
          // If the freed block isn't the last one, merge with the next block
-@@ -127,8 +161,11 @@
- 
+@@ -127,8 +168,11 @@
+
                  block->magic = 0;
                  block->prev->size += sizeof(struct MemBlock) + block->size;
 +                block = block->prev;
@@ -76,8 +99,19 @@
 +        HEAP_POISON(block->data, block->size);
      }
  }
- 
-@@ -151,6 +188,8 @@
+
+@@ -138,8 +182,8 @@
+
+     if (mem != NULL)
+     {
+-        if (size & 3)
+-            size = 4 * ((size / 4) + 1);
++        if (size & (HEAP_ALIGNMENT - 1))
++            size = HEAP_ALIGNMENT * ((size / HEAP_ALIGNMENT) + 1);
+
+         CpuFill32(0, mem, size);
+     }
+@@ -151,6 +195,8 @@
  {
      sHeapStart = heapStart;
      sHeapSize = heapSize;
@@ -85,4 +119,4 @@
 +    HEAP_UNPOISON(heapStart, sizeof(struct MemBlock));
      PutFirstMemBlockHeader(heapStart, heapSize);
  }
- 
+

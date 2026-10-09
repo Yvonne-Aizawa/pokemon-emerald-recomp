@@ -54,6 +54,19 @@ struct WaveData
 #define TONEDATA_P_S_PAN    0xc0
 #define TONEDATA_P_S_PAM    TONEDATA_P_S_PAN
 
+/* PC port: ROM voices always contain a 32-bit address and occupy 12 bytes.
+ * Runtime ToneData below holds a native pointer after decoding. */
+#if __SIZEOF_POINTER__ == 8
+struct RomToneData
+{
+    u8 type, key, length, pan_sweep;
+    u32 wav;
+    u8 attack, decay, sustain, release;
+};
+#else
+#define RomToneData ToneData
+#endif
+
 struct ToneData
 {
     u8 type;
@@ -226,7 +239,7 @@ struct SongHeader
     u8 blockCount;
     u8 priority;
     u8 reverb;
-    struct ToneData *tone;
+    struct RomToneData *tone;
     u8 *part[1];
 };
 
@@ -236,7 +249,7 @@ struct PokemonCrySong
     u8 blockCount;
     u8 priority;
     u8 reverb;
-    struct ToneData *tone;
+    struct RomToneData *tone;
     u8 *part[2];
     u8 gap;
     u8 part0; // 0x11
@@ -343,7 +356,7 @@ struct MusicPlayerInfo
     u16 fadeOC;
     u16 fadeOV;
     struct MusicPlayerTrack *tracks;
-    struct ToneData *tone;
+    struct RomToneData *tone;
     u32 ident;
     MPlayMainFunc MPlayMainNext;
     struct MusicPlayerInfo *musicPlayerNext;
@@ -401,7 +414,7 @@ extern const u8 gNoiseTable[];
 
 extern const struct PokemonCrySong gPokemonCrySongTemplate;
 
-extern const struct ToneData voicegroup_dummy;
+extern const struct RomToneData voicegroup_dummy;
 
 #ifdef HOST_BUILD
 // PC port: on the GBA these two are linker-script symbols whose *addresses*
@@ -455,7 +468,7 @@ void m4aMPlayPitchControl(struct MusicPlayerInfo *mplayInfo, u16 trackBits, s16 
 void m4aMPlayPanpotControl(struct MusicPlayerInfo *mplayInfo, u16 trackBits, s8 pan);
 void ClearModM(struct MusicPlayerTrack *track);
 
-struct MusicPlayerInfo *SetPokemonCryTone(struct ToneData *tone);
+struct MusicPlayerInfo *SetPokemonCryTone(struct RomToneData *tone);
 void SetPokemonCryVolume(u8 val);
 void SetPokemonCryPanpot(s8 val);
 void SetPokemonCryPitch(s16 val);

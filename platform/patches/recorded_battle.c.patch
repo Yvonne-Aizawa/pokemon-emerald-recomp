@@ -1,0 +1,11 @@
+--- a/src/recorded_battle.c
++++ b/src/recorded_battle.c
+@@ -160,7 +160,7 @@
+ {
+     s32 i;
+
+-    for (i = 0; i < bytesToClear; i++)
++    for (i = 0; i < bytesToClear && sBattlerRecordSizes[battler] != 0; i++)
+     {
+         sBattlerRecordSizes[battler]--;
+         sBattleRecords[battler][sBattlerRecordSizes[battler]] = 0xFF;

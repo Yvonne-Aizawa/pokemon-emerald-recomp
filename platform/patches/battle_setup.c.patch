@@ -1,0 +1,60 @@
+--- a/src/battle_setup.c
++++ b/src/battle_setup.c
+@@ -1091,17 +1091,54 @@
+     sTrainerBattleEndScript = NULL;
+ }
+ 
++// PC port: the trainerbattle script command's arguments are bytecode, with
++// four-byte pointers (event.inc), but TrainerBattleParameter's pointers are
++// eight bytes on a 64-bit host, so copying or casting the bytes put the
++// wrong values in its text and script pointers (a trainer that spotted the
++// player crashed on its intro text). Decode the fields one by one; on a
++// 32-bit host this gives the same struct as the copy did.
++#define TRAINER_BATTLE_ARGS_SIZE 40
++_Static_assert(sizeof(void *) != 4 || sizeof(TrainerBattleParameter) == TRAINER_BATTLE_ARGS_SIZE,
++               "trainerbattle's bytecode layout no longer matches TrainerBattleParameter");
++
++static u8 *ReadTrainerBattleArgPtr(const u8 *data)
++{
++    return (u8 *)(uintptr_t)(u32)T1_READ_32(data);
++}
++
++static void DecodeTrainerBattleArgs(const u8 *data, TrainerBattleParameter *out)
++{
++    memset(out, 0, sizeof(*out));
++    out->data[0] = data[0];  // the flag bitfields
++    out->params.objEventLocalIdA = data[1];
++    out->params.opponentA = T1_READ_16(data + 2);
++    out->params.introTextA = ReadTrainerBattleArgPtr(data + 4);
++    out->params.defeatTextA = ReadTrainerBattleArgPtr(data + 8);
++    out->params.battleScriptRetAddrA = ReadTrainerBattleArgPtr(data + 12);
++    out->params.objEventLocalIdB = data[16];
++    out->params.opponentB = T1_READ_16(data + 17);
++    out->params.introTextB = ReadTrainerBattleArgPtr(data + 19);
++    out->params.defeatTextB = ReadTrainerBattleArgPtr(data + 23);
++    out->params.battleScriptRetAddrB = ReadTrainerBattleArgPtr(data + 27);
++    out->params.victoryText = ReadTrainerBattleArgPtr(data + 31);
++    out->params.cannotBattleText = ReadTrainerBattleArgPtr(data + 35);
++    out->params.rivalBattleFlags = data[39];
++}
++
+ void TrainerBattleLoadArgs(const u8 *data)
+ {
+     InitTrainerBattleParameter();
+-    memcpy(gTrainerBattleParameter.data, data, sizeof(TrainerBattleParameter));
+-    sTrainerBattleEndScript = (u8*)data + sizeof(TrainerBattleParameter);
++    DecodeTrainerBattleArgs(data, &gTrainerBattleParameter);
++    sTrainerBattleEndScript = (u8*)data + TRAINER_BATTLE_ARGS_SIZE;
+ }
+ 
+ // loads trainer A parameter to trainer B. Used for second trainer in trainer_see.c
+ void TrainerBattleLoadArgsSecondTrainer(const u8 *data)
+ {
+-    TrainerBattleParameter *temp = (TrainerBattleParameter*)data;
++    TrainerBattleParameter decoded;
++    TrainerBattleParameter *temp = &decoded;
++
++    DecodeTrainerBattleArgs(data, &decoded);
+ 
+     TRAINER_BATTLE_PARAM.playMusicB = temp->params.playMusicA;
+     TRAINER_BATTLE_PARAM.objEventLocalIdB = temp->params.objEventLocalIdA;

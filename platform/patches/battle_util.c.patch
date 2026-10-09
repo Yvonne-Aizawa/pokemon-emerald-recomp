@@ -1,6 +1,41 @@
 --- a/src/battle_util.c
 +++ b/src/battle_util.c
-@@ -6271,7 +6271,8 @@
+@@ -1001,16 +1001,22 @@
+ void HandleAction_NothingIsFainted(void)
+ {
+     gCurrentTurnActionNumber++;
+-    gCurrentActionFuncId = gActionsByTurnOrder[gCurrentTurnActionNumber];
++    gCurrentActionFuncId = gCurrentTurnActionNumber < gBattlersCount
++        ? gActionsByTurnOrder[gCurrentTurnActionNumber] : B_ACTION_FINISHED;
+ }
+
+ void HandleAction_ActionFinished(void)
+ {
+     u32 i, j;
+-    bool32 afterYouActive = gSpecialStatuses[gBattlerByTurnOrder[gCurrentTurnActionNumber + 1]].afterYou;
++    bool32 afterYouActive = FALSE;
++    if (gCurrentTurnActionNumber + 1 < gBattlersCount)
++        afterYouActive = gSpecialStatuses[gBattlerByTurnOrder[gCurrentTurnActionNumber + 1]].afterYou;
+     gBattleStruct->monToSwitchIntoId[gBattlerByTurnOrder[gCurrentTurnActionNumber]] = gSelectedMonPartyId = PARTY_SIZE;
+     gCurrentTurnActionNumber++;
+-    gCurrentActionFuncId = gActionsByTurnOrder[gCurrentTurnActionNumber];
++    if (gCurrentTurnActionNumber < gBattlersCount)
++        gCurrentActionFuncId = gActionsByTurnOrder[gCurrentTurnActionNumber];
++    else
++        gCurrentActionFuncId = B_ACTION_FINISHED;
+     memset(&gSpecialStatuses, 0, sizeof(gSpecialStatuses));
+
+     gCurrentMove = MOVE_NONE;
+@@ -1841,7 +1847,7 @@
+             {
+                 gBattlerFainted = gBattlerTarget = gBattleStruct->eventState.faintedActionBattler;
+                 if (gBattleMons[gBattlerFainted].hp == 0
+-                 && !(gBattleStruct->givenExpMons[GetBattlerTrainer(gBattlerFainted) & BIT_FLANK] & (1u << gBattlerPartyIndexes[gBattlerFainted]))
++                 && !(gBattleStruct->givenExpMons[(GetBattlerTrainer(gBattlerFainted) & BIT_FLANK) >> 1] & (1u << gBattlerPartyIndexes[gBattlerFainted]))
+                  && !(gAbsentBattlerFlags & (1u << gBattlerFainted)))
+                 {
+                     BattleScriptExecute(BattleScript_GiveExp);
+@@ -6271,7 +6277,8 @@
      case EFFECT_DOUBLE_POWER_ON_ARG_STATUS:
          // Comatose targets treated as if asleep
          if ((gBattleMons[battlerDef].status1 | (STATUS1_SLEEP * (ctx->abilities[ctx->battlerDef] == ABILITY_COMATOSE))) & GetMoveEffectArg_Status(move)
@@ -10,8 +45,21 @@
              basePower *= 2;
          break;
      case EFFECT_POWER_BASED_ON_TARGET_HP:
-@@ -8881,6 +8882,11 @@
- 
+@@ -6325,7 +6332,11 @@
+         basePower += (CountBattlerStatIncreases(battlerAtk, TRUE) * 20);
+         break;
+     case EFFECT_ELECTRO_BALL:
+-        speed = GetBattlerTotalSpeedStat(battlerAtk, ctx->abilities[battlerAtk], ctx->holdEffects[battlerAtk]) / GetBattlerTotalSpeedStat(battlerDef, ctx->abilities[battlerDef], ctx->holdEffects[battlerDef]);
++        speed = GetBattlerTotalSpeedStat(battlerDef, ctx->abilities[battlerDef], ctx->holdEffects[battlerDef]);
++        if (speed == 0)
++            speed = ARRAY_COUNT(sSpeedDiffPowerTable) - 1;
++        else
++            speed = GetBattlerTotalSpeedStat(battlerAtk, ctx->abilities[battlerAtk], ctx->holdEffects[battlerAtk]) / speed;
+         if (speed >= ARRAY_COUNT(sSpeedDiffPowerTable))
+             speed = ARRAY_COUNT(sSpeedDiffPowerTable) - 1;
+         basePower = sSpeedDiffPowerTable[speed];
+@@ -8881,6 +8892,11 @@
+
  struct Pokemon *GetIllusionMonPtr(enum BattlerId battler)
  {
 +    // PC port: battle strings can be expanded outside a battle (upstream's
@@ -22,3 +70,12 @@
      if (gBattleStruct->illusion[battler].state == ILLUSION_NOT_SET)
          SetIllusionMon(GetBattlerMon(battler), battler);
      if (gBattleStruct->illusion[battler].state != ILLUSION_ON)
+@@ -10986,7 +11002,7 @@
+                 struct Pokemon *monAtk = GetBattlerMon(gBattlerAttacker);
+                 struct Pokemon *monDef = GetBattlerMon(gBattlerTarget);
+                 // We only have 10 bits to use
+-                u16 val = min(1023, GetMonData(monAtk, MON_DATA_EVOLUTION_TRACKER) + upAmount);
++                u32 val = min(1023, GetMonData(monAtk, MON_DATA_EVOLUTION_TRACKER) + upAmount);
+                 // Reset progress if you faint for the recoil method.
+                 switch (evolutionCondition)
+                 {

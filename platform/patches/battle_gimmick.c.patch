@@ -13,4 +13,23 @@
 +        return GIMMICK_NONE;
      return gBattleStruct->gimmick.activeGimmick[GetBattlerTrainer(battler)][gBattlerPartyIndexes[battler]];
  }
- 
+
+@@ -266,7 +273,18 @@
+ void LoadIndicatorSpritesGfx(void)
+ {
+     LoadSpritePalette(&sSpritePalette_MiscIndicator);
++#ifdef HOST_BUILD
++    // PC port: the PNG has only 15 palette entries; sprite palettes always
++    // load 16. Supply the missing entry without reading past the asset.
++    u16 megaPalette[16] = {0};
++    struct SpritePalette mega = sSpritePalette_MegaIndicator;
++    STATIC_ASSERT(sizeof(sMegaIndicatorPal) <= sizeof(megaPalette), MegaIndicatorPaletteSize);
++    memcpy(megaPalette, sMegaIndicatorPal, sizeof(sMegaIndicatorPal));
++    mega.data = megaPalette;
++    LoadSpritePalette(&mega);
++#else
+     LoadSpritePalette(&sSpritePalette_MegaIndicator);
++#endif
+     LoadSpritePalette(&sSpritePalette_TeraIndicator);
+ }
+

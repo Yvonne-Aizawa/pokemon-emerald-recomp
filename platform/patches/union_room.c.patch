@@ -1,0 +1,69 @@
+--- a/src/union_room.c
++++ b/src/union_room.c
+@@ -3462,11 +3462,20 @@
+     return retVal;
+ }
+
++// PC port: task halfwords cannot hold aligned native pointer arrays. Keep
++// these pointers separately so data[2]/data[4] remain the link-group fields.
++#if defined(HOST_BUILD) && __SIZEOF_POINTER__ > 4
++static struct RfuIncomingPlayerList *sHostIncomingLists[NUM_TASKS][2];
++#define INCOMING_LIST_DATA(id) (sHostIncomingLists[id])
++#else
++#define INCOMING_LIST_DATA(id) ((struct RfuIncomingPlayerList **)gTasks[id].data)
++#endif
++
+ static void Task_SearchForChildOrParent(u8 taskId)
+ {
+     s32 i, j;
+     struct RfuPlayerData rfu;
+-    struct RfuIncomingPlayerList **list = (void *) gTasks[taskId].data;
++    struct RfuIncomingPlayerList **list = INCOMING_LIST_DATA(taskId);
+     bool8 isParent;
+
+     for (i = 0; i < RFU_CHILD_MAX; i++)
+@@ -3499,7 +3508,7 @@
+ static u8 CreateTask_SearchForChildOrParent(struct RfuIncomingPlayerList *parentList, struct RfuIncomingPlayerList *childList, u32 linkGroup)
+ {
+     u8 taskId = CreateTask(Task_SearchForChildOrParent, 0);
+-    struct RfuIncomingPlayerList **data = (void *)gTasks[taskId].data;
++    struct RfuIncomingPlayerList **data = INCOMING_LIST_DATA(taskId);
+     data[0] = parentList;
+     data[1] = childList;
+     gTasks[taskId].data[4] = linkGroup;
+@@ -3509,7 +3518,7 @@
+ static void Task_ListenForCompatiblePartners(u8 taskId)
+ {
+     s32 i, j;
+-    struct RfuIncomingPlayerList **list = (void *) gTasks[taskId].data;
++    struct RfuIncomingPlayerList **list = INCOMING_LIST_DATA(taskId);
+
+     for (i = 0; i < RFU_CHILD_MAX; i++)
+     {
+@@ -3552,7 +3561,7 @@
+ static void Task_ListenForWonderDistributor(u8 taskId)
+ {
+     s32 i;
+-    struct RfuIncomingPlayerList **list = (void *) gTasks[taskId].data;
++    struct RfuIncomingPlayerList **list = INCOMING_LIST_DATA(taskId);
+
+     for (i = 0; i < RFU_CHILD_MAX; i++)
+     {
+@@ -3566,7 +3575,7 @@
+ static u8 CreateTask_ListenForCompatiblePartners(struct RfuIncomingPlayerList *list, u32 linkGroup)
+ {
+     u8 taskId = CreateTask(Task_ListenForCompatiblePartners, 0);
+-    struct RfuIncomingPlayerList **oldList = (void *) gTasks[taskId].data;
++    struct RfuIncomingPlayerList **oldList = INCOMING_LIST_DATA(taskId);
+     oldList[0] = list;
+     gTasks[taskId].data[2] = linkGroup;
+     return taskId;
+@@ -3575,7 +3584,7 @@
+ static u8 CreateTask_ListenForWonderDistributor(struct RfuIncomingPlayerList *list, u32 linkGroup)
+ {
+     u8 taskId = CreateTask(Task_ListenForWonderDistributor, 0);
+-    struct RfuIncomingPlayerList **oldList = (void *) gTasks[taskId].data;
++    struct RfuIncomingPlayerList **oldList = INCOMING_LIST_DATA(taskId);
+     oldList[0] = list;
+     gTasks[taskId].data[2] = linkGroup;
+     return taskId;

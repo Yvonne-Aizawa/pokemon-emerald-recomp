@@ -54,8 +54,13 @@ set -euo pipefail
 # no `@` hides inside a string.
 arm_to_host() {
     local coff=()
+    # PC port: the native 64-bit player table is defined in C, so its pointer
+    # widths and track allocations follow the host ABI.
+    if [[ ${pointer64:-0} == 1 ]]; then
+        coff+=(-e 's/\<gMPlayTable\>/gMPlayTableGba/g')
+    fi
     if [[ $windows == 1 ]]; then
-        coff=(
+        coff+=(
             -e '/^[[:space:]]*\.(type|size)[[:space:]]/d'
             -e 's/^([[:space:]]*\.section[[:space:]]+[^,]+),[[:space:]]*"aw",[[:space:]]*%progbits/\1, "dw"/'
             -e 's/^([[:space:]]*\.section[[:space:]]+[^,]+),[[:space:]]*"a",[[:space:]]*%progbits/\1, "dr"/'
@@ -82,9 +87,20 @@ target_is_windows() {
     [[ $("$@" -dM -E -x c /dev/null) == *"#define _WIN32 "* ]]
 }
 
+# Audio metadata uses native pointers; bytecode still uses GBA words.
+data_to_host() {
+    if [[ $pointer64 == 1 ]]; then
+        python3 "$data_asm_tool" "$mode" "${src:-}"
+    else
+        cat
+    fi
+}
+data_asm_tool="$(dirname "$(realpath "$0")")/host_data_asm.py"
+
 mode=$1
 shift
 windows=0
+pointer64=0
 
 case $mode in
 data)
@@ -95,11 +111,20 @@ data)
     while [[ $1 != -- ]]; do cpp_cmd+=("$1"); shift; done
     shift
     target_is_windows "$@" && windows=1
+    if [[ $("$@" -dM -E -x c /dev/null) == *"#define __SIZEOF_POINTER__ 8"* ]]; then pointer64=1; fi
     cd "$refdir"
-    "$preproc" "$src" charmap.txt \
+    input=$src
+    source_patch="$(dirname "$data_asm_tool")/../platform/patches/$src.patch"
+    if [[ -f $source_patch ]]; then
+        input="$out.input.s"
+        trap 'rm -f "$input"' EXIT
+        patch --quiet --force -o "$input" "$src" "$source_patch"
+    fi
+    "$preproc" "$input" charmap.txt \
         | "${cpp_cmd[@]}" -E -x assembler-with-cpp -MD -MF "$depfile" -MT "$out" - \
         | "$preproc" -ie "$src" charmap.txt \
         | arm_to_host \
+        | data_to_host \
         | "$@" -c -x assembler -o "$out" -
     if [[ $windows == 1 ]]; then add_symbol_underscores "$out"; fi
     ;;
@@ -108,6 +133,7 @@ song)
     shift 4
     [[ $1 == -- ]] && shift
     target_is_windows "$@" && windows=1
+    if [[ $("$@" -dM -E -x c /dev/null) == *"#define __SIZEOF_POINTER__ 8"* ]]; then pointer64=1; fi
     cd "$refdir"
     if [[ ! -f $host_sound/MPlayDef.s || sound/MPlayDef.s -nt $host_sound/MPlayDef.s ]]; then
         mkdir -p "$host_sound"
@@ -115,6 +141,7 @@ song)
         mv "$host_sound/MPlayDef.s.tmp.$$" "$host_sound/MPlayDef.s"
     fi
     arm_to_host "$src" \
+        | data_to_host \
         | "$@" -c -x assembler "-Wa,-I$host_sound" -Wa,-Isound -o "$out" -
     if [[ $windows == 1 ]]; then add_symbol_underscores "$out"; fi
     ;;

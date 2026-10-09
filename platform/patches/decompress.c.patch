@@ -1,7 +1,7 @@
 --- a/src/decompress.c
 +++ b/src/decompress.c
 @@ -207,7 +207,18 @@
- 
+
  u32 LoadCompressedSpriteSheet(const struct CompressedSpriteSheet *src)
  {
 +#ifdef HOST_BUILD
@@ -18,11 +18,11 @@
 +#endif
      u32 ret = DoLoadCompressedSpriteSheet(src, buffer);
      Free(buffer);
- 
+
 @@ -403,11 +414,30 @@
- 
+
  extern void FastUnsafeCopy32(void *, const void *, u32 size);
- 
+
 +#ifdef HOST_BUILD
 +// PC port: the tANS decoders below refill their bit buffer a word ahead, so
 +// at the end of a compressed image they read up to 4 bytes past its array
@@ -47,7 +47,7 @@
 +#define IWRAM_FUNC(funcBuffer, func) ((void *)(funcBuffer))
 +#define HOST_NO_ASAN
 +#endif
- 
+
  // The reason for macros and unrolling the loops stems from the following:
  // currK can be max 6, meaning in the worst case scenario it takes minimum 4 loop iterations, where we don't need to check if bitIndex is >= 32, because it's mathematically impossible for it to be.
 @@ -436,7 +466,7 @@
@@ -61,11 +61,11 @@
      u32 bitIndex = sBitIndex;
 @@ -527,7 +557,7 @@
      u32 funcBuffer[FUNC_BUFFER_SIZE(DecodeLOtANSLoop, SwitchToArmCallLOtANS)];
- 
+
      CopyFuncToIwram(funcBuffer, DecodeLOtANSLoop, SwitchToArmCallLOtANS);
 -    SwitchToArmCallLOtANS(data, sWorkingYkTable, resultVec, &resultVec[count - remainingCount], (void *) funcBuffer);
 +    SwitchToArmCallLOtANS(data, sWorkingYkTable, resultVec, &resultVec[count - remainingCount], IWRAM_FUNC(funcBuffer, DecodeLOtANSLoop));
- 
+
      if (remainingCount)
      {
 @@ -603,7 +633,7 @@
@@ -75,7 +75,7 @@
 -    SwitchToArmCallDecodeSymtANS(data, sWorkingYkTable, resultVec, &resultVec[count], (void *) funcBuffer);
 +    SwitchToArmCallDecodeSymtANS(data, sWorkingYkTable, resultVec, &resultVec[count], IWRAM_FUNC(funcBuffer, DecodeLOtANSLoop));
  }
- 
+
  #define ANS_LOOP_MAIN(nibble)   \
 @@ -620,7 +650,7 @@
  //  Inner loop of tANS decoding for delta encoded symbol data, uses u16 data size
@@ -89,41 +89,54 @@
 @@ -772,7 +802,7 @@
      return decodeFunction(data, ykTable, resultVec, resultVecEnd);
  }
- 
+
 -static void DecodeSymDeltatANS(const u32 *data, const u32 *pFreqs, u16 *resultVec, u32 count)
 +HOST_NO_ASAN static void DecodeSymDeltatANS(const u32 *data, const u32 *pFreqs, u16 *resultVec, u32 count)
  {
      BuildDecompressionTable(pFreqs, sWorkingYkTable);
- 
+
 @@ -781,7 +811,7 @@
- 
+
      u32 funcBuffer[FUNC_BUFFER_SIZE(DecodeSymDeltatANSLoop, SwitchToArmCallSymDeltaANS)];
      CopyFuncToIwram(funcBuffer, DecodeSymDeltatANSLoop, SwitchToArmCallSymDeltaANS);
 -    u32 currSymbol = SwitchToArmCallSymDeltaANS(data, sWorkingYkTable, resultVec, &resultVec[count - remainingCount], (void *) funcBuffer);
 +    u32 currSymbol = SwitchToArmCallSymDeltaANS(data, sWorkingYkTable, resultVec, &resultVec[count - remainingCount], IWRAM_FUNC(funcBuffer, DecodeSymDeltatANSLoop));
- 
+
      if (remainingCount)
      {
 @@ -938,7 +968,7 @@
      u32 funcBuffer[FUNC_BUFFER_SIZE(DecodeInstructions, SwitchToArmCallDecodeInstructions)];
- 
+
      CopyFuncToIwram(funcBuffer, DecodeInstructions, SwitchToArmCallDecodeInstructions);
 -    SwitchToArmCallDecodeInstructions(headerLoSize, loVec, symVec, dest, (void *) funcBuffer);
 +    SwitchToArmCallDecodeInstructions(headerLoSize, loVec, symVec, dest, IWRAM_FUNC(funcBuffer, DecodeInstructions));
  }
- 
+
  //  Entrance point for smol compressed data
 @@ -1094,7 +1124,7 @@
      u32 funcBuffer[FUNC_BUFFER_SIZE(DeltaDecodeTileNumbers, SwitchToArmCallDecodeTileNumbers)];
- 
+
      CopyFuncToIwram(funcBuffer, DeltaDecodeTileNumbers, SwitchToArmCallDecodeTileNumbers);
 -    SwitchToArmCallDecodeTileNumbers(deltaDest, arraySize, (void *) funcBuffer);
 +    SwitchToArmCallDecodeTileNumbers(deltaDest, arraySize, IWRAM_FUNC(funcBuffer, DeltaDecodeTileNumbers));
  }
- 
+
  //  Helper functions for determining modes
-@@ -1398,8 +1428,14 @@
- 
+@@ -1373,9 +1403,11 @@
+ bool8 LoadCompressedSpriteSheetUsingHeap(const struct CompressedSpriteSheet *src)
+ {
+     struct SpriteSheet dest;
++    u32 decompressedSize;
+     void *buffer;
+
+-    buffer = AllocZeroed(GetDecompressedDataSize(&src->data[0]));
++    decompressedSize = GetDecompressedDataSize(&src->data[0]);
++    buffer = AllocZeroed(max(decompressedSize, src->size));
+     DecompressDataWithHeaderWram(src->data, buffer);
+
+     dest.data = buffer;
+@@ -1398,8 +1430,14 @@
+
  void FastLZ77UnCompWram(const u32 *src, void *dest)
  {
 +#ifdef HOST_BUILD
@@ -132,7 +145,7 @@
 +    LZ77UnCompWram(src, dest);
 +#else
      u32 funcBuffer[200];
- 
+
      CopyFuncToIwram(funcBuffer, LZ77UnCompWRAMOptimized, LZ77UnCompWRAMOptimized_end);
      SwitchToArmCallFastLZ77(src, dest, (void *) funcBuffer);
 +#endif

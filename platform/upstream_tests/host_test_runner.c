@@ -101,6 +101,7 @@ struct TestTime
 struct Shared
 {
     uint32_t persistent;            /* struct PersistentTestRunnerState */
+    bool finished;                  /* the child's runner ended (HostTest_Exit) */
     volatile uint32_t heartbeat;    /* frames run by the current child */
     char name[256];                 /* the current test (":N") */
     char location[256];             /* its file:line (":L") */
@@ -252,6 +253,7 @@ void HostTest_DebugFlush(void)
 void HostTest_Exit(uint8_t exitCode)
 {
     fflush(stdout);
+    sShared->finished = true;
     _exit(exitCode);
 }
 
@@ -436,6 +438,7 @@ static int RunShard(void)
     {
         pid_t pid = fork();
         int status;
+        char how[64];
 
         if (pid < 0)
         {
@@ -448,23 +451,27 @@ static int RunShard(void)
 
         status = WaitForChild(pid);
         sShared->endNs = NowNs();
-        if (WIFEXITED(status))
+        if (sShared->finished)
         {
             rmdir(saveDir);
-            return WEXITSTATUS(status);
+            return WIFEXITED(status) ? WEXITSTATUS(status) : 2;
         }
-        /* Crashed (or stuck): the next child's runner reports it as CRASH --
-         * unless no test had started, which restarting can't fix. */
+        /* Crashed (or stuck), or exited before the runner ended -- as ASan
+         * and UBSan do after a report (exit(1), not a signal): the next
+         * child's runner reports it as CRASH -- unless no test had started,
+         * which restarting can't fix. */
+        if (WIFEXITED(status))
+            snprintf(how, sizeof(how), "exited with status %d", WEXITSTATUS(status));
+        else
+            snprintf(how, sizeof(how), "ended with signal %d", WIFSIGNALED(status) ? WTERMSIG(status) : 0);
         if (sShared->persistent == 0)
         {
-            fprintf(stderr, "pkmemerald-tests: the runner crashed before any test started"
-                            " (signal %d); PKM_TESTS_NO_FORK=1 runs it in one process for a debugger\n",
-                    WIFSIGNALED(status) ? WTERMSIG(status) : 0);
+            fprintf(stderr, "pkmemerald-tests: the runner %s before any test started;"
+                            " PKM_TESTS_NO_FORK=1 runs it in one process for a debugger\n", how);
             rmdir(saveDir);
             return 2;
         }
-        Print("%s: the test process ended with signal %d; restarting after it\n",
-              sShared->name, WIFSIGNALED(status) ? WTERMSIG(status) : 0);
+        Print("%s: the test process %s; restarting after it\n", sShared->name, how);
     }
     fprintf(stderr, "pkmemerald-tests: too many restarts\n");
     rmdir(saveDir);

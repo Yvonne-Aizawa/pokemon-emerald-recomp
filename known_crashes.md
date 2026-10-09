@@ -1,8 +1,180 @@
 # Known crashes
 
-None open.
+The latest 64-bit sanitizer scan (2026-10-08) ran every ctest entry,
+including the whole upstream battle suite (5,539 tests), with no sanitizer
+reports. Nothing is open.
 
 ## Fixed
+
+### Opening the debug menu crashed on 64-bit
+In the 64-bit build, opening the overworld debug menu (R + Start) crashed in
+`DebugTask_HandleMenuInput_General`. Every frame it read
+`options[input]`, but with nothing chosen `ListMenu_ProcessInput` returns
+`LIST_NOTHING_CHOSEN` (-1), stored in a `u32`. On the GBA and 32-bit hosts the
+address arithmetic wraps to just before the table, a harmless stray read; on a
+64-bit host `0xFFFFFFFF` 24-byte entries is ~96 GB past it. `debug.c.patch`
+reads the option only once A chooses one. `debug-menu-open` opens the menu
+from a quick-started game and keeps it open for a few seconds.
+
+### Trainer spotting the player crashed on 64-bit
+In the 64-bit build, a trainer that noticed the player crashed in
+`StringExpandPlaceholders` (via `ShowTrainerIntroSpeech`) with a NULL string.
+The `trainerbattle` script command's arguments are bytecode with four-byte
+pointers (`event.inc`), but `battle_setup.c` copied them straight into
+`TrainerBattleParameter`, whose pointer fields are eight bytes on a 64-bit
+host: the intro text, defeat text and script pointers came out wrong, and the
+end-of-arguments pointer landed 32 bytes too far. `battle_setup.c.patch`
+decodes the 40 argument bytes field by field (the same struct as before on
+32-bit, which a static assert checks), for trainer A and for the second
+trainer. The other casts of this struct only read its first four bytes, whose
+layout is the same. The upstream battle tests never run trainer scripts, so
+`upstream-host-regressions` now runs the host regression tests, including one
+that decodes Route 102 Calvin's `trainerbattle_single`.
+
+### Move animations reading past `gSineTable`
+A complete 64-bit ASan/UBSan battle scan found three animations indexing the
+320-entry sine table out of bounds. Techno Blast, Pollen Puff and Photon
+Geyser sparks reuse `AnimZapCannonSpark` with start angles of 256-288, which
+it only wraps after the first `Sin`/`Cos`; Poltergeist's item calls `Cos(256)`
+on its last frame; Extrasensory's distortion (`gBattleAnimArgs[0] == 1`)
+indexes `gSineTable` from 192 up to 320. The GBA reads neighbouring ROM data
+there. `trig.c.patch` wraps the angle in `Sin` and `Cos`, and
+`battle_anim_psychic.c.patch` wraps Extrasensory's index; indexes 256-319
+already repeat 0-63, so in-range results are unchanged.
+
+### Sanitizer reports skipped the rest of a test shard
+ASan and UBSan end the process with `exit(1)` after a report, not a signal.
+`host_test_runner.c` took any normal exit as the shard having finished, so it
+neither reported CRASH nor restarted: the remaining tests of that shard never
+ran (407 of 5,539 battle tests in one 64-bit sanitizer scan) while the summary
+showed 0 failed. The child now sets a `finished` flag in `HostTest_Exit`; any
+other exit is handled like a crash. `upstream-runner-exit` checks it, and the
+upstream battle tests now get `UBSAN_OPTIONS=print_stacktrace=1` like the rest.
+
+### Moonlight end-fade hang from a miscounted patch hunk
+`Move Animations work 1`, `3` and `4` hung (killed after 60 s) on 32- and
+64-bit hosts. The hand-edited hunk in `battle_anim_effects_1.c.patch` had six
+new lines but an `@@` header claiming five, so `patch` silently stopped after
+five: the `BeginNormalPaletteFade` call was dropped, and the `if (d != 0xFF)`
+guard captured the `gTasks[taskId].func` assignment instead. When the
+green-sparkle palette wasn't loaded, `AnimTask_MoonlightEndFade` re-ran every
+frame and never finished. The patch was regenerated with `diff -u`; a missing
+palette tag now just leaves its bit out of the fade mask (on the GBA a shift by
+0xFF gives 0). `tools/check_patches.sh` now fails any patch whose hunk line
+counts don't match its headers, and covers `platform/patches/test/` too;
+`battle_anim_effects_3.c.patch` and `pokemon.c.patch` had harmless miscounts
+(trailing context lines only) and were regenerated, with identical output.
+
+### Evolution tracking, recorded actions, and animation assets
+Evolution tracking now passes a four-byte value to the four-byte monster-data
+setter. Recorded-action cleanup checks for an empty buffer before decrementing
+its position. Gust palette rotation skips an unavailable palette while still
+advancing the task's lifetime, avoiding invalid palette indexes and hangs.
+Eight short battle-animation sprite palettes now have explicit 16-color
+allocations with zero-filled tails. All 381 linked palettes in this family
+have at least 32 bytes; larger multi-palette arrays keep their original size.
+
+The capture ball-data test failed specifically for Heavy Ball because the
+default full-health, level-50 target and missing-badge penalty rounded its
+capture odds down to zero. The regression now uses a level-1 target at 1 HP,
+so every ball can catch it and the test checks the stored ball identity.
+Gameplay capture calculations are unchanged by this test correction.
+
+Regular 64-bit, sanitizer 64-bit, and 32-bit builds succeed. Eight focused
+suites pass 95 tests under ASan/UBSan and on 32-bit, covering evolution,
+capture, Mega Evolution, Hurricane, Protect/Feint, Trump Card, Eject Pack,
+and two explicit empty-record/missing-palette regressions. Hurricane also
+passes all four checks with drawing enabled. The broader scan no longer
+reports this batch's blockers, but finds the open reports above.
+
+### Animation loops, pledge ordering, critical odds, and terrain cleanup
+Ordinary and affine animation loops check the command index before looking
+back one command. Pledge ordering copies only populated entries from its
+small temporary turn-order array. AI critical damage rejects blocked critical
+hits and keeps Gen 1 thresholds out of the later-generation odds table.
+Teraform Zero skips terrain removal when only weather was active, preventing
+an invalid terrain-message index.
+
+Electro Ball's zero modified target Speed was reproduced as division by zero;
+it now selects maximum power without dividing. Early terrain removal clears
+its timer, preventing the reproduced ghost terrain-expiration message.
+Regression tests cover these cases, including the animation-loop siblings.
+
+Both regular 64-bit and 32-bit builds succeed. Focused 64-bit ASan/UBSan
+checks pass 80 tests; selected 32-bit compatibility suites pass 69 tests.
+The full front-animation drawing check passes, and runner checks report
+14 passes and 9 expected failures. ARM/native data ABI verification passes;
+semantic assembly patches are applied to both sides of that comparison.
+
+### Short monster palettes, zero catch odds, and battle turn boundaries
+Monster palette loads always copy 16 colors, but 76 normal/shiny palettes
+contained fewer entries. Host preprocessing now declares these arrays with
+16 entries, zero-filling missing colors. All 2,883 linked monster palettes
+have 32-byte allocations.
+
+Zero capture odds now return a zero shake threshold before dividing.
+The Dynamax message script passes Boolean constants to a byte-pointer
+comparison; the host handles that one-byte immediate comparison explicitly.
+Experience masks normalize trainer flank bits to indexes 0 and 1, in both
+the lookup and update paths. Turn completion avoids reading a nonexistent
+next action, and the dispatcher finishes the turn if gimmick processing
+consumes its final action.
+
+The Dynamax HP test also now retains its baseline damage in static storage;
+later parameters previously read an automatic local without initializing it.
+Focused Ball Fetch, Commander, Dynamax, and experience checks complete with
+137 passes, no failures, and 4 TODOs under 64-bit ASan/UBSan and on 32-bit.
+
+### Native battle command operands and item action tables
+Battle commands retain four-byte pointer operands and two-byte ability/species
+operands in assembly. Native command views now read those encoded widths,
+including the function address prepended to native calls, then widen pointers
+when consuming them. Animation commands with no argument pointer use a zero
+argument. Item-use and Safari action pointer tables now use native pointer
+width, while their scripts retain fixed-width operands. Turn completion also
+checks for the end of the battler order before reading the next action.
+Recorded player, partner, and opponent controllers mask the gimmick flag
+before indexing their four move slots. All five Adaptability/Tera checks pass
+under ASan after this correction.
+
+The 64-bit sanitizer runner checks complete with 14 passes and 9 expected
+failures. Its low-address coroutine stack requires disabling ASan's fake stack
+for battle captures; intentional-crash checks also disable ASan's SIGSEGV
+handler so the runner can resume them.
+
+### 64-bit overworld, scripts, and save compatibility
+The full 64-bit suite crashed loading maps, running script commands, and
+starting field effects. Assembly map headers/layouts/events/connections and
+script/special/field-effect pointer tables still used GBA pointer widths and
+padding. The host data adapter now emits native metadata while retaining
+32-bit pointers inside encoded scripts. The ABI verifier checks unchanged
+bytecode against ARM output and independently validates native C offsets and
+linked map/audio metadata against upstream JSON and assembly.
+
+Raw saves also used 32-bit `ObjectEventTemplate` and `EnigmaBerry` layouts.
+A copy map generated from both checked save schemas translates complete raw
+save slots to native flash on import and back on export, preserving counters,
+sector rotation, and special sectors. Damaged slots remain untouched. Native
+JSON pointer fields avoid shifts by 64 when validating their range, and raw
+export rejects pointer truncation. Reviewed checkpoint state and byte-for-byte
+raw/JSON round trips pass.
+
+### 64-bit song playback fails and cries crash
+After repairing player initialization, `test_m4a_engine` produced no music
+and crashed starting a cry. Song-table entries and song headers still held
+32-bit assembly pointers while C expected native pointers; voice records also
+had a 12-byte ROM stride that differed from native `ToneData`. The assembly
+adapter now widens song metadata on 64-bit hosts while keeping command jumps
+32-bit. ROM voices retain their original format and are decoded into native
+runtime voices, including drum kits, key splits, and cries.
+
+### 64-bit boot crash in SoundMainBTM
+The 64-bit boot test crashed at frame 0 during `m4aSoundInit`: the assembly
+music-player table contains 32-bit pointers, which native C read as invalid
+64-bit pointers. The host now supplies a native C table and correctly sized
+track buffers on 64-bit builds. Player initialization clears the full native
+struct, and track initialization clears through `cmdPtr` rather than a fixed
+64-byte prefix, preserving the script pointers.
 
 ### Memory used after a screen frees it (found by a search, not playtesting)
 After two crashes of this kind on leaving a contest, upstream's 70 source
@@ -398,3 +570,50 @@ the result is unused there; x86's `idiv` raises SIGFPE. Only unoptimised
 uses it. Both functions now skip the division when `var6` is 0. Regression
 test: `platform/tests/test_mon_anim_vshake.c` (it shows the crash only in a
 Debug build).
+
+### Native 64-bit heap and save-block alignment
+UBSan reported misaligned `MemBlock` and `SaveBlock1` accesses in the native
+64-bit build. The GBA allocator rounded sizes to four bytes, leaving split
+headers and returned pointers misaligned for eight-byte native pointers.
+`malloc.c.patch` now aligns the heap and allocation sizes to the block header's
+native alignment. `load_save.c.patch` preserves native alignment when randomly
+relocating saves and pads the heap scratch copy between SaveBlock2 and
+SaveBlock1. The original four-byte behavior remains on 32-bit builds.
+`test_heap_asan` checks odd allocation sizes, save relocation, and data retained
+through `MoveSaveBlocks_ResetHeap` under the sanitizers.
+
+### Native 64-bit song headers and upstream test records
+UBSan found song headers aligned to four bytes despite containing native
+eight-byte pointers. `host_data_asm.py` now aligns the exported song header
+before its label; encoded track commands stay unchanged. The linked-data ABI
+check also verifies header alignment.
+
+The native upstream test runner read null strings because GCC placed 40-byte
+`Test` records at 32-byte boundaries, leaving gaps that the runner interpreted
+as records. CMake's host copies of `test.h` and `battle.h` now explicitly align
+these records to pointer size, making the linker-collected array contiguous.
+
+### Native task overlays, compile-time RNG checks, and max-level battle bars
+The native sanitizer suite found pointer arrays and cursor structs overlaid on
+unaligned task halfwords. Union Room pointers also overlapped the link-group
+halfwords on 64-bit hosts. `union_room.c.patch` and `list_menu.c.patch` keep
+pointer-bearing state in native arrays indexed by task ID, including the
+outline cursor that exceeds the task-data buffer on 64-bit hosts.
+
+The daycare RNG path exposed upstream's `if_comptime` null-dereference trick
+inside `__builtin_constant_p` to UBSan. The host copy of `metaprogram.h` uses
+`__builtin_choose_expr` to preserve compile-time branching without that trick.
+
+The battle display read experience-table entry 101 for a level-100 Pokémon.
+`battle_interface.c.patch` avoids the nonexistent entry and supplies a nonzero
+range to the bar math; the renderer still hides max-level experience progress.
+The intentional-crash runner check disables ASan's SIGSEGV handler for that
+check so the parent can observe and resume the expected crash.
+
+### Short egg nickname and Mega indicator palette buffers
+After the earlier sanitizer blockers were removed, daycare tests read beyond
+the four-byte Japanese egg nickname: `MON_DATA_NICKNAME` copies a full fixed
+name field. `daycare.c.patch` pads this constant to the required name length.
+Battle tests also exposed a 15-entry Mega indicator palette loaded as a full
+16-entry sprite palette. `battle_gimmick.c.patch` supplies a zero-padded local
+palette before loading it, without reading beyond the generated asset.

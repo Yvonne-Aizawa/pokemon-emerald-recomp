@@ -1,5 +1,21 @@
 --- a/src/sprite.c
 +++ b/src/sprite.c
+@@ -1076,4 +1076,3 @@
+-        while (sprite->anims[sprite->animNum][sprite->animCmdIndex - 1].type != -3)
+-        {
+-            if (sprite->animCmdIndex == 0)
+-                break;
++        while (sprite->animCmdIndex != 0
++            && sprite->anims[sprite->animNum][sprite->animCmdIndex - 1].type != -3)
++        {
+@@ -1172,4 +1171,3 @@
+-        while (sprite->affineAnims[sAffineAnimStates[matrixNum].animNum][sAffineAnimStates[matrixNum].animCmdIndex - 1].type != 32765)
+-        {
+-            if (sAffineAnimStates[matrixNum].animCmdIndex == 0)
+-                break;
++        while (sAffineAnimStates[matrixNum].animCmdIndex != 0
++            && sprite->affineAnims[sAffineAnimStates[matrixNum].animNum][sAffineAnimStates[matrixNum].animCmdIndex - 1].type != 32765)
++        {
 @@ -1422,6 +1422,18 @@
  
  void SetSpriteSheetFrameTileNum(struct Sprite *sprite)

@@ -48,7 +48,15 @@ else
     section_fixup='s/(\\"aM\\",%progbits,[0-9]+) @"/\1 #"/g'
 fi
 
+source_fixup=''
+if [[ $src_name == src/pokemon.c ]]; then
+    # Some monster palettes contain fewer colors, but every sprite palette
+    # load copies 16. Explicit array bounds zero-fill the missing colors.
+    source_fixup='s/(const u16 gMon(Shiny)?Palette_[[:alnum:]_]+)\[\]/\1[16]/g'
+fi
+
 "$@" -E -MD -MF "$depfile" -MT "$out" "$input" \
+    | sed -E "$source_fixup" \
     | "$preproc" -i -g build/assets "$src_name" charmap.txt \
     | sed -E "$section_fixup" \
     > "$out.tmp.$$"

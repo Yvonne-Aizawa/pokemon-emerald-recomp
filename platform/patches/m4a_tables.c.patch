@@ -1,0 +1,12 @@
+--- a/src/m4a_tables.c
++++ b/src/m4a_tables.c
+@@ -262,7 +262,8 @@
+     .blockCount = 0,
+     .priority = 255,
+     .reverb = 0,
+-    .tone = (struct ToneData *)&voicegroup_dummy,
++    // PC port: this points to ROM voice data, not a native runtime voice.
++    .tone = (struct RomToneData *)&voicegroup_dummy,
+     .part = {NULL, NULL},
+     .gap = 0,
+     .part0 = TUNE,

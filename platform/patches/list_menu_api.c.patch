@@ -1,0 +1,14 @@
+--- a/src/list_menu.c
++++ b/src/list_menu.c
+@@ -822,6 +822,11 @@
+     return FALSE;
+ }
+ 
++bool8 ListMenuChangeSelectionFullByTask(u8 taskId, bool32 updateCursor, bool32 callCallback, u8 count, bool8 movingDown)
++{
++    return ListMenuChangeSelectionFull(LIST_MENU_DATA(taskId), updateCursor, callCallback, count, movingDown);
++}
++
+ bool8 ListMenuChangeSelection(struct ListMenu *list, bool8 updateCursorAndCallCallback, u8 count, bool8 movingDown)
+ {
+     return ListMenuChangeSelectionFull(list, updateCursorAndCallCallback, updateCursorAndCallCallback, count, movingDown);

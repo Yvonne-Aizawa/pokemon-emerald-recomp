@@ -1,0 +1,16 @@
+--- a/src/battle_main.c
++++ b/src/battle_main.c
+@@ -5048,6 +5048,13 @@
+         }
+     }
+ 
++    // Gimmick processing can consume the final remaining action.
++    if (gCurrentTurnActionNumber >= gBattlersCount)
++    {
++        gBattleMainFunc = sEndTurnFuncsTable[gBattleOutcome & 0x7F];
++        return;
++    }
++
+     // Z-move slides appear right before move instead of at the beginning of turn like other gimmicks
+     if (GetActiveGimmick(gBattlerByTurnOrder[gCurrentTurnActionNumber]) == GIMMICK_Z_MOVE && TryTrainerSlideGimmick(gBattlerByTurnOrder[gCurrentTurnActionNumber]))
+         return;

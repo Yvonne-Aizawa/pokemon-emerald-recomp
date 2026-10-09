@@ -1,0 +1,31 @@
+--- a/test/battle/move_effect/ice_spinner.c
++++ b/test/battle/move_effect/ice_spinner.c
+@@ -160,3 +160,28 @@
+         NOT HP_BAR(player);
+     }
+ }
++
++SINGLE_BATTLE_TEST("Ice Spinner removal cancels the original terrain expiration")
++{
++    GIVEN {
++        ASSUME(GetMoveTerrainType(MOVE_ELECTRIC_TERRAIN) == B_TERRAIN_ELECTRIC);
++        PLAYER(SPECIES_WOBBUFFET) { Speed(100); }
++        OPPONENT(SPECIES_WOBBUFFET) { Speed(200); }
++    } WHEN {
++        TURN { MOVE(opponent, MOVE_ELECTRIC_TERRAIN); MOVE(player, MOVE_ICE_SPINNER); }
++        TURN {}
++        TURN {}
++        TURN {}
++        TURN {}
++    } SCENE {
++        ANIMATION(ANIM_TYPE_MOVE, MOVE_ELECTRIC_TERRAIN, opponent);
++        MESSAGE("An electric current ran across the battlefield!");
++        ANIMATION(ANIM_TYPE_MOVE, MOVE_ICE_SPINNER, player);
++        MESSAGE("The electricity disappeared from the battlefield.");
++        NONE_OF {
++            MESSAGE("Mist swirled around the battlefield!");
++            MESSAGE("The electricity disappeared from the battlefield.");
++            ANIMATION(ANIM_TYPE_GENERAL, B_ANIM_RESTORE_BG);
++        }
++    }
++}

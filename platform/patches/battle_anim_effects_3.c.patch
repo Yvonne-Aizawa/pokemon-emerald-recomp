@@ -1,0 +1,10 @@
+--- a/src/battle_anim_effects_3.c
++++ b/src/battle_anim_effects_3.c
+@@ -588,6 +588,7 @@
+     0x50,
+     0x28,
+     0x00,
++    0x00,
+ };
+ 
+ const u8 gDoomDesireLightBeamDelayTable[] =

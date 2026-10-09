@@ -1,0 +1,20 @@
+--- a/src/battle_anim_effects_1.c
++++ b/src/battle_anim_effects_1.c
+@@ -6379,9 +6379,15 @@
+     b = GetBattleMonSpritePalettesMask(1, 1, 1, 1);
+     c = a | b;
+     StorePointerInVars(&gTasks[taskId].data[14], &gTasks[taskId].data[15], (void *)c);
+-    b = b | (0x10000 << IndexOfSpritePaletteTag(ANIM_TAG_MOON));
++    // PC port: either palette tag may not be loaded (0xFF); shifting by 0xFF
++    // is undefined in C. On the GBA (ARM) it gives 0, so leave the bit out.
++    d = IndexOfSpritePaletteTag(ANIM_TAG_MOON);
++    if (d != 0xFF)
++        b |= (0x10000 << d);
+     d = IndexOfSpritePaletteTag(ANIM_TAG_GREEN_SPARKLE);
+-    BeginNormalPaletteFade((0x10000 << d) | b, 0, 0, 16, RGB(27, 29, 31));
++    if (d != 0xFF)
++        b |= (0x10000 << d);
++    BeginNormalPaletteFade(b, 0, 0, 16, RGB(27, 29, 31));
+     gTasks[taskId].func = AnimTask_MoonlightEndFade_Step;
+     gTasks[taskId].func(taskId);
+ }
