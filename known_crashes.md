@@ -6,6 +6,18 @@ reports. Nothing is open.
 
 ## Fixed
 
+### Surfacing with Dive on a map without connections
+Pressing B to surface underwater crashed in `SetDiveWarpEmerge` (via
+`TrySetDiveWarp`) with a NULL dereference. `GetMapConnection` read
+`gMapHeader.connections->count` before checking anything, but maps that
+surface through a fixed dive warp instead of an emerge connection
+(Underwater_SealedChamber, Underwater_SootopolisCity, AbandonedShip_Underwater1
+and others) have `connections == NULL`. The GBA reads BIOS bytes at address 0
+and carries on; the host segfaults. `overworld.c.patch` returns NULL when the
+map has no connections, as `fieldmap.c` already does for its own connection
+loops. `test_map_connections` calls `GetMapConnection` with no connections, an
+empty list and a real one.
+
 ### Continuing a game saved on a map without NPCs
 Choosing Continue on a save made on Underwater Route 128 crashed in
 `CB2_ContinueSavedGame` (inlined `LoadSaveblockObjEventScripts`) with a fault
