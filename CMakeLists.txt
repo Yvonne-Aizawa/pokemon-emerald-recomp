@@ -791,6 +791,13 @@ if(NOT CMAKE_CROSSCOMPILING)
             FIXTURES_REQUIRED visit-maps-save-${_groups}
             ENVIRONMENT "${HEADLESS_TEST_ENV};PKM_FIXED_TIME=2026-01-01 12:00:00;ASAN_OPTIONS=detect_leaks=0;UBSAN_OPTIONS=print_stacktrace=1")
     endforeach()
+    # Continue from a save on a map with no object events (known_crashes.md).
+    add_test(NAME continue-map-without-npcs
+        COMMAND ${Python3_EXECUTABLE} "${PLATFORM_DIR}/tests/test_continue_map_without_npcs.py"
+                "${CHECKPOINT_OUTPUT}" $<TARGET_FILE:pkmemerald>)
+    set_tests_properties(continue-map-without-npcs PROPERTIES
+        FIXTURES_REQUIRED played-checkpoints
+        ENVIRONMENT "${HEADLESS_TEST_ENV};ASAN_OPTIONS=detect_leaks=0;UBSAN_OPTIONS=print_stacktrace=1")
 endif()
 
 # Boots the platform and the game, runs 60 game frames, exits 0.
