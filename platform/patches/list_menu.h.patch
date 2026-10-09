@@ -1,8 +1,0 @@
---- a/include/list_menu.h
-+++ b/include/list_menu.h
-@@ -147,4 +147,5 @@
- bool8 ListMenuChangeSelection(struct ListMenu *list, bool8 updateCursorAndCallCallback, u8 count, bool8 movingDown);
- bool8 ListMenuChangeSelectionFull(struct ListMenu *list, bool32 updateCursor, bool32 callCallback, u8 count, bool8 movingDown);
-+bool8 ListMenuChangeSelectionFullByTask(u8 taskId, bool32 updateCursor, bool32 callCallback, u8 count, bool8 movingDown);
- 
- #endif //GUARD_LIST_MENU_H

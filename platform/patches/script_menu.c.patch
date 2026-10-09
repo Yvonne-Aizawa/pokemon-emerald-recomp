@@ -1,6 +1,17 @@
 --- a/src/script_menu.c
 +++ b/src/script_menu.c
-@@ -382,7 +382,6 @@
+@@ -26,6 +26,10 @@
+ 
+ #include "data/script_menu.h"
+ 
++// PC port: defined in list_menu.c (list_menu.c.patch). Declared here because
++// header patches are not applied: only src/*.c files get patched copies.
++bool8 ListMenuChangeSelectionFullByTask(u8 taskId, bool32 updateCursor, bool32 callCallback, u8 count, bool8 movingDown);
++
+ struct DynamicListMenuEventArgs
+ {
+     struct ListMenuTemplate *list;
+@@ -382,7 +386,6 @@
      u8 newWidth;
      u8 taskId;
      u32 windowHeight;
@@ -8,7 +19,7 @@
  
      for (i = 0; i < argc; ++i)
      {
-@@ -420,8 +419,7 @@
+@@ -420,8 +423,7 @@
      gTasks[taskId].data[5] = argc;
      gTasks[taskId].data[7] = maxBeforeScroll;
      StoreWordInTwoHalfwords((u16*) &gTasks[taskId].data[3], (u32) items);
@@ -18,7 +29,7 @@
  
      if (sDynamicMenuEventId != DYN_MULTICHOICE_CB_NONE && sDynamicListMenuEventCollections[sDynamicMenuEventId].OnSelectionChanged)
      {
-@@ -540,6 +538,7 @@
+@@ -540,6 +542,7 @@
      if (done)
      {
          struct ListMenuItem *items;
@@ -26,7 +37,7 @@
  
          PlaySE(SE_SELECT);
  
-@@ -556,7 +555,8 @@
+@@ -556,7 +559,8 @@
              RemoveScrollIndicatorArrowPair(gTasks[taskId].data[6]);
          }
  
