@@ -1,6 +1,23 @@
 --- a/src/overworld.c
 +++ b/src/overworld.c
-@@ -829,8 +829,18 @@
+@@ -569,7 +569,16 @@
+     struct ObjectEventTemplate *savObjTemplates = gSaveBlock1Ptr->objectEventTemplates;
+     s32 i;
+ 
++#ifdef HOST_BUILD
++    // PC port: upstream reads all OBJECT_EVENT_TEMPLATES_COUNT entries, past
++    // the end of the map's array. On a map without object events (e.g.
++    // Underwater Route 128) objectEvents is NULL: the GBA reads the BIOS, the
++    // host segfaults. Only the map's own events have scripts; the loader
++    // zeroed the other slots.
++    for (i = 0; i < gMapHeader.events->objectEventCount && i < OBJECT_EVENT_TEMPLATES_COUNT; i++)
++#else
+     for (i = 0; i < OBJECT_EVENT_TEMPLATES_COUNT; i++)
++#endif
+         savObjTemplates[i].script = mapHeaderObjTemplates[i].script;
+ }
+ 
+@@ -829,8 +838,18 @@
  const struct MapConnection *GetMapConnection(u8 dir)
  {
      s32 i;

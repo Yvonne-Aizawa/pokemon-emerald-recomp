@@ -18,6 +18,19 @@ map has no connections, as `fieldmap.c` already does for its own connection
 loops. `test_map_connections` calls `GetMapConnection` with no connections, an
 empty list and a real one.
 
+### Continuing a game saved on a map without NPCs
+Choosing Continue on a save made on Underwater Route 128 crashed in
+`CB2_ContinueSavedGame` (inlined `LoadSaveblockObjEventScripts`) with a fault
+at address 0x10. That function copies the script pointer of all 64 object
+event template slots from `gMapHeader.events->objectEvents`, whatever the
+map's `objectEventCount`. A map with no object events has `map_events NULL,
+...`, so it read `NULL[i].script`: a BIOS read on the GBA, a segfault on the
+host (32- and 64-bit). On other maps it read past the end of their array.
+`overworld.c.patch` copies only the map's own `objectEventCount` scripts; the
+other slots were zeroed by `LoadObjEventTemplatesFromHeader`, which also only
+fills that many. `continue-map-without-npcs` moves a played checkpoint to
+Underwater Route 128 and continues it.
+
 ### Opening the debug menu crashed on 64-bit
 In the 64-bit build, opening the overworld debug menu (R + Start) crashed in
 `DebugTask_HandleMenuInput_General`. Every frame it read
