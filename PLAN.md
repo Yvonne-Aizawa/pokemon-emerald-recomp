@@ -1,8 +1,8 @@
 # Port Plan: `reference/` (pokeemerald-expansion) → PC game
 
-## Current status (2026-10-06)
+## Current status (2026-10-09)
 
-The game is playable from boot to the overworld and battles, with graphics, input, saves and sound, on Linux and Windows (32-bit builds; Windows cross-compiled with MinGW). It has a settings file (window, fullscreen, sound, keyboard layout), and CI builds and tests both platforms on every pull request. The project is source only: no builds are published. Playtesting so far covers the intro (Birch's speech), the truck, Littleroot, Route 101, wild battles, catching and nicknaming, learning moves, the Pokémon Center PC and the Pokédex. Crashes found while playing are fixed with patches documented in [known_crashes.md](known_crashes.md); none are open.
+The game is playable from boot to the overworld and battles, with graphics, input, saves and sound, on Linux and Windows (32-bit by default, with opt-in native 64-bit builds; Windows cross-compiled with MinGW). It has a settings file (window, fullscreen, sound, keyboard layout), and CI builds and tests the 32-bit versions of both platforms on code changes. Linux also has a 32-bit sanitizer job and a separate upstream-test workflow; 64-bit builds are not yet in the CI matrix. The project is source only: no builds are published. Playtesting so far covers the intro (Birch's speech), the truck, Littleroot, Route 101, wild battles, catching and nicknaming, learning moves, the Pokémon Center PC and the Pokédex. Crashes found while playing are fixed with patches documented in [known_crashes.md](known_crashes.md); none are open.
 
 | Phase | Status |
 |------:|--------|
@@ -16,9 +16,17 @@ The game is playable from boot to the overworld and battles, with graphics, inpu
 | 14–15 | In progress: verified by playtesting so far, continuing as the game is played further |
 | 16    | Not started (optional) |
 | 17    | Done (Linux and Windows builds, source only); on real Windows still to check: sound, `--console`/log file |
-| 18    | Not started (64-bit build; needed for macOS) |
-| 19    | In progress: 19a done (sanitizers + monkey runs in CI, heap checks included); 19b-1, 19b-3 and the CI split done; 19b-2 done (non-battle tests); 19b-4 done (all of `test/battle/`); GBA save compatibility dropped (see 19b, *save layout*); 19c done (every map); **next**: 19b-5 (Windows); 19a-2's checkpoint monkey runs on hold |
+| 18    | Linux x86-64 and Windows x86-64 implemented; Linux 64-bit sanitizer scan passes (reported 2026-10-08). 64-bit CI coverage and further parity playtesting remain; macOS/arm64 not implemented |
+| 19    | In progress: 19a done (sanitizers + monkey runs in CI, heap checks included); 19b-1, 19b-3 and the CI split done; 19b-2 done (non-battle tests); 19b-4 done (all of `test/battle/`); JSON saves and cross-architecture PC raw-save conversion implemented (GBA emulator save compatibility remains unsupported; see 19b, *save layout*); 19c done (every map); **next**: 19b-5 (Windows); 19a-2's checkpoint monkey runs on hold |
 
+
+## Next work
+
+1. Add native 64-bit Linux and MinGW x86-64 build/test jobs to CI; include a Linux 64-bit ASan/UBSan run with `PKM_UPSTREAM_TESTS=ON`. Existing CI still exercises 32-bit builds only.
+2. Finish 19b-5: port the upstream test runner to Windows. Ordinary Windows CTest coverage under Wine does not include the upstream suite; CMake currently rejects `PKM_UPSTREAM_TESTS` on Windows.
+3. Finish 19a-2: verify fixed-clock repeatability and enable monkey runs from at least two approved played checkpoints, including a battle-capable one.
+4. Continue Phase 14–15 playtesting on both architectures: trainer encounters, later story progression, menus, save/continue and visual/audio parity. Automated battle and map coverage is broad, but does not establish full-game completion.
+5. Check sound, fullscreen and `--console`/log-file behaviour on real Windows. macOS/arm64 and multiplayer remain separate future work.
 
 ## Source under analysis
 
@@ -39,23 +47,18 @@ The game is playable from boot to the overworld and battles, with graphics, inpu
 
 ## Strategy
 
-Build a **PC Hardware Abstraction Layer (HAL)** that replaces every GBA-specific surface, and a **PC frontend** (window, main loop, renderer, audio, input, save, files) on top of SDL2/SDL3 and a C compiler the user already has. Then incrementally swap each platform-specific file.
+The implemented approach is a **PC Hardware Abstraction Layer (HAL)** that replaces every GBA-specific surface, and a **PC frontend** (window, main loop, renderer, audio, input, save, files) on top of SDL2 and GCC-compatible host compilers. Upstream sources remain in `reference/`; host adaptations are applied to build-time copies.
 
 The C game logic — battle engine, AI, scripts, party, items, overworld state machine, menus, RNG, save data structures — stays untouched except for the small handful of `IWRAM_DATA` / `EWRAM_DATA` / `ARM_FUNC` annotations and `gba/` includes.
 
-### Target stack
-- **Language/runtime**: C11, compiled with system `gcc`/`clang`/`cl`.
-- **Build system**: CMake (cross-platform; replaces the GBA Makefile).
-- **Windowing / input / events / audio**: SDL2 (or SDL3) + SDL2_mixer + SDL2_ttf (only if we choose to render text with it; see Phase 11).
-- **Renderer**: SDL2 `SDL_Renderer` with `SDL_TEXTUREACCESS_STREAMING`, or OpenGL 3.2 core if we need shader-driven scaling.
-- **Filesystem layout** (instead of a 32 MB ROM):
-  ```
-  pkmemerald/
-    assets/        # converted graphics/audio (built from reference/data/ + reference/graphics/)
-    saves/         # per-slot .sav files (instead of flash 1M)
-    pak/           # drop-in data blob mirroring reference/data/
-  ```
-- **Tooling**: Python scripts to convert GBA `.4bpp`, `.gbapal`, `.lz`, `.rl`, `.smol`, voice-group `.s` into PNG/WAV/JSON. Reuse `reference/tools/gbagfx` and `reference/tools/preproc` as host binaries where they still help.
+### Current stack
+- **Language/runtime**: C17 with GNU extensions; GCC on Linux and MinGW-w64 for Windows.
+- **Build system**: CMake; upstream make still prepares host tools, generated headers and assets.
+- **Windowing / input / audio**: SDL2. The game's own M4A engine runs through the host sound-hardware implementation; SDL2_mixer and SDL2_ttf are not required.
+- **Renderer**: a GBA scanline renderer (`platform/src/host_render.c`) displayed through SDL2.
+- **Data**: upstream graphics, scripts and sound are compiled into the executable in adapted GBA formats; no separate PNG/WAV asset pack.
+- **Saves/settings**: `pkmemerald.json`, `pkmemerald.ini` and crash reports in the per-user save directory (or `-s DIR`). Legacy PC `.sav` files are migrated; explicit raw import/export translates between 32-bit and native save layouts.
+- **Architectures**: 32-bit remains the default. Linux x86-64 uses `-DPKM_HOST_32BIT=OFF`; Windows x86-64 uses `cmake/mingw-x86_64.cmake`. These builds retain low-address, non-PIE/fixed-base assumptions.
 
 ### Non-goals (deliberately deferred)
 - **No legal/clean-room rewrite of Nintendo assets.** This port still depends on the baseline ROM and `reference/data/` blobs. Replacing art/audio with original assets is its own workstream (out of scope here).
@@ -269,58 +272,7 @@ Added after a link check showed 97% of unresolved symbols were assembly *data*. 
 
 **Done when** saving in-game writes a real file under `saves/`, exiting and re-launching restores the same state. (Cross-check with a hash of the original GBA flash sector on a known save.)
 
-**Status (done).** One file instead of per-sector files: `saves/pkmemerald.sav` (`-s DIR` to change) is a raw 128 KiB image of the flash chip — the format GBA emulators use. (*Correction, Phase 19b-2:* the host's save blocks are laid out differently from the GBA build's, so a GBA emulator's save does **not** load correctly, and that is now by design; see Phase 19b, *save layout*.) `platform/src/host_flash.c` keeps the chip in memory, marks it dirty on every erase/program, and `Host_SaveFlush` (after each frame, and at exit) writes it to a temp file, fsyncs and renames — a crash mid-save looks like a power cut, which the game's two-slot scheme already survives. A file of the wrong size is never overwritten (saving is disabled with a message). Verified end to end with a scripted run: Start → Save → Yes writes the file; relaunching shows CONTINUE with the saved player, time and badges; booting alone doesn't rewrite it. `platform/tests/test_save.c` covers the file handling.
-
-*JSON save format (prototype, branch `json-save`):* the file is now `pkmemerald.json` (`platform/src/host_save_json.c`, with a small JSON reader/writer in `host_json.c`). The game still works on the in-memory flash; only the file changes:
-- On flush, the slot the game's loader would pick (`GetSaveValidStatus`, ported) is decoded into its save blocks (SaveBlock1/2/3, PokemonStorage). They are written as base64 images, with readable fields beside them: player name (game text through upstream's `charmap.txt`, `{XX}` for other bytes), gender, trainer ID, play time, money, coins, flags and vars by upstream name. `info` (location, party) is read-only.
-- On load, the blocks are rebuilt, the readable fields are applied over them when they differ, and one slot is packed with the game's checksums.
-- The Hall of Fame, Trainer Hill and recorded-battle sectors are kept as raw sector images. When the slots aren't in a state the loader takes cleanly (a save interrupted mid-write, or damage), the file holds the raw chip instead, so the game sees exactly what it wrote.
-- `layout` records the block sizes, and a save from a build with a different layout is refused rather than misread.
-- An existing `pkmemerald.sav` is converted on first start and kept. `--convert-save IN OUT` converts either way.
-
-Tests:
-- `json-save-format` covers every played checkpoint: it loads identically through the game's loader and converts stably. It also covers edits, refused edits, the raw fallback and the migration.
-- `test_json` covers the JSON code, and `test_save` covers the file handling.
-- Verified in the game: a hand-edited name shows on CONTINUE, and saving over a JSON-loaded save writes counter+1.
-
-*Step 1 done (branch `json-save-fields`, format version 2): every save-block field is named, and there is no base64 in the save blocks.*
-- **The field table:** `platform/src/host_save_layout.inc` lists every field of SaveBlock1/2/3 and PokemonStorage, with its offset, size, kind, bitfield position, array sizes and nested type: 64 types, 570 layout checks.
-  - It is generated by `platform/tools/save_layout.py` (pyelftools) from the debug info of the `save-layout-probe` object, and committed, so builds (Windows too) need neither pyelftools nor debug info.
-  - It contains `_Static_assert`s on every named type's size and member offsets, so an upstream struct change fails the build until `cmake --build build --target save-layout` regenerates it. The `save-layout-up-to-date` test (when pyelftools is found) also catches changes the asserts can't, such as a new field placed in old padding.
-- **The walker** (`host_save_json.c`) writes each block as an object of named fields: numbers, nested objects, arrays (numbers on one line). A field that is 0 is left out, and so are trailing zero array entries. Reading starts from zeros, so the file is compact (67 KB for a checkpoint).
-  - Typos, out-of-range values, too-long arrays and fields that `game.player`/`flags`/`vars` own are refused with their path, e.g. `blocks.save_block_2.optionsTextSpeed must be a whole number from 0 to 7`.
-  - The block sizes in `layout` are informational now: loading goes by name.
-  - **Saves from another upstream version:** `layout.fingerprint` is a hash of the field table.
-    - When a save's fingerprint differs from the build's, whatever doesn't exist or fit here is dropped, each with a warning, and the rest loads. That covers fields, blocks, flags and vars, out-of-range values, too-long lists and changed shapes.
-    - Before the game can overwrite such a save, it's copied once to `pkmemerald.<fingerprint>.json.bak`. The name is `other` if the fingerprint isn't hex; if the backup fails, saving is disabled.
-    - With the build's own fingerprint, the same problems are refused as mistakes.
-  - Version 1 files (base64 blocks) still load.
-- **Still raw for now:**
-  - Unions are lists of their bytes: TV shows, the old man, the Lilycove lady, and Pokémon data (`secure`).
-  - Values XORed with the encryption key are raw numbers (bag quantities, game stats, berry powder).
-  - The special sectors (Hall of Fame, Trainer Hill, recorded battle) and the raw-chip fallback stay base64.
-- **Tests:** on every checkpoint, the save blocks rebuilt from JSON match the original sectors byte for byte (the game zeroes padding). Block edits load, bad block edits are refused, a changed `layout` still loads, and a version 1 file loads the same. Checked in the game: an edited name and an edited `optionsTextSpeed` survive an in-game save.
-
-*Pokémon and names done (branch `json-save-pokemon`):*
-- **Pokémon:** every `struct BoxPokemon` (party, boxes, Day Care, fusions, wherever one is saved) has its `secure` data written decrypted and in order, as `growth` / `attacks` / `condition` / `misc` objects with named fields (`PokemonSubstruct0-3`, added to the field table).
-  - The `checksum` is written only when it's wrong (a "bad egg", kept as it is). Otherwise loading recomputes it, so an edited Pokémon is valid.
-  - The order (`sSubstructOffsets`) and checksum mirror `pokemon.c`.
-- **Names:** the generator also reads the enumerators of every named enum a save field uses (Species, Move, Item, Type, HoldEffect, BerryFirmness, BerryColor). Those fields are written by name (`"SPECIES_TORCHIC"`, `"MOVE_EMBER"`), and loading takes a name or a number. Each value is written under its first-declared name, skipping range markers such as `NUM_*` and `*_COUNT`.
-  - `_Static_assert`s check every enumerator's value (4,378 checks in all). A name another version lacks is dropped like any other mismatch.
-- **Tests:** byte-for-byte rebuilds on every checkpoint still hold. An edited species and move load as a valid Pokémon, an explicit wrong checksum stays a bad egg, and unknown names and parts are refused.
-- **In the game:** a party Torchic edited into a Mudkip with Water Gun shows as such on the summary screen.
-
-*Next:*
-- Decode the unions by their type byte.
-- Decode values XORed with the encryption key (`ApplyNewEncryptionKeyToAllEncryptedData` lists them).
-- Turn game-text fields into strings.
-- Names for species, items, moves and maps.
-- Walk the special sectors.
-
-Also in this phase:
-- `pkmemerald --fast`: no waiting between frames, for scripted test runs (~4x faster at -O0).
-- `platform/patches/text.c.patch`: the glyph blitter shifted 32-bit values by 32, which is 0 on ARM but a no-op on x86 (the count wraps), stamping a stray copy of a glyph's edge after some words ("OPTION|"). `-DPKM_SANITIZE_SHIFT=ON` (separate build dir) instruments the game with `-fsanitize=shift-exponent` to find more of these; the intro/title and the quick-start → Littleroot → save routes now run clean.
-- Known limitation: mid-frame interrupts (Phase 11's timer) depend on real time, and each V-blank advances the RNG, so scripted runs aren't frame-exact (e.g. quick-start's random gender varies). The GBA is deterministic because it counts cycles.
+**Status (done; updated 2026-10-09).** The current save is `pkmemerald.json`, handled by the host save implementation. It stores named fields and decrypted Pokémon data, preserves save data across supported layout changes, and backs up a differing layout before migration. Invalid saves are left alone and saving is disabled for that run. Legacy PC `pkmemerald.sav` flash images are converted on first start and retained. `--convert-save IN OUT` imports/exports raw PC saves. For a normal valid save, a raw → JSON → raw round trip preserves the loaded game state, its newest save counter and special sectors, but discards the older slot/counter and original sector rotation. Separately, the lower-level cross-ABI raw translation uses generated 32-bit and 64-bit schemas to translate pointer-bearing save structs while preserving raw slot counters, sector placement and special sectors. Raw export rejects pointer truncation. This is compatibility between PC architectures, not with GBA emulator save layouts. See README's save documentation and Phase 19b's save-layout note. The original raw-flash implementation and its end-to-end save/continue checks preceded the JSON format.
 
 ---
 
@@ -404,7 +356,7 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 
 ---
 
-## Phase 13 — Audio (M4A → SDL_mixer)
+## Phase 13 — Audio (M4A → SDL2 audio)
 
 **Goal**: Music and SFX play. This is one of the two "big" phases.
 
@@ -502,7 +454,7 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 **Done when** following `README.md` on a clean Linux and a clean Windows machine builds the game, which runs, saves, quits, relaunches and continues with all progress intact; and CI builds and tests both platforms.
 
 **Status: done.** Already in place: integer-scaled window (`-x SCALE`, default 3×), saves that survive crashes and restarts, crash reports (Linux), `README.md` build instructions (Linux).
-- *Done (Linux):* `RelWithDebInfo` is the default build type; CMake's `-DNDEBUG` is stripped so build types only change optimisation (the game's own `RELEASE` switch still picks its debug/release configuration). 32-bit builds use SSE2 maths (`-msse2 -mfpmath=sse`): with x87, the sound mix differed by ±1 LSB between Debug and Release; now both produce byte-identical audio and identical frames on scripted runs. The optimised build runs ~3× faster than `-O0`. `cmake --install` installs the binary and a `.desktop` launcher; `--target package` makes a local `.tar.gz`. Saves and crash reports default to the per-user data directory (`SDL_GetPrefPath`: `~/.local/share/pkmemerald/`, `%APPDATA%\pkmemerald\` on Windows), except that an existing `./saves/pkmemerald.sav` keeps being used.
+- *Done (Linux):* `RelWithDebInfo` is the default build type; CMake's `-DNDEBUG` is stripped so build types only change optimisation (the game's own `RELEASE` switch still picks its debug/release configuration). 32-bit builds use SSE2 maths (`-msse2 -mfpmath=sse`): with x87, the sound mix differed by ±1 LSB between Debug and Release; now both produce byte-identical audio and identical frames on scripted runs. The optimised build runs ~3× faster than `-O0`. `cmake --install` installs the binary and a `.desktop` launcher; `--target package` makes a local `.tar.gz`. Saves and crash reports default to the per-user data directory (`SDL_GetPrefPath`: `~/.local/share/pkmemerald/`, `%APPDATA%\pkmemerald\` on Windows), with an existing local `saves/` save retaining the legacy directory; legacy raw saves are migrated to JSON.
 - *Done (Windows):* cross-compiled from Linux with MinGW-w64 i686 (`cmake/mingw-i686.cmake`, SDL2 from `tools/fetch_sdl2_mingw.sh`); `--target package` makes a `.zip` with `SDL2.dll`. All 10 tests pass under Wine (`test_crash_handler` is POSIX-only), `data-abi-matches-gba` included; a scripted continue-walk-Pokédex run gives the same final frame as Linux; paced play runs at 60 fps with WASAPI sound. What it took:
   - *Struct layout:* the Windows ABI aligns 64-bit integers to 8 and packs bitfields the Microsoft way. `u64`/`s64` are typedef'd 4-byte aligned (`gba/types.h`), and game code builds with `-mno-ms-bitfields` (not the SDL/Win32 files). `verify_data_abi.py` now reads layouts from DWARF (`objdump --dwarf=info`, no gdb) and handles COFF objects, so the check covers Windows.
   - *Assembly data:* `host_assemble.sh` drops ELF-only `.type`/`.size`, converts `%progbits` section flags, and adds the i386 Windows `_` prefix to every global symbol of the assembled objects (`objcopy --redefine-syms`). No `--noexecstack`.
@@ -515,13 +467,15 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 - *Real Windows (2026-10-06):* boots and walks into a new map (so the interrupt timer works there). Not yet checked on real Windows: sound, `--console`/log file, fullscreen.
 - *Done (warnings):* `platform/` code (library sources, tests, entry point) builds with the warnings the project disables for upstream turned back on (unused variables/functions, implicit declarations, pointer/integer conversions), and with `-DPKM_WERROR=ON` (CI) as errors; off by default so a newer compiler can't stop a player's build. Upstream headers reach platform code via `-idirafter` + `-fno-canonical-system-headers`, so they count as system headers (their warnings don't count) while still resolving through the host include tree; checked: all 31 platform files include exactly the same headers as before. It found a real bug: the Windows EWRAM reset `memset` from zero-size marker arrays (undefined: the compiler may drop it), now done through pointers whose origin is hidden.
 - *Done (docs):* `CONTRIBUTING_PC.md`: ground rules (source only, `reference/` untouched, PRs, crash log), where code goes, writing patches, updating upstream step by step, CI. `tools/check_patches.sh` dry-runs every patch against `reference/` and reports failing or inexact ones (first step after an upstream update).
-- Note: `-d DATA_DIR` is never read (the game data is compiled into the executable). The build is 32-bit only (the game assumes 32-bit pointers), so Linux and Windows builds need 32-bit SDL2; making it 64-bit is Phase 18.
+- Note: `-d DATA_DIR` is never read (the game data is compiled into the executable). 32-bit remains the default and needs 32-bit SDL2; native 64-bit Linux and Windows builds use the matching 64-bit SDL2 (Phase 18).
 
 ---
 
 ## Phase 18 — 64-bit build — *needed for macOS*
 
 **Goal**: Build and run as a native 64-bit binary (`-DPKM_HOST_32BIT=OFF`) with no behaviour change. macOS requires it: it hasn't run 32-bit programs since Catalina, and Apple Silicon is arm64 only. On Linux and Windows the 32-bit build runs fine, so this phase is not needed to ship there.
+
+**Original design notes:** the survey, checks and edits below predate the implementation. The status at the end of this phase records what actually landed and what remains.
 
 **Survey (2026-10-06, trial 64-bit compile of `pkmemerald-core`):**
 - **Assembly data hard-codes 4-byte pointers** (`.4byte label`). The current build's asm objects hold ~61,000 of them: event scripts 18.1k, battle anim scripts 15.4k, songs 11.0k (530 files), voicegroups (`sound_data`) 5.3k, map headers/connections (`maps`) 4.4k, map events 4.1k, battle/contest AI/field effect scripts 2.8k. Two kinds:
@@ -550,7 +504,14 @@ Getting into the overworld surfaced GBA assumptions beyond rendering:
 
 **Done when** the 64-bit build compiles with the layout asserts and pointer-warning errors on, passes `ctest` (including the data-walk test) clean under ASan/UBSan, a save from the 32-bit build loads and plays on it (and vice versa), and the Phase 14–15 playtest route (intro, Littleroot, Route 101, battles, catching, PC, Pokédex, music) behaves identically.
 
-**Status: not started.** Do after Phase 17 unless macOS becomes a target sooner. Without the checks above, most failures would show up as wrong data at runtime; with them, the build and `ctest` should catch nearly all of them.
+**Status: Linux x86-64 and Windows x86-64 implemented (2026-10-09); macOS remains pending.** The survey and proposed edits above describe the original design, not the final implementation. The Linux/Windows low-address shortcut was chosen:
+- Linux builds with `-DPKM_HOST_32BIT=OFF` and links code at `0x08000000`; Windows uses `cmake/mingw-x86_64.cmake` with a fixed image base. Encoded scripts keep four-byte absolute pointers, not the proposed self-relative encoding.
+- `tools/host_data_asm.py` adapts pointer-bearing map/audio metadata and pointer tables to native C layouts. `tools/verify_data_abi.py` checks retained bytecode against ARM output and native metadata against C offsets and source JSON/assembly. Windows verification pairs x86-64 MinGW with i686 reference objects.
+- Task/menu overlays, trainer-battle argument decoding, native battle command views, audio metadata and save conversion were adapted. Debug-menu and dynamic-menu crashes were fixed; regression coverage is recorded in `known_crashes.md`.
+- Raw PC saves retain their 32-bit external layout and translate through generated 32-bit/native save schemas; JSON saves use the corresponding native schema. Reviewed checkpoint state and raw/JSON conversion checks are reported passing; for normal valid saves these check loaded-state preservation, not byte-for-byte preservation of the original flash image.
+- The latest recorded Linux 64-bit ASan/UBSan scan (2026-10-08) passed every CTest entry, including 5,539 upstream battle tests, with no sanitizer reports. This is recorded validation, not an existing 64-bit CI job or a new run during this documentation update.
+- Windows x86-64 adds a Win64 interrupt trampoline, 8-byte crash-stack walking and architecture-aware assembly symbols. Its build path is documented; real-Windows 64-bit parity checks remain to be completed.
+- Still pending: 64-bit CI jobs, further gameplay/audio parity checks, and the portable high-address/PIE work needed for macOS/arm64. Upstream pointer-cast warnings remain suppressed; the proposed global pointer-warning errors and default switch to 64-bit have not landed. Phase 18 is therefore partially complete against its original portable goal.
 
 ---
 
@@ -628,7 +589,7 @@ Upstream runs them in mGBA (`make check`: a test ROM, `mgba-rom-test` and the pa
 | 19b-4 All battle + AI tests | The remaining ~5,000 (double, multi, wild, AI). First split CI (see *CI time* below): a separate upstream-tests job over several machines, and a path filter; if still too slow for every PR, a subset on PRs and all of it on `main`. | Same rule; CI runs them, and the slowest job stays well under its 60-minute timeout. |
 | 19b-5 Windows | The suite on the MinGW build under Wine: test registration via `.data$`-style markers, per-test processes by re-running the executable. Could move after 19c: the game logic is the same code on both platforms. | Runs in the Windows CI job. |
 
-**Status: in progress.**
+**Status: Linux suite implemented; Windows runner pending.** The latest recorded 64-bit Linux sanitizer scan (2026-10-08) completed every CTest entry, including 5,539 battle tests, without reports. The runner now treats an unexpected normal child exit (including sanitizer `exit(1)`) as CRASH and resumes the shard; `upstream-runner-exit` checks this. Host regression tests also cover trainer script decoding. The upstream-test CI workflow still uses the default 32-bit Linux build.
 - *19b-1 done:* `-DPKM_UPSTREAM_TESTS=ON` (Linux) builds the game a second time with `TESTING=1` (`pkm_preprocess`/`pkm_core_library` in CMake), plus upstream's runner and tests, as `pkmemerald-tests [PATTERN]` (`platform/upstream_tests/`). Upstream's runner runs unchanged except for `test/test_runner.c.patch`: mGBA output and exit go to the host (printed and counted like Hydra), `JumpToAgbMainLoop` is a `siglongjmp` to the frame loop, the persistent state is in memory shared with a parent process that restarts a crashed child (the runner then reports CRASH and goes on, as after a GBA soft reset), timer 2 ticks every 60 frames, a stuck child is killed after 60 s. `__FILE__` is mapped to upstream's relative paths (`-fmacro-prefix-map`) so file filters work. Upstream NULL accesses the GBA tolerates, fixed: `MoveSaveBlocks_ResetHeap` copying from the unset `gSaveBlock1Ptr` at test boot (`load_save.c.patch`), `FunctionTest_SetUp` clearing the rigged-RNG list before allocating it. Passing: `test/fpmath.c`; the runner's own crash, `fatalf` and save-block tests; a deliberately failing test is reported with upstream's message (`host_runner_selftest.c`). `PKM_TESTS_NO_FORK=1` runs in one process for a debugger.
 - *19b-3 done (taken before 19b-2):* the battle framework runs on the host, with `test/test_test_runner.c` and all of `test/battle/move_effect/` (345 files, ~2,000 tests) in the test build and CTest. All pass (260 are upstream's own TO_DO). What it took (`test/test_runner_battle.c.patch`):
   - The test function is called once per phase (GIVEN, WHEN, SCENE, THEN), and its locals must survive between calls (`HP_BAR(..., captureDamage: &damage)` is written while the battle runs and read in THEN). Upstream runs it on a stack of its own (ARM assembly); the host does the same with `ucontext`, on a 256 KiB stack cleared at each test.
@@ -651,7 +612,7 @@ Upstream runs them in mGBA (`make check`: a test ROM, `mgba-rom-test` and the pa
   - Known GBA/host differences (`platform/upstream_tests/host_known_failures.c`, with reasons; reported as KNOWN_FAILING, and a listed test that passes is flagged): 9 benchmarks (`EXPECT_FASTER` times ARM code with GBA timers), and the 3 save block size tests (below).
   - Upstream test bugs the GBA hides, fixed in test patches: a 12-byte buffer for a 13-byte nickname (`test/pokemon.c.patch`; the host's stack protector caught it), FRLG's NULL map groups read (`test/text.c.patch`).
   - Port bugs (`known_crashes.md`): Day Care eggs from parents sharing a move (an upstream loop advancing the wrong index), the Illusion lookup outside battle. Also: `MgbaPrintf` formats with the game's own `mini_vsnprintf`, as upstream does, so `%S` (a game string) no longer reads past the end as a wide string.
-- *Save layout (decided 2026-10-06: no GBA save compatibility):* `test/save.c` showed that the host's save blocks differ from the GBA's: SaveBlock1 15496 bytes (GBA: 15568), SaveBlock2 3848 (3884), SaveBlock3 1 (4); PokemonStorage matches. The GBA ABI (`-mabi=apcs-gnu`) rounds every struct's size up to a multiple of 4; x86 doesn't, so the padding inside and between structs differs. So GBA emulator saves don't load in the PC build, nor PC saves in an emulator. Matching the GBA layout would tie every saved struct to the GBA ABI and limit later changes, so the PC save format is its own: the same 128 KiB flash image, with the host's struct layout. Saves stay compatible between PC builds of the same upstream version (the played checkpoints); Phase 18's 64-bit build must keep that layout (its `u64` alignment note). The three `test/save.c` size tests stay on the known-differences list. *Later, maybe:* a converter between GBA and PC saves (it would decode each save block with one layout and re-encode it with the other).
+- *Save layout (updated 2026-10-09):* the host's save blocks differ from the GBA ABI; the three upstream save-size tests remain known differences. GBA emulator saves are unsupported. The earlier raw-only PC format has since been replaced by named-field JSON saves, with legacy raw migration and explicit `--convert-save` import/export. The 64-bit implementation translates raw PC slots through generated 32-bit/native schemas rather than requiring identical in-memory layouts. Recorded checkpoint state and raw/JSON conversion checks pass. For normal valid saves, JSON retains the newest loaded state/counter and special sectors; exporting reconstructs the save sectors rather than retaining the older slot or original rotation. Byte-for-byte preservation of those raw details applies to the lower-level cross-ABI translation, not a normal raw/JSON round trip. See Phase 8 and README for current user-facing behaviour.
 - *19b-4 done, in batches (one pull request each):*
   - *Batch 1 done: `test/battle/ability/` and `test/battle/hold_effect/`* (437 files, ~2,050 tests) in the test build, CTest (`upstream-battle`, now all of `test/battle/` that is built) and the upstream workflow. All pass (137 are upstream's TO_DO, 8 upstream's own KNOWN_FAILING). On 16 cores: abilities 8 min, hold effects 1 min.
   - Port bug found (`known_crashes.md`): a double battle against two trainers overflowed a stack array in `BufferBattlePartyOrderBySide` (`party_menu.c.patch`); the host's stack protector aborted, in the game too.
@@ -704,7 +665,7 @@ There are 939 maps (`reference/data/maps/`). A headless run that warps to each o
 | 18    | 3–5 weeks (1 week for the Linux/Windows shortcut) | medium — layout mismatches are silent unless the build-time checks are in place |
 | 19    | 4–6 days (19a ~1 day, 19b 2–4 days, 19c ~1 day) | medium — the upstream test runner depends on GBA specifics; some tests may need GBA-only behaviour |
 
-**Realistic total**: 3–5 months to a single-player build of the full Hoenn region. With multiplayer, plan on 4–6 months. The first playable milestone (walk around one map) is reachable in **~4–6 weeks** with focused work.
+**Original planning estimate (historical, not remaining work)**: 3–5 months to a single-player build of the full Hoenn region. With multiplayer, plan on 4–6 months. The first playable milestone (walk around one map) is reachable in **~4–6 weeks** with focused work.
 
 ---
 
@@ -714,7 +675,7 @@ There are 939 maps (`reference/data/maps/`). A headless run that warps to each o
 2. **Voice groups and battle SFX.** *Resolved:* the game's own M4A engine runs (its assembly translated to C) on emulated sound hardware, so nothing is lost (Phase 13).
 3. **Battle animations & special effects.** Some use window blending, mosaic, and capture-effect tricks that don't map 1:1 to SDL2. The "blend" register in particular is non-trivial. Plan for one extra week of renderer polish during Phase 15.
 4. **Link protocol.** RFU is undocumented; we only have a decomp of it. The UDP-replacement will need a custom discovery layer. (See Phase 16.)
-5. **Upstream drift.** `reference/` is a submodule on `upcoming`. Plan a quarterly merge: rebase the platform layer, re-run asset pipeline. The cleanest mitigation is to keep our diff in `platform/` and `tools/` only, and never edit `reference/src/`.
+5. **Upstream drift.** `reference/` is pinned to a specific upstream commit. Update it through a dedicated pull request, following `CONTRIBUTING_PC.md`: check patches, regenerate assets/save schemas as needed, rebuild and rerun tests on supported architectures. The cleanest mitigation is to keep our diff in `platform/` and `tools/` only, and never edit `reference/src/`.
 
 ---
 
