@@ -9,7 +9,8 @@
 #   tools/fetch_sdl2_mingw.sh
 #   cmake -S . -B build-win --toolchain cmake/mingw-i686.cmake
 #
-# The toolchain file finds the package in deps/ by itself.
+# The toolchain file finds the package in deps/ by itself. The package has
+# both i686 and x86_64 builds, so cmake/mingw-x86_64.cmake uses it too.
 
 set -euo pipefail
 

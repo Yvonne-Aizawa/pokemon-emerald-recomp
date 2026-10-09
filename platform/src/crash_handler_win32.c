@@ -250,14 +250,17 @@ static const char *ExceptionName(DWORD code)
     }
 }
 
-/* This thread's stack: the TIB's StackLimit and StackBase. On 32-bit x86
- * read directly from fs:, as NtCurrentTeb() does: MinGW's NtCurrentTeb()
- * trips GCC's -Warray-bounds. */
+/* This thread's stack: the TIB's StackLimit and StackBase. Read directly
+ * from fs: (32-bit x86) or gs: (x86-64), as NtCurrentTeb() does: MinGW's
+ * NtCurrentTeb() trips GCC's -Warray-bounds. */
 static void StackBounds(uintptr_t *low, uintptr_t *high)
 {
 #if defined(__i386__)
     __asm__("movl %%fs:8, %0" : "=r"(*low));
     __asm__("movl %%fs:4, %0" : "=r"(*high));
+#elif defined(__x86_64__)
+    __asm__("movq %%gs:16, %0" : "=r"(*low));
+    __asm__("movq %%gs:8, %0" : "=r"(*high));
 #else
     NT_TIB *tib = (NT_TIB *)NtCurrentTeb();
 
@@ -266,7 +269,8 @@ static void StackBounds(uintptr_t *low, uintptr_t *high)
 #endif
 }
 
-/* Frame pointer chain: [ebp] = caller's ebp, [ebp+4] = return address. */
+/* Frame pointer chain: [fp] = caller's fp, [fp + one word] = return
+ * address (ebp on 32-bit x86, rbp on x86-64). */
 static void PutCallStack(uintptr_t pc, uintptr_t fp)
 {
     uintptr_t stackLow, stackHigh;
@@ -282,7 +286,7 @@ static void PutCallStack(uintptr_t pc, uintptr_t fp)
         Put("  ");
         PutAddress(pc);
         Put("\n");
-        if (fp < stackLow || fp + 8 > stackHigh || (fp & 3) != 0)
+        if (fp < stackLow || fp + 2 * sizeof(uintptr_t) > stackHigh || (fp & (sizeof(uintptr_t) - 1)) != 0)
             break;
         pc = ((const uintptr_t *)fp)[1];
         if (((const uintptr_t *)fp)[0] <= fp)

@@ -258,7 +258,7 @@ def compare_native_bytecode(arm, host, kind, src, tmp):
     return None
 
 
-def check_data(refdir, asm_dir, tmp, host_cc=None):
+def check_data(refdir, asm_dir, tmp, cc32=None):
     jobs = []
     for name in sorted(os.listdir(os.path.join(refdir, "data"))):
         if name.endswith(".s"):
@@ -290,7 +290,7 @@ def check_data(refdir, asm_dir, tmp, host_cc=None):
         else:
             run(["arm-none-eabi-as", *ARM_ASFLAGS, "-I", "sound", "-o", arm_obj, src], cwd=refdir)
         actual_host_obj = host_obj
-        adapted = host_cc and (kind == "song" or src in (
+        adapted = cc32 and (kind == "song" or src in (
                 "data/maps.s", "data/map_events.s", "data/sound_data.s",
                 "data/event_scripts.s", "data/field_effect_scripts.s", "data/battle_scripts_2.s"))
         if adapted:
@@ -302,11 +302,11 @@ def check_data(refdir, asm_dir, tmp, host_cc=None):
             adapter = os.path.join(os.path.dirname(__file__), "host_assemble.sh")
             if kind == "data":
                 run(["bash", adapter, "data", refdir, os.path.join(refdir, "tools/preproc/preproc"),
-                     host_obj, os.path.join(tmp, "canonical.d"), src, "--", host_cc,
-                     "-m32", *ARM_CPPFLAGS, "--", host_cc, "-m32"])
+                     host_obj, os.path.join(tmp, "canonical.d"), src, "--", *cc32,
+                     *ARM_CPPFLAGS, "--", *cc32])
             else:
                 run(["bash", adapter, "song", refdir, os.path.join(tmp, "sound"),
-                     host_obj, src, "--", host_cc, "-m32"])
+                     host_obj, src, "--", *cc32])
         problem = compare_object(arm_obj, host_obj, tmp)
         if not problem and adapted:
             problem = compare_native_bytecode(arm_obj, actual_host_obj, kind, src, tmp)
@@ -430,6 +430,16 @@ def check_native_layout(refdir, build_dir, host_cc, host_cflags, tmp):
     return 0
 
 
+def compiler_32bit(host_cc):
+    """The command that builds 32-bit objects for host_cc's platform: the
+    compiler itself with -m32, except 64-bit MinGW, which has no -m32 and
+    pairs with the i686 MinGW compiler instead."""
+    directory, name = os.path.split(host_cc)
+    if name.startswith("x86_64-w64-mingw32-"):
+        return [os.path.join(directory, "i686-w64-mingw32-" + name[len("x86_64-w64-mingw32-"):])]
+    return [host_cc, "-m32"]
+
+
 def main():
     if len(sys.argv) < 4:
         sys.exit(__doc__)
@@ -437,14 +447,21 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         macros = run([host_cc, *host_cflags, "-dM", "-E", "-x", "c", "-"], input="", text=True).stdout
         native64 = "#define __SIZEOF_POINTER__ 8" in macros
-        failures = check_data(refdir, os.path.join(build_dir, "reference_asm"), tmp, host_cc if native64 else None)
+        cc32 = compiler_32bit(host_cc) if native64 else None
+        failures = check_data(refdir, os.path.join(build_dir, "reference_asm"), tmp, cc32)
         # Canonical ROM structures still have the GBA layout. Native structures
         # are instead validated through the actual executable's bytes below.
-        failures += check_layout(refdir, build_dir, host_cc, [*host_cflags, "-m32"] if native64 else host_cflags, tmp)
+        if native64:
+            failures += check_layout(refdir, build_dir, cc32[0], [*cc32[1:], *host_cflags], tmp)
+        else:
+            failures += check_layout(refdir, build_dir, host_cc, host_cflags, tmp)
         if native64:
             failures += check_native_layout(refdir, build_dir, host_cc, host_cflags, tmp)
+            binary = os.path.join(build_dir, "pkmemerald")
+            if "#define _WIN32 " in macros:
+                binary += ".exe"
             result = subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), "verify_native_data.py"),
-                                     refdir, os.path.join(build_dir, "pkmemerald")])
+                                     refdir, binary])
             failures += result.returncode != 0
     sys.exit(1 if failures else 0)
 

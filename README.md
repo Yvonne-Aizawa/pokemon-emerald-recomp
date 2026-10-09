@@ -71,6 +71,15 @@ cmake --build build-win -j
 cmake --build build-win --target package                    # pkmemerald-*-win32.zip
 ```
 
+For the 64-bit version (like the Linux build with `-DPKM_HOST_32BIT=OFF`), install `gcc-mingw-w64-x86-64` and use the other toolchain file, in its own build directory; the same SDL2 package covers both. The `data-abi-matches-gba` test then also needs `gcc-mingw-w64-i686`, which builds its 32-bit reference objects:
+
+```sh
+cmake -S . -B build-win64 --toolchain cmake/mingw-x86_64.cmake
+cmake --build build-win64 -j
+```
+
+`./run.sh --platform windows [--64] [--debug]` does the fetch, configure and build in one go and starts the game under Wine.
+
 The zip holds `pkmemerald.exe` and `SDL2.dll`; unpack it anywhere on the Windows machine and run the `.exe`. It opens no console window: its messages go to `pkmemerald-log.txt` in the save directory, or, with `pkmemerald.exe --console`, to the console it was started from (or a new one). With Wine installed, `ctest --test-dir build-win` runs the tests under it (and `wine build-win/pkmemerald.exe` runs the game).
 
 ### Settings
