@@ -11,7 +11,7 @@ A PC port (SDL2, CMake) of pokeemerald-expansion. [CONTRIBUTING_PC.md](CONTRIBUT
 - Every crash fix gets an entry in `known_crashes.md` (what crashed, why, what changed), committed with the fix.
 - Work on a branch and open a PR; never push to `main`.
 - **Source only:** nothing built is published. No CI artifacts, releases, or caches holding compiled game code (the build contains Nintendo assets and the repo is public). The only CI cache is upstream's generated assets (`tools/ci_reference_cache.sh`).
-- GBA save compatibility was dropped on purpose: the PC save uses its own struct layout.
+- GBA save compatibility was dropped on purpose: the PC save is JSON with its own layout, and emulator `.sav` files don't load.
 
 ## Commands
 
@@ -25,6 +25,7 @@ tools/check_patches.sh                     # every patch must apply exactly (aft
 ```
 
 - Sanitizer build (Linux): a separate build dir with `-DPKM_SANITIZE=address,undefined`.
+- Native 64-bit Linux: `cmake -S . -B build-64 -DPKM_HOST_32BIT=OFF` (needs `libsdl2-dev:amd64`).
 - Windows: cross-build with MinGW: `tools/fetch_sdl2_mingw.sh`, then `cmake -S . -B build-win --toolchain cmake/mingw-i686.cmake` (64-bit: `-B build-win64 --toolchain cmake/mingw-x86_64.cmake`), and run the tests under Wine with `ctest --test-dir build-win`. `./run.sh [--debug] [--64] [--platform linux|windows]` builds and runs any of these.
 - Upstream's test suite: configure with `-DPKM_UPSTREAM_TESTS=ON` (use a separate dir such as `build-tests`), build target `pkmemerald-tests`, then run `build-tests/pkmemerald-tests [-j N] [--shard I/M] [--draw] [PATTERN]`. Frames aren't drawn unless `--draw` is given (drawing made the suite ~15× slower); the summary ends with each shard's time and the slowest tests. PATTERN can be a file (`test/fpmath.c`), a directory ending in `/` (`test/battle/move_effect/`), a test-name prefix, or `*infix`. `PKM_TESTS_NO_FORK=1` runs everything in one process, for gdb.
 - Repeatable game runs: `--monkey SEED[@FRAME]`, `-i SCRIPT` (input at given frames), `-f N` (stop after N frames), `-o FILE` (save the last frame), `--fast`, `-s DIR` (use a copy of a save directory), and `--visit-maps GROUPS` (warp to every map, from a save). The `monkey-*` and `visit-maps-*` CTest entries use these.
@@ -47,7 +48,11 @@ All of `reference/src/*.c` is built except `REFERENCE_SRC_EXCLUDE`, the GBA-only
 
 **Host include tree:** upstream includes headers with quotes, so the build dir holds a symlink mirror of `reference/include/` in which `gba/` points to `platform/include/gba/`. The GBA registers, VRAM, BIOS calls and so on there map onto host memory. `platform/include/platform/` holds the interfaces between platform files.
 
-**32-bit, fixed addresses:** the game assumes 32-bit pointers (u32 task args, static asserts on struct sizes), so the build is `-m32` and non-PIE. The game tells code from data by address (tagged script pointers in `scrcmd.c`/`script.c`), so code must sit in the GBA ROM window, 0x08000000–0x0A000000. That is Linux's non-PIE default; on Windows it comes from `--image-base 0x08000000`. A 64-bit build is the future Phase 18.
+**32-bit, fixed addresses:** the game assumes 32-bit pointers (u32 task args, static asserts on struct sizes), so the build is `-m32` and non-PIE. The game tells code from data by address (tagged script pointers in `scrcmd.c`/`script.c`), so code must sit in the GBA ROM window, 0x08000000–0x0A000000. That is Linux's non-PIE default; on Windows it comes from `--image-base 0x08000000`.
+
+**Native 64-bit (opt-in, Phase 18):** `-DPKM_HOST_32BIT=OFF` on Linux, or `cmake/mingw-x86_64.cmake` on Windows. `tools/host_data_asm.py` adapts the map/audio metadata and pointer tables for it; encoded scripts keep their 32-bit words. CI covers only the 32-bit builds, so when you change data assembly, pointer tables or save code, build and test both architectures yourself.
+
+**Saves:** the save file is `pkmemerald.json` (`host_save_json.c`), with fields named after upstream's save structs. The field tables are generated into `platform/src/host_save_layout.inc` and `host_save_layout_64.inc`. Raw `.sav` images keep the 32-bit layout, and 64-bit builds translate them using both tables (`host_save_abi.c`). If a save struct changes, a `_Static_assert` in the layout `.inc` fails. Then regenerate the tables with `cmake --build build --target save-layout` (needs pyelftools) and commit the result.
 
 **Platform layer** (`platform/src/`): `host_main.c` is the entry point; it also has rendering (`host_render.c`), the sound hardware (`host_audio.c`) and m4a engine (`m4a_engine.c`), flash saves (`host_flash.c`), input, settings (`host_config.c`) and crash handlers. OS-specific files end in `_posix`/`_linux`/`_win32`, SDL-specific ones in `_sdl2`.
 
